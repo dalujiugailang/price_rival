@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: "Playfair Display", Georgia, serif;
+}
+
+/* Hard wireframes and industrial borders */
+.bento-card {
+  border: 1px solid #141414;
+  background-color: #ffffff;
+  padding: 1.5rem;
+  border-radius: 0px !important;
+}
+
+.tech-grid-table th {
+  border-right: 1px solid #141414;
+  border-bottom: 1px solid #141414;
+}
+
+.tech-grid-table td {
+  border-right: 1px solid #E4E3E0;
+  border-bottom: 1px solid #E4E3E0;
+}
+
+.tech-grid-table th:last-child,
+.tech-grid-table td:last-child {
+  border-right: none;
+}

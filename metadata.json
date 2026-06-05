@@ -1,0 +1,6 @@
+{
+  "name": "竞争追价测算与管理系统",
+  "description": "基于 Excel 自动匹配逻辑、竞品追价自动计算、边际利润底线测算、历史快照管理和补贴匹配的云端线上化方案与互动演示原型系统",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

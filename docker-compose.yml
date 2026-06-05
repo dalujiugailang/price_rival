@@ -1,0 +1,14 @@
+services:
+  price-rival:
+    build: .
+    image: price-rival:latest
+    container_name: price-rival
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DAILY_PRICE_LOOKUP_URL: ${DAILY_PRICE_LOOKUP_URL:-http://8.162.25.246/api/daily-price/lookup}
+      DAILY_PRICE_TOKEN: ${DAILY_PRICE_TOKEN:-}
