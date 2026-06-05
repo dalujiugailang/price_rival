@@ -59,7 +59,7 @@ npm start
 云服务器安装 Docker 和 Docker Compose 后，在项目目录创建 `.env`：
 
 ```bash
-DAILY_PRICE_LOOKUP_URL=http://8.162.25.246/api/daily-price/lookup
+DAILY_PRICE_LOOKUP_URL=https://daily-price.gtmdudu.xyz/api/lookup
 DAILY_PRICE_TOKEN=你的 daily price token
 APP_PORT=3000
 ```
@@ -84,7 +84,7 @@ Express server 支持以下变量：
 
 - `PORT`: 服务端端口，默认 `3000`。
 - `HOST`: 监听地址，默认 `0.0.0.0`。
-- `DAILY_PRICE_LOOKUP_URL`: daily price 上游接口，默认 `http://8.162.25.246/api/daily-price/lookup`。
+- `DAILY_PRICE_LOOKUP_URL`: daily price 上游接口，默认 `https://daily-price.gtmdudu.xyz/api/lookup`。
 - `DAILY_PRICE_TOKEN` / `DAILY_PRICE_API_TOKEN`: daily price API token。
 
 可以放在 `.env.local` 或 `.env`。

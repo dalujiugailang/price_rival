@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'path';
 import {defineConfig, loadEnv, type Plugin} from 'vite';
 
-const DEFAULT_DAILY_PRICE_LOOKUP_URL = 'http://8.162.25.246/api/daily-price/lookup';
+const DEFAULT_DAILY_PRICE_LOOKUP_URL = 'https://daily-price.gtmdudu.xyz/api/lookup';
 
 const readJsonBody = async (req: IncomingMessage) => {
   const chunks: Buffer[] = [];

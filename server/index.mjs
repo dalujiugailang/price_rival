@@ -28,7 +28,7 @@ const loadLocalEnv = () => {
 
 loadLocalEnv();
 
-const DEFAULT_DAILY_PRICE_LOOKUP_URL = 'http://8.162.25.246/api/daily-price/lookup';
+const DEFAULT_DAILY_PRICE_LOOKUP_URL = 'https://daily-price.gtmdudu.xyz/api/lookup';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
