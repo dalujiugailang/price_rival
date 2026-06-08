@@ -88,7 +88,7 @@ const getExactField = (record: Record<string, CellValue>, aliases: string[]): Ce
 };
 
 const getDailyPriceFinalQuote = (record: Record<string, CellValue>): CellValue => {
-  return getField(record, ['最终报价', 'jd裸机价', '成本价']);
+  return getExactField(record, ['最终报价']);
 };
 
 const hasExactField = (headers: string[], aliases: string[]) => {
