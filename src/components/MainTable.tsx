@@ -338,7 +338,7 @@ export default function MainTable({
         <input type="text" placeholder="搜索新机系列 / 旧机型号 / PPV" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full sm:w-80 bg-white border border-[#141414] px-3 py-1.5 text-xs font-bold" />
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="tracking-table-scroll">
         <table className="table-fixed text-[11px] leading-tight" style={{ width: tableWidth, minWidth: tableWidth }}>
           <colgroup>
             {fixedColumnWidths.map((width, index) => (
@@ -348,7 +348,7 @@ export default function MainTable({
               <col key={`raw-${rawFieldKeys[index]}`} style={{ width }} />
             ))}
           </colgroup>
-          <thead className="bg-[#F0EFEC] border-b border-[#141414]">
+          <thead className="tracking-table-head bg-[#F0EFEC] border-b border-[#141414]">
             <tr>
               <th className={headerClass}>A</th>
               <th className={headerClass}>E</th>
@@ -372,8 +372,8 @@ export default function MainTable({
               <th className={headerClass}>AP</th>
               <th className={headerClass}>AQ</th>
               <th className={headerClass}>AR</th>
-	              <th className={`${headerClass} bg-[#D8D7D2]`}>AY</th>
-	              <th className={`${headerClass} bg-[#D8D7D2]`}>AZ</th>
+	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>AY</th>
+	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>AZ</th>
 	              <th className={headerClass}>BA</th>
 	              <th className={headerClass}>BB</th>
 	              <th className={headerClass}>BF</th>
@@ -411,8 +411,8 @@ export default function MainTable({
               <th className={headerClass}>{headerLabel('到手比tm')}</th>
               <th className={headerClass}>{headerLabel('裸机比zz')}</th>
               <th className={headerClass}>{headerLabel('仅含ahs补贴+裸机 vs zz到手')}</th>
-	              <th className={`${headerClass} bg-[#D8D7D2]`}>{headerLabel('京东物品价-追价后')}</th>
-	              <th className={`${headerClass} bg-[#D8D7D2]`}>{headerLabel('京东物品价-追价后调整金额')}</th>
+	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>{headerLabel('京东物品价-追价后')}</th>
+	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>{headerLabel('京东物品价-追价后调整金额')}</th>
 	              <th className={headerClass}>{headerLabel('ahs承担补贴-追价后')}</th>
 	              <th className={headerClass}>{headerLabel('含AHS补贴后报价-追价后')}</th>
 	              <th className={headerClass}>{headerLabel('jd总到手价-追价后')}</th>
