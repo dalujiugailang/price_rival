@@ -125,19 +125,21 @@ export default function MainTable({
     const inquirySheetName = getInquirySheetName();
     const profitFloorText = pricingMode === 'fullCompetition' ? '100%竞争力' : formatPercent(marginBottomLine);
     const fixedCodes = [
-      'A', 'E', 'F', 'H', 'I', 'W', 'X', 'Y', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
+      'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
     ];
     const exportFixedColumnWidths = [
-      ...fixedColumnWidths.slice(0, 21),
+      ...fixedColumnWidths.slice(0, 23),
       180,
-      ...fixedColumnWidths.slice(21, 26),
+      ...fixedColumnWidths.slice(23, 28),
       132,
-      ...fixedColumnWidths.slice(26)
+      ...fixedColumnWidths.slice(28)
     ];
     const fixedLabels = [
       '新机系列',
       '旧机型号',
       'ppv',
+      '商品SKUID',
+      '等级id',
       'ppv近30天报价量',
       'ppv近30天成交量',
       'jd裸机价',
@@ -175,6 +177,8 @@ export default function MainTable({
         p.newSeries,
         p.oldModel,
         p.ppv,
+        displayValue(p.skuId),
+        p.levelId || '',
         p.quoteVolume,
         p.soldVolume || 0,
         displayValue(p.jdPrice),
@@ -235,7 +239,7 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 128, 116, 92, 148, 104, 104, 92, 92, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 168, 116, 148, 148, 110, 150, 160, 160, 220
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 104, 104, 92, 92, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 168, 116, 148, 148, 110, 150, 160, 160, 220
   ];
 
   const rawFieldWidth = (key: string) => {
@@ -349,6 +353,8 @@ export default function MainTable({
               <th className={headerClass}>A</th>
               <th className={headerClass}>E</th>
               <th className={headerClass}>F</th>
+              <th className={headerClass}>T</th>
+              <th className={headerClass}>U</th>
               <th className={headerClass}>H</th>
               <th className={headerClass}>I</th>
               <th className={headerClass}>W</th>
@@ -386,6 +392,8 @@ export default function MainTable({
               <th className={headerClass}>{headerLabel('新机系列')}</th>
               <th className={headerClass}>{headerLabel('旧机型号')}</th>
               <th className={headerClass}>{headerLabel('ppv')}</th>
+              <th className={headerClass}>{headerLabel('商品SKUID')}</th>
+              <th className={headerClass}>{headerLabel('等级id')}</th>
               <th className={headerClass}>{headerLabel('ppv近30天报价量')}</th>
               <th className={headerClass}>{headerLabel('ppv近30天成交量')}</th>
               <th className={headerClass}>{headerLabel('jd裸机价')}</th>
@@ -434,6 +442,8 @@ export default function MainTable({
                 <td className={bodyClass}>
                   <div className="truncate font-bold text-[#141414]" title={p.ppv}>{p.ppv}</div>
                 </td>
+                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.skuId)}</td>
+                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.levelId || ''}</td>
                 <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.quoteVolume}</td>
                 <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.soldVolume || 0}</td>
                 <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">

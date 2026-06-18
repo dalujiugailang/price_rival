@@ -15,6 +15,7 @@ export interface Product {
   brand: string;
   level: string;
   skuId: number;
+  levelId?: string;
   quoteVolume: number;
   soldVolume?: number;
   description: string;
@@ -47,6 +48,7 @@ export interface DailyPriceRow {
   ppv: string;
   biBasePrice: number;
   costPrice: number;
+  levelId: string;
   rawFields: Record<string, string | number | boolean | null>;
 }
 

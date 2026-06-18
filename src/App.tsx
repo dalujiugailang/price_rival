@@ -297,6 +297,7 @@ export default function App() {
       let jdPrice = prod.jdPrice;
       let ahsInput = prod.ahsInput;
       let basePrice = prod.basePrice;
+      let levelId = prod.levelId || '';
 
       if (dailyMatch) {
         if (dailyMatch.costPrice > 0) {
@@ -304,6 +305,9 @@ export default function App() {
         }
         if (dailyMatch.biBasePrice > 0) {
           basePrice = dailyMatch.biBasePrice;
+        }
+        if (dailyMatch.levelId) {
+          levelId = dailyMatch.levelId;
         }
       }
 
@@ -320,7 +324,8 @@ export default function App() {
         ...prod,
         jdPrice,
         ahsInput,
-        basePrice
+        basePrice,
+        levelId
       };
     });
 
@@ -409,7 +414,7 @@ export default function App() {
       fileName,
       rowCount: rows.length,
       matchedCount: countPpvMatches(rows),
-      remarks: '按 ppv 匹配 daily price：最终报价写入 jd裸机价，BI基准价写入基准价。'
+      remarks: '按 ppv 匹配 daily price：最终报价写入 jd裸机价，BI基准价写入基准价，等级id写入等级id列。'
     });
   };
 

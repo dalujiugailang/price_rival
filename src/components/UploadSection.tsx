@@ -159,6 +159,7 @@ const parseBaseProducts = async (file: File): Promise<Product[]> => {
     const oldModel = toText(getField(record, ['旧机型号']));
     const level = toText(getField(record, ['等级']));
     const skuId = toNumber(getField(record, ['skuid', 'sku id']));
+    const levelId = toText(getField(record, ['等级id', '等级ID', 'levelid', 'level id']));
 
     return {
       id: `upload-${Date.now()}-${index + 1}`,
@@ -172,6 +173,7 @@ const parseBaseProducts = async (file: File): Promise<Product[]> => {
       brand: newSeries.split(/\s+/)[0] || oldModel.split(/\s+/)[0] || '',
       level,
       skuId,
+      levelId,
       quoteVolume: toNumber(getField(record, ['ppv近30天报价量', '近30天报价量'])),
       soldVolume: toNumber(getField(record, ['ppv近30天成交量', '近30天成交量', 'ppv近14天成交量', '近14天成交量'])),
       description: toText(getField(record, ['询价说明'])),
@@ -447,6 +449,7 @@ export default function UploadSection({
           ppv: toText(row.ppv),
           biBasePrice: toNumber(row['BI基准价']),
           costPrice: toNumber(getDailyPriceFinalQuote(row)),
+          levelId: toText(getField(row, ['等级id', '等级ID', 'levelid', 'level id'])),
           rawFields: {
             ...row
           }
@@ -454,7 +457,7 @@ export default function UploadSection({
         .filter(row => row.ppv && (row.costPrice > 0 || row.biBasePrice > 0));
 
       onDailyPricesLoaded(rows, `daily price API ${payload.dataDate || ''}`.trim());
-      setDailyApiStatus(`已从 daily price API 取回 ${rows.length}/${currentProducts.length} 条价格：最终报价写入jd裸机价，BI基准价写入基准价。数据日期 ${payload.dataDate || '未知'}`);
+      setDailyApiStatus(`已从 daily price API 取回 ${rows.length}/${currentProducts.length} 条价格：最终报价写入jd裸机价，BI基准价写入基准价，等级id写入等级id列。数据日期 ${payload.dataDate || '未知'}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'daily price API 查询失败');
     } finally {
@@ -490,7 +493,7 @@ export default function UploadSection({
       <div className="p-4 border-b border-[#141414]">
         <h2 className="text-base font-bold">数据上传与自动匹配流程</h2>
         <p className="mt-1 text-xs text-[#141414]/70">
-          当前竞争表 {currentProducts.length} 行。现在只需要上传本次竞争追价表和补贴表；daily price API 按 ppv 自动匹配最终报价和BI基准价。
+          当前竞争表 {currentProducts.length} 行。现在只需要上传本次竞争追价表和补贴表；daily price API 按 ppv 自动匹配最终报价、BI基准价和等级id。
         </p>
       </div>
 
@@ -526,14 +529,14 @@ export default function UploadSection({
         <div className={cardClass}>
           <div>
             <div className="text-sm font-bold">2. daily price API</div>
-            <div className="mt-1 text-[11px] text-[#141414]/70">不需要上传表。系统调用 daily price 项目接口：最终报价写入 jd裸机价，BI基准价写入基准价。</div>
+            <div className="mt-1 text-[11px] text-[#141414]/70">不需要上传表。系统调用 daily price 项目接口：最终报价写入 jd裸机价，BI基准价写入基准价，等级id写入等级id列。</div>
           </div>
           <button
             type="button"
             onClick={syncDailyPriceApi}
             className="w-full border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white hover:bg-[#2A2A2B]"
           >
-            通过 API 匹配 jd裸机价 / 基准价
+            通过 API 匹配 jd裸机价 / 基准价 / 等级id
           </button>
           <div className={statClass}>已导入 {dailyPrices.length} 行，当前匹配 {dailyMatched}/{currentProducts.length} 行</div>
           {dailyApiStatus && <div className="text-[11px] font-bold text-green-700">{dailyApiStatus}</div>}
