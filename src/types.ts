@@ -143,6 +143,9 @@ export interface CalculatedProduct extends Product {
   riskWarning: 'SAFE' | 'WARNING' | 'CRITICAL';
   hasSpace: boolean;
   pricingRemark: string;
+  manualRecommendJdPrice?: number;
+  smallGapOpportunity?: boolean;
+  smallGapOpportunityRemark?: string;
 
   // Compatibility aliases used by history and summary components.
   model: string;

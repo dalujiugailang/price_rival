@@ -12,8 +12,29 @@ export const INITIAL_SUBSIDIES = [];
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-const toCents = (value: number) => Math.round(value * 100);
-const fromCents = (value: number) => round2(value / 100);
+export const roundUploadPrice = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const integerPrice = Math.floor(value);
+  const base = Math.floor(integerPrice / 100) * 100;
+  const tail = integerPrice - base;
+
+  if (tail === 0) return base;
+  if (tail <= 39) return base;
+  if (tail <= 49) return base + 40;
+  if (tail <= 59) return base + 50;
+  if (tail <= 69) return base + 60;
+  return base + 100;
+};
+
+export const getRoundedCompetitivePrice = (competitorPrice: number) => {
+  if (!Number.isFinite(competitorPrice) || competitorPrice <= 0) return 0;
+  const start = competitorPrice + 2;
+  for (let price = start; price <= start + 200; price += 1) {
+    const rounded = roundUploadPrice(price);
+    if (rounded > competitorPrice) return rounded;
+  }
+  return roundUploadPrice(start + 200);
+};
 
 const normalizeFieldName = (value: string) => value.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLowerCase();
 
@@ -69,29 +90,30 @@ const findBestPriceByMargin = (
     }))
     : [{ min: 0, max: Number.POSITIVE_INFINITY, subsidy: product.ahsInput }];
 
+  const rawUpperBounds = intervals
+    .map(interval => {
+      const theoreticalAhsUpper = (product.basePrice * (1 - targetMargin - 0.0218) - 81) / 1.0466;
+      return Math.min(theoreticalAhsUpper - interval.subsidy, interval.max);
+    })
+    .filter(value => Number.isFinite(value) && value > 0);
+  const upperBound = Math.floor(Math.max(...rawUpperBounds, product.jdPrice));
+  const checkedPrices = new Set<number>();
   let bestPrice = 0;
   let bestSubsidy = 0;
 
-  intervals.forEach(interval => {
-    const theoreticalAhsUpper = (product.basePrice * (1 - targetMargin - 0.0218) - 81) / 1.0466;
-    const theoreticalPriceUpper = theoreticalAhsUpper - interval.subsidy;
-    const intervalHigh = Math.min(theoreticalPriceUpper, interval.max);
-    const highCents = toCents(intervalHigh);
-    const lowCents = Math.max(0, toCents(interval.min));
+  for (let rawPrice = upperBound; rawPrice >= 0; rawPrice -= 1) {
+    const candidate = roundUploadPrice(rawPrice);
+    if (checkedPrices.has(candidate)) continue;
+    checkedPrices.add(candidate);
 
-    for (let cents = highCents; cents >= lowCents; cents -= 1) {
-      const candidate = fromCents(cents);
-      if (candidate < interval.min || candidate > interval.max) continue;
-      const margin = calcMarginalProfit(candidate, interval.subsidy, product.basePrice);
-      if (margin > targetMargin) {
-        if (candidate > bestPrice) {
-          bestPrice = candidate;
-          bestSubsidy = interval.subsidy;
-        }
-        break;
-      }
+    const subsidy = subsidyAtPrice(candidate, usableRules, product.ahsInput);
+    const margin = calcMarginalProfit(candidate, subsidy, product.basePrice);
+    if (margin > targetMargin) {
+      bestPrice = candidate;
+      bestSubsidy = subsidy;
+      break;
     }
-  });
+  }
 
   return { price: round2(bestPrice), subsidy: bestSubsidy };
 };
@@ -129,18 +151,18 @@ export function calculateProductPrice(product: Product, targetMargin: number, su
     } else if (product.jdPrice >= product.tmPrice) {
       pricingRemark = 'jd裸机价>=tm裸机价，不调整';
     } else {
-      const targetPrice = round2(product.tmPrice + 2);
+      const targetPrice = getRoundedCompetitivePrice(product.tmPrice);
       recommendJdPrice = targetPrice;
       ahsSubsidyAfter = subsidyAtPrice(targetPrice, seriesRules, currentSubsidy);
       maxPriceByMargin = targetPrice;
-      pricingRemark = '100%竞争力：追到tm裸机价+2';
+      pricingRemark = '100%竞争力：追过tm裸机价';
     }
   } else if (preMarginalProfit <= 0) {
     pricingRemark = '追前边际利润率<=0%，不调整';
   } else if (product.jdPrice >= product.tmPrice) {
     pricingRemark = 'jd裸机价>=tm裸机价，不调整';
   } else {
-    const targetPrice = round2(product.tmPrice + 2);
+    const targetPrice = getRoundedCompetitivePrice(product.tmPrice);
     const targetSubsidy = subsidyAtPrice(targetPrice, seriesRules, currentSubsidy);
     const targetPostMargin = calcMarginalProfit(targetPrice, targetSubsidy, product.basePrice);
 
@@ -148,7 +170,7 @@ export function calculateProductPrice(product: Product, targetMargin: number, su
       recommendJdPrice = targetPrice;
       ahsSubsidyAfter = targetSubsidy;
       maxPriceByMargin = targetPrice;
-      pricingRemark = '追到tm裸机价+2后边际达标';
+      pricingRemark = '追过tm裸机价后边际达标';
     } else {
       const best = findBestPriceByMargin(product, seriesRules, targetMargin);
       maxPriceByMargin = best.price;
@@ -254,6 +276,56 @@ export function calculateProductPrice(product: Product, targetMargin: number, su
 
 export function runBatchCalculations(products: Product[], targetMargin: number, subsidyRules: SubsidyRule[] = [], pricingMode: PricingMode = 'margin'): CalculatedProduct[] {
   return products.map(p => calculateProductPrice(p, targetMargin, subsidyRules, pricingMode));
+}
+
+export function applyManualRecommendedPrice(product: CalculatedProduct, manualPrice: number, targetMargin: number, subsidyRules: SubsidyRule[] = []): CalculatedProduct {
+  const seriesRules = normalizeRules(subsidyRules.filter(rule => rule.newSeries === product.newSeries));
+  const recommendJdPrice = roundUploadPrice(manualPrice);
+  const ahsSubsidyAfter = subsidyAtPrice(recommendJdPrice, seriesRules, product.ahsInput);
+  const postAhsPrice = recommendJdPrice + ahsSubsidyAfter;
+  const postLinearCost = calcLinearCost(recommendJdPrice, ahsSubsidyAfter, product.basePrice);
+  const postGrossMargin = product.basePrice > 0 ? 1 - postAhsPrice / product.basePrice : 0;
+  const postMarginalProfit = calcMarginalProfit(recommendJdPrice, ahsSubsidyAfter, product.basePrice);
+  const postJdSubsidy = jdSubsidyAtPrice(recommendJdPrice, seriesRules, product.jdSubsidy);
+  const postJdHandPrice = recommendJdPrice + postJdSubsidy;
+  const recommendAdjustment = round2(recommendJdPrice - product.jdPrice);
+
+  let riskWarning: 'SAFE' | 'WARNING' | 'CRITICAL' = 'SAFE';
+  if (postMarginalProfit < targetMargin) {
+    riskWarning = 'CRITICAL';
+  } else if (postMarginalProfit < targetMargin + 0.02) {
+    riskWarning = 'WARNING';
+  }
+
+  const originalRemark = product.pricingRemark.replace(/^手动改价：[^；]+；?/, '');
+  const pricingRemark = `手动改价：${round2(product.recommendJdPrice)}→${recommendJdPrice}${originalRemark ? `；${originalRemark}` : ''}`;
+
+  return {
+    ...product,
+    recommendJdPrice,
+    recommendAdjustment,
+    ahsSubsidyAfter,
+    postAhsPrice,
+    postLinearCost,
+    postGrossMargin,
+    postMarginalProfit,
+    postJdHandPrice,
+    postTmItemWin: product.tmPrice > 0 && recommendJdPrice > product.tmPrice,
+    postTmHandWin: product.tmHandPrice > 0 && postJdHandPrice > product.tmHandPrice,
+    postZzItemWin: product.zzPrice > 0 && recommendJdPrice > product.zzPrice,
+    postAhsZzHandWin: product.zzHandPrice > 0 && postAhsPrice > product.zzHandPrice,
+    riskWarning,
+    hasSpace: recommendAdjustment > 0,
+    pricingRemark,
+    manualRecommendJdPrice: recommendJdPrice,
+    totalSubsidy: postJdSubsidy,
+    minAllowedPrice: recommendJdPrice,
+    isBelowBottomLine: riskWarning === 'CRITICAL',
+    maxTrackSpace: Math.max(0, recommendAdjustment),
+    recommendPrice: recommendJdPrice,
+    estMarginRate: postMarginalProfit,
+    tradeInSubsidy: postJdSubsidy
+  };
 }
 
 export function simulateIncrementalPriceUpdate(products: Product[]): Product[] {

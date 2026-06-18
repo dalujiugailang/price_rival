@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CalculatedProduct, PricingMode } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateCompetitivenessMetrics } from '../utils/competitiveness';
@@ -30,6 +31,7 @@ interface Props {
   selectedCompetitionPpvs: string[];
   onToggleCompetitionPpv: (ppv: string, selected: boolean) => void;
   onCreateCompetitionVersion: () => void;
+  onManualRecommendPriceChange: (ppv: string, price?: number) => void;
 }
 
 const currentLocalDate = () => {
@@ -57,6 +59,7 @@ export default function MainTable({
   onMarginChange,
   onPricingModeChange,
   onSaveBatch,
+  onManualRecommendPriceChange,
 }: Props) {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [batchRemarks, setBatchRemarks] = useState('');
@@ -65,6 +68,12 @@ export default function MainTable({
   const [competitivenessDate, setCompetitivenessDate] = useState(currentLocalDate);
   const [pricingTimestamp, setPricingTimestamp] = useState(currentLocalDateTime);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedReasonFilters, setSelectedReasonFilters] = useState<string[]>([]);
+  const [showReasonFilter, setShowReasonFilter] = useState(false);
+  const [editingRecommendPpv, setEditingRecommendPpv] = useState<string | null>(null);
+  const [editingRecommendValue, setEditingRecommendValue] = useState('');
+  const reasonFilterAnchorRef = useRef<HTMLTableCellElement>(null);
+  const [reasonFilterPosition, setReasonFilterPosition] = useState({ top: 0, left: 0 });
   const [selectedSeries, setSelectedSeries] = useState('ALL');
   const [filterRisk, setFilterRisk] = useState<'ALL' | 'CRITICAL' | 'WARNING' | 'SAFE'>('ALL');
   const [marginInput, setMarginInput] = useState(marginInputText(marginBottomLine));
@@ -72,6 +81,29 @@ export default function MainTable({
   useEffect(() => {
     setMarginInput(marginInputText(marginBottomLine));
   }, [marginBottomLine]);
+
+  useEffect(() => {
+    if (!showReasonFilter) return;
+
+    const updatePosition = () => {
+      const anchor = reasonFilterAnchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const popupWidth = 320;
+      setReasonFilterPosition({
+        top: rect.bottom + 4,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8))
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [showReasonFilter]);
 
   const splitFieldKey = (key: string) => {
     const match = key.match(/^([A-Z]+)_(.*)$/);
@@ -84,13 +116,23 @@ export default function MainTable({
     return fields;
   }, new Set<string>()));
   const liveCompetitiveness = calculateCompetitivenessMetrics(products);
+  const reasonOptions = Array.from(products.reduce((options, product) => {
+    product.pricingRemark
+      .split('；')
+      .map(item => item.trim())
+      .filter(Boolean)
+      .forEach(item => options.add(item));
+    return options;
+  }, new Set<string>()));
+  const selectedReasonFilterSet = new Set(selectedReasonFilters);
 
   const filteredProducts = products.filter(p => {
     const query = searchTerm.toLowerCase();
     const matchesSearch = p.ppv.toLowerCase().includes(query) || p.oldModel.toLowerCase().includes(query) || p.newSeries.toLowerCase().includes(query);
+    const matchesReason = selectedReasonFilters.length === 0 || selectedReasonFilters.some(reason => p.pricingRemark.includes(reason));
     const matchesSeries = selectedSeries === 'ALL' || p.newSeries === selectedSeries;
     const matchesRisk = filterRisk === 'ALL' || p.riskWarning === filterRisk;
-    return matchesSearch && matchesSeries && matchesRisk;
+    return matchesSearch && matchesReason && matchesSeries && matchesRisk;
   });
 
   const handleConfirmSave = () => {
@@ -121,18 +163,26 @@ export default function MainTable({
     onMarginChange(Math.max(-50, Math.min(50, nextValue)) / 100);
   };
 
+  const toggleReasonFilter = (reason: string) => {
+    setSelectedReasonFilters(prev => (
+      prev.includes(reason)
+        ? prev.filter(item => item !== reason)
+        : [...prev, reason]
+    ));
+  };
+
   const exportToExcel = () => {
     const inquirySheetName = getInquirySheetName();
     const profitFloorText = pricingMode === 'fullCompetition' ? '100%竞争力' : formatPercent(marginBottomLine);
     const fixedCodes = [
-      'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
+      'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
     ];
     const exportFixedColumnWidths = [
       ...fixedColumnWidths.slice(0, 23),
       180,
-      ...fixedColumnWidths.slice(23, 28),
+      ...fixedColumnWidths.slice(23, 29),
       132,
-      ...fixedColumnWidths.slice(28)
+      ...fixedColumnWidths.slice(29)
     ];
     const fixedLabels = [
       '新机系列',
@@ -160,6 +210,7 @@ export default function MainTable({
       '京东物品价-追价后',
       '京东物品价-追价后理由',
       '京东物品价-追价后调整金额',
+      '小差额提醒',
       'ahs承担补贴-追价后',
       '含AHS补贴后报价-追价后',
       'jd总到手价-追价后',
@@ -199,6 +250,7 @@ export default function MainTable({
         formatRMB(p.recommendJdPrice),
         p.pricingRemark || '',
         formatRMB(p.recommendAdjustment),
+        p.smallGapOpportunityRemark || '',
         formatRMB(p.ahsSubsidyAfter),
         formatRMB(p.postAhsPrice),
         formatRMB(p.postJdHandPrice),
@@ -230,6 +282,37 @@ export default function MainTable({
     return String(value);
   };
 
+  const beginRecommendEdit = (product: CalculatedProduct) => {
+    setEditingRecommendPpv(product.ppv);
+    setEditingRecommendValue(displayValue(product.recommendJdPrice));
+  };
+
+  const commitRecommendEdit = () => {
+    if (!editingRecommendPpv) return;
+    const text = editingRecommendValue.trim();
+    if (!text) {
+      onManualRecommendPriceChange(editingRecommendPpv, undefined);
+      setEditingRecommendPpv(null);
+      setEditingRecommendValue('');
+      return;
+    }
+
+    const parsed = Number(text.replace(/[¥,\s]/g, ''));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      alert('请输入有效的追价后价格。');
+      return;
+    }
+
+    onManualRecommendPriceChange(editingRecommendPpv, parsed);
+    setEditingRecommendPpv(null);
+    setEditingRecommendValue('');
+  };
+
+  const cancelRecommendEdit = () => {
+    setEditingRecommendPpv(null);
+    setEditingRecommendValue('');
+  };
+
   const getInquirySheetName = () => {
     const date = new Date();
     date.setDate(date.getDate() - 1);
@@ -239,7 +322,7 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 104, 104, 92, 92, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 168, 116, 148, 148, 110, 150, 160, 160, 220
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 104, 104, 92, 92, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 168, 150, 116, 148, 148, 110, 150, 160, 160, 220
   ];
 
   const rawFieldWidth = (key: string) => {
@@ -267,9 +350,66 @@ export default function MainTable({
       {label}
     </div>
   );
+  const reasonFilterPopup = showReasonFilter ? createPortal((
+    <div
+      className="fixed z-[9999] w-80 border border-[#141414] bg-white p-2 text-left shadow-[3px_3px_0_#141414]"
+      style={{ top: reasonFilterPosition.top, left: reasonFilterPosition.left }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="mb-2 flex items-center justify-between text-[10px] font-bold">
+        <span>追价理由</span>
+        <span>{reasonOptions.length}项 / 已选{selectedReasonFilters.length}项</span>
+      </div>
+      <div className="max-h-80 overflow-y-auto border border-[#141414]">
+        {reasonOptions.length === 0 ? (
+          <div className="px-2 py-2 text-xs text-[#141414]/60">暂无追价理由</div>
+        ) : reasonOptions.map(option => (
+          <div key={option} className="flex items-start gap-2 border-b border-[#141414]/15 px-2 py-1.5 last:border-b-0">
+            <input
+              type="checkbox"
+              checked={selectedReasonFilterSet.has(option)}
+              onChange={() => toggleReasonFilter(option)}
+              className="mt-0.5 h-3 w-3 accent-[#141414]"
+            />
+            <button
+              type="button"
+              onClick={() => toggleReasonFilter(option)}
+              className="flex-1 text-left text-[11px] font-bold leading-snug"
+            >
+              {option}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedReasonFilters([option])}
+              className="shrink-0 border border-[#141414] px-1 py-0.5 text-[9px] font-bold"
+            >
+              单选
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setSelectedReasonFilters([])}
+          className="border border-[#141414] px-2 py-1 text-[10px] font-bold"
+        >
+          清空
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowReasonFilter(false)}
+          className="border border-[#141414] bg-[#141414] px-2 py-1 text-[10px] font-bold text-white"
+        >
+          确定
+        </button>
+      </div>
+    </div>
+  ), document.body) : null;
 
   return (
     <div className="bg-white border border-[#141414] overflow-hidden" id="main-tracking-panel">
+      {reasonFilterPopup}
       <div className="p-3 border-b border-[#141414] bg-[#F0EFEC] flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-base font-bold text-[#141414] flex items-center gap-2">
@@ -318,7 +458,7 @@ export default function MainTable({
         </div>
         <div className="text-xs bg-white/70 border border-[#141414]/20 p-2">
           {pricingMode === 'fullCompetition'
-            ? '100%竞争力：所有 jd裸机价<tm裸机价 的行强制追到 tm裸机价+2；补贴、线性费用、追后边际仍照常重算。'
+            ? '100%竞争力：所有 jd裸机价<tm裸机价 的行追过tm裸机价；补贴、线性费用、追后边际仍照常重算。'
             : '公式口径：补贴按新机系列+门槛动态命中；线性费用=(追价后京东物品价+补贴)*4.66%+基准价*2.18%+81；追后边际=BE。'}
         </div>
       </div>
@@ -411,8 +551,20 @@ export default function MainTable({
               <th className={headerClass}>{headerLabel('到手比tm')}</th>
               <th className={headerClass}>{headerLabel('裸机比zz')}</th>
               <th className={headerClass}>{headerLabel('仅含ahs补贴+裸机 vs zz到手')}</th>
-	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>{headerLabel('京东物品价-追价后')}</th>
+	              <th
+                  ref={reasonFilterAnchorRef}
+                  className={`${headerClass} repricing-header bg-[#D8D7D2] relative cursor-pointer`}
+                  onClick={() => setShowReasonFilter(prev => !prev)}
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    {headerLabel('京东物品价-追价后')}
+                    <span className="border border-[#141414] bg-white px-1 text-[9px] leading-tight">
+                      {selectedReasonFilters.length > 0 ? `已选${selectedReasonFilters.length}` : '筛'}
+                    </span>
+                  </div>
+                </th>
 	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>{headerLabel('京东物品价-追价后调整金额')}</th>
+	              <th className={headerClass}>{headerLabel('小差额提醒')}</th>
 	              <th className={headerClass}>{headerLabel('ahs承担补贴-追价后')}</th>
 	              <th className={headerClass}>{headerLabel('含AHS补贴后报价-追价后')}</th>
 	              <th className={headerClass}>{headerLabel('jd总到手价-追价后')}</th>
@@ -473,11 +625,38 @@ export default function MainTable({
                 <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmHandWin ? 1 : 0}</td>
                 <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.zzItemWin ? 1 : 0}</td>
                 <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.ahsZzHandWin ? 1 : 0}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-extrabold">
-                  {formatRMB(p.recommendJdPrice)}
+                <td
+                  className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-extrabold ${p.manualRecommendJdPrice !== undefined ? 'text-blue-700' : ''}`}
+                  onDoubleClick={() => beginRecommendEdit(p)}
+                  title="双击手动改价"
+                >
+                  {editingRecommendPpv === p.ppv ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      inputMode="decimal"
+                      value={editingRecommendValue}
+                      onChange={(e) => setEditingRecommendValue(e.target.value)}
+                      onBlur={commitRecommendEdit}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRecommendEdit();
+                        if (e.key === 'Escape') cancelRecommendEdit();
+                      }}
+                      className="w-full border border-[#141414] bg-white px-1 py-0.5 text-right font-mono text-[11px]"
+                    />
+                  ) : (
+                    formatRMB(p.recommendJdPrice)
+                  )}
                   {p.pricingRemark && <div className="truncate text-[10px] font-normal text-[#141414]/60" title={p.pricingRemark}>{p.pricingRemark}</div>}
                 </td>
 	                <td className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>
+	                <td className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
+                  {p.smallGapOpportunityRemark ? (
+                    <div className="line-clamp-2 text-amber-800" title={p.smallGapOpportunityRemark}>{p.smallGapOpportunityRemark}</div>
+                  ) : (
+                    <span className="text-[#141414]/30">-</span>
+                  )}
+                </td>
 	                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsSubsidyAfter)}</td>
 	                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postAhsPrice)}</td>
 	                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postJdHandPrice)}</td>

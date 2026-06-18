@@ -16,6 +16,7 @@ import {
 } from './types';
 import { 
   INITIAL_PRODUCTS, 
+  applyManualRecommendedPrice,
   calculateProductPrice, 
   runBatchCalculations,
   formatPercent
@@ -71,6 +72,48 @@ const hydrateThirtyDayVolumes = (product: Product): Product => hydrateThirtyDayS
 const DEFAULT_INVESTMENT_RATE_INPUTS: InvestmentRateInputs = {
   androidSalesAmount30d: 0,
   androidJdTradeInSalesAmount30d: 0
+};
+
+const SMALL_GAP_THRESHOLD = 20;
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+const topTwentyPercentThreshold = (values: number[]) => {
+  const sorted = values.filter(value => value > 0).sort((a, b) => b - a);
+  if (sorted.length === 0) return 0;
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.2) - 1)] || 0;
+};
+
+const addSmallGapOpportunityRemarks = (products: CalculatedProduct[]) => {
+  const quoteThreshold = topTwentyPercentThreshold(products.map(product => product.quoteVolume || 0));
+  const soldThreshold = topTwentyPercentThreshold(products.map(product => product.soldVolume || 0));
+
+  return products.map(product => {
+    const hasTmPrice = product.tmPrice > 0;
+    const hasRecommendAdjustment = round2(product.recommendAdjustment) !== 0;
+    const alreadyWonBefore = hasTmPrice && product.jdPrice > product.tmPrice;
+    const alreadyWonAfter = hasTmPrice && product.recommendJdPrice > product.tmPrice;
+    if (!hasTmPrice || !hasRecommendAdjustment || alreadyWonBefore || alreadyWonAfter) return product;
+
+    const gapToTm = round2(product.tmPrice - product.recommendJdPrice);
+    const isSmallGap = gapToTm >= 0 && gapToTm <= SMALL_GAP_THRESHOLD;
+    if (!isSmallGap) return product;
+
+    const highQuoteVolume = quoteThreshold > 0 && product.quoteVolume >= quoteThreshold;
+    const highSoldVolume = soldThreshold > 0 && (product.soldVolume || 0) >= soldThreshold;
+    const valueText = highQuoteVolume || highSoldVolume ? '高价值小差额提醒' : '小差额提醒';
+    const volumeText = [
+      highQuoteVolume ? '报价量Top20%' : '',
+      highSoldVolume ? '成交量Top20%' : ''
+    ].filter(Boolean).join('、');
+    const note = `${valueText}：距tm裸机价差${gapToTm}元${volumeText ? `，${volumeText}` : ''}`;
+
+    return {
+      ...product,
+      smallGapOpportunity: true,
+      smallGapOpportunityRemark: note
+    };
+  });
 };
 
 type SaveBatchOptions = {
@@ -227,6 +270,15 @@ export default function App() {
   const [pricingMode, setPricingMode] = useState<PricingMode>('margin');
   const [lastApiSyncTime, setLastApiSyncTime] = useState<string>('2026-05-18 询价表0518 已载入');
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
+  const [manualRecommendPrices, setManualRecommendPrices] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem('manual_recommend_prices');
+    if (!saved) return {};
+    try {
+      return JSON.parse(saved);
+    } catch (err) {
+      return {};
+    }
+  });
   const [investmentRateInputs, setInvestmentRateInputs] = useState<InvestmentRateInputs>(() => {
     const saved = localStorage.getItem('investment_rate_inputs');
     if (!saved) return DEFAULT_INVESTMENT_RATE_INPUTS;
@@ -330,8 +382,14 @@ export default function App() {
     });
 
     const calculated = runBatchCalculations(matchedProducts, marginBottomLine, subsidyRules, pricingMode);
-    setActiveCalculatedItems(calculated);
-  }, [productsMaster, dailyPriceRows, subsidyRules, marginBottomLine, pricingMode]);
+    const withManualPrices = calculated.map(product => {
+      const manualPrice = manualRecommendPrices[product.ppv];
+      return Number.isFinite(manualPrice)
+        ? applyManualRecommendedPrice(product, manualPrice, marginBottomLine, subsidyRules)
+        : product;
+    });
+    setActiveCalculatedItems(addSmallGapOpportunityRemarks(withManualPrices));
+  }, [productsMaster, dailyPriceRows, subsidyRules, marginBottomLine, pricingMode, manualRecommendPrices]);
 
   // 2. Sync historyBatches to localStorage on state changes for robust database preservation ("期期落库")
   useEffect(() => {
@@ -357,6 +415,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('subsidy_rules', JSON.stringify(subsidyRules));
   }, [subsidyRules]);
+
+  useEffect(() => {
+    localStorage.setItem('manual_recommend_prices', JSON.stringify(manualRecommendPrices));
+  }, [manualRecommendPrices]);
 
   useEffect(() => {
     localStorage.setItem('source_upload_records', JSON.stringify(sourceUploadRecords));
@@ -396,6 +458,7 @@ export default function App() {
 
   const handleBaseProductsLoaded = (products: Product[], fileName: string) => {
     setProductsMaster(products.map(hydrateThirtyDayVolumes));
+    setManualRecommendPrices({});
     setSelectedCompetitionPpvs(products.map(product => product.ppv));
     setLastApiSyncTime(`${fileName} 已载入`);
     addUploadRecord({
@@ -519,6 +582,18 @@ export default function App() {
   const handleCreateCompetitionVersion = () => {
     setCompetitionVersionIndex(prev => prev + 1);
     setActiveTab('workspace');
+  };
+
+  const handleManualRecommendPriceChange = (ppv: string, price?: number) => {
+    setManualRecommendPrices(prev => {
+      const next = { ...prev };
+      if (price === undefined) {
+        delete next[ppv];
+      } else {
+        next[ppv] = price;
+      }
+      return next;
+    });
   };
 
   return (
@@ -650,6 +725,7 @@ export default function App() {
                 selectedCompetitionPpvs={selectedCompetitionPpvs}
                 onToggleCompetitionPpv={handleToggleCompetitionPpv}
                 onCreateCompetitionVersion={handleCreateCompetitionVersion}
+                onManualRecommendPriceChange={handleManualRecommendPriceChange}
               />
             </>
           )}
