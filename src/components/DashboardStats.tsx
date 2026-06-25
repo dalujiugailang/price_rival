@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { CalculatedProduct, PricingMode } from '../types';
+import { CalculatedProduct, ChannelId, PricingMode } from '../types';
 import { TrendingDown, ShieldAlert, CheckCircle2, Award, Zap, Percent, RefreshCw } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Cell } from 'recharts';
 import { formatPercent } from '../utils/formulas';
@@ -13,13 +13,16 @@ interface Props {
   products: CalculatedProduct[];
   marginBottomLine: number;
   pricingMode: PricingMode;
+  channelId?: ChannelId;
 }
 
 export default function DashboardStats({
   products,
   marginBottomLine,
-  pricingMode
+  pricingMode,
+  channelId = 'tradeIn'
 }: Props) {
+  const isSelfOperated = channelId === 'selfOperated';
   // Stats
   const totalCount = products.length;
   const withTrackingSpace = products.filter(p => p.hasSpace).length;
@@ -28,6 +31,7 @@ export default function DashboardStats({
   const safeCount = totalCount - criticalCount - warningCount;
 
   const totalQuoteVolume = products.reduce((acc, curr) => acc + curr.quoteVolume, 0);
+  const quoteWeightText = isSelfOperated ? '近30天报价访客数' : '近30天报价量';
 
   // Average profit estimation
   const avgExpectedMargin = products.reduce((acc, curr) => acc + curr.estMarginRate, 0) / (totalCount || 1);
@@ -36,7 +40,7 @@ export default function DashboardStats({
   const chartData = products.filter(p => p.hasSpace).map(p => ({
     fullName: p.oldModel,
     'jd裸机价': p.jdPrice,
-    'tm裸机价': p.targetCompetitorPrice,
+    [isSelfOperated ? 'zz裸机价' : 'tm裸机价']: p.targetCompetitorPrice,
     '京东物品价-追价后': p.recommendJdPrice,
     risk: p.riskWarning
   }));
@@ -53,7 +57,7 @@ export default function DashboardStats({
             </span>
           </h3>
           <p className="text-xs text-[#141414]/75 mb-4">
-            比对京东当前报价、竞品高报价与系统推荐追后报价，识别可追价空间与利润拦截。
+            比对京东当前报价、{isSelfOperated ? '转转裸机价' : '天猫裸机价'}与系统推荐追后报价，识别可追价空间与利润拦截。
           </p>
         </div>
 
@@ -81,7 +85,7 @@ export default function DashboardStats({
               />
               <Legend verticalAlign="top" height={32} iconType="square" wrapperStyle={{ fontSize: '11px', color: '#141414' }} />
               <Bar dataKey="jd裸机价" fill="#141414" radius={[0, 0, 0, 0]} barSize={16} />
-              <Bar dataKey="tm裸机价" fill="#dc2626" radius={[0, 0, 0, 0]} barSize={16} />
+              <Bar dataKey={isSelfOperated ? 'zz裸机价' : 'tm裸机价'} fill="#dc2626" radius={[0, 0, 0, 0]} barSize={16} />
               <Bar dataKey="京东物品价-追价后" fill="#16a34a" radius={[0, 0, 0, 0]} barSize={16} />
             </BarChart>
           </ResponsiveContainer>
@@ -103,7 +107,7 @@ export default function DashboardStats({
           </div>
           <div className="flex items-center gap-2 mt-4 text-[11px]">
             <span className="px-1.5 py-0.5 bg-green-700 text-white text-[10px] border border-white">
-              {totalQuoteVolume} 近30天报价量
+              {totalQuoteVolume} {quoteWeightText}
             </span>
             <span className="opacity-80">样本覆盖 {totalCount} 条 PPV</span>
           </div>
@@ -121,7 +125,7 @@ export default function DashboardStats({
           </div>
           <div className="text-[11px] text-[#141414]/80 mt-3 pt-2 border-t border-[#141414]/20">
             {pricingMode === 'fullCompetition'
-              ? `检测到 ${withTrackingSpace} 条 PPV 已按天猫裸机价+2生成追价建议。`
+              ? `检测到 ${withTrackingSpace} 条 PPV 已按${isSelfOperated ? '转转裸机价' : '天猫裸机价'}+2生成追价建议。`
               : `检测到 ${withTrackingSpace} 条 PPV 可在利润约束内向竞品高报价追平。`}
           </div>
         </div>

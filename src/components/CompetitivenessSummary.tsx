@@ -15,7 +15,7 @@ import {
   Legend 
 } from 'recharts';
 import { TrendingUp, TrendingDown, Target, Info, AlertCircle, ShoppingBag, Radio } from 'lucide-react';
-import { CalculatedProduct, TrackingBatch } from '../types';
+import { CalculatedProduct, ChannelId, TrackingBatch } from '../types';
 import { formatPercent, formatRMB } from '../utils/formulas';
 import { calculateCompetitivenessMetrics, emptyCompetitivenessMetrics } from '../utils/competitiveness';
 
@@ -23,6 +23,8 @@ interface Props {
   historyBatches: TrackingBatch[];
   currentCalculatedItems: CalculatedProduct[];
   activeSubsidyFileName: string;
+  channelId?: ChannelId;
+  channelName?: string;
 }
 
 interface CompetitivenessDataPoint {
@@ -40,8 +42,16 @@ interface CompetitivenessDataPoint {
 export default function CompetitivenessSummary({ 
   historyBatches, 
   currentCalculatedItems,
-  activeSubsidyFileName
+  activeSubsidyFileName,
+  channelId = 'tradeIn',
+  channelName = '京东换新'
 }: Props) {
+  const isSelfOperated = channelId === 'selfOperated';
+  const quoteWeightFieldLabel = isSelfOperated ? 'ppv近30天报价访客数' : 'ppv近30天报价量';
+  const quoteWeightShortLabel = isSelfOperated ? '报价访客数加权' : '报价量加权';
+  const quoteWeightFormulaLabel = isSelfOperated
+    ? '有竞争力PPV的近30天报价访客数 / 有效竞品PPV的近30天报价访客数'
+    : '有竞争力PPV的近30天报价量 / 有效竞品PPV的近30天报价量';
   // We can choose which batch to inspect individual model details for
   const [selectedBatchId, setSelectedBatchId] = useState<string>('LIVE_DRAFT');
 
@@ -58,7 +68,7 @@ export default function CompetitivenessSummary({
         return leftDate.localeCompare(rightDate);
       })
       .map(batch => {
-      const computed = batch.competitivenessMetrics || calculateCompetitivenessMetrics(batch.products);
+      const computed = batch.competitivenessMetrics || calculateCompetitivenessMetrics(batch.products, channelId);
       
       // format date nicely for chart labels
       const sourceDate = batch.competitivenessDate || batch.date;
@@ -83,7 +93,7 @@ export default function CompetitivenessSummary({
 
     // Finally append the dynamic "Current Workbench State" as a "Live Draft" item
     if (currentCalculatedItems && currentCalculatedItems.length > 0) {
-      const liveCalculated = calculateCompetitivenessMetrics(currentCalculatedItems);
+      const liveCalculated = calculateCompetitivenessMetrics(currentCalculatedItems, channelId);
       list.push({
         date: '今日(工作台)',
         batchName: '当前工作台(实时计算草稿)',
@@ -93,7 +103,7 @@ export default function CompetitivenessSummary({
     }
 
     return list;
-  }, [historyBatches, currentCalculatedItems]);
+  }, [historyBatches, currentCalculatedItems, channelId]);
 
   // Find the selected details row
   const selectedBatchDetails = useMemo(() => {
@@ -103,7 +113,7 @@ export default function CompetitivenessSummary({
         date: new Date().toISOString().slice(0, 10),
         remarks: '基于左侧实时填写的竞品售价与最上方生效的补贴表配置：' + activeSubsidyFileName,
         products: currentCalculatedItems,
-        metrics: calculateCompetitivenessMetrics(currentCalculatedItems),
+        metrics: calculateCompetitivenessMetrics(currentCalculatedItems, channelId),
         isSummaryOnly: false,
         isConfirmed: false
       };
@@ -116,14 +126,14 @@ export default function CompetitivenessSummary({
         date: batch.competitivenessDate || batch.date,
         remarks: batch.isCompetitivenessConfirmed ? `已确认竞争力落数。${batch.remarks || ''}` : batch.remarks || '未备注说明。',
         products: batch.products,
-        metrics: batch.competitivenessMetrics || calculateCompetitivenessMetrics(batch.products),
+        metrics: batch.competitivenessMetrics || calculateCompetitivenessMetrics(batch.products, channelId),
         isSummaryOnly: !!batch.isSummaryOnly,
         isConfirmed: !!batch.isCompetitivenessConfirmed
       };
     }
 
     return null;
-  }, [selectedBatchId, historyBatches, currentCalculatedItems, activeSubsidyFileName]);
+  }, [selectedBatchId, historyBatches, currentCalculatedItems, activeSubsidyFileName, channelId]);
 
   const confirmedBatches = historyBatches.filter(batch => batch.isCompetitivenessConfirmed);
 
@@ -151,10 +161,10 @@ export default function CompetitivenessSummary({
         <div>
           <h3 className="font-bold text-[#141414] text-base flex items-center gap-2">
             <Radio className="w-5 h-5 text-red-600 animate-pulse" />
-            全网核心竞品渠道“竞争力总结”追踪器
+            {channelName}“竞争力总结”追踪器
           </h3>
           <p className="text-xs text-[#141414]/70 mt-1">
-            横向度量本司回收报价能否压制竞对。百分比按 ppv近30天报价量 加权，越高代表高流量 PPV 的报价竞争力越强。
+            横向度量本司回收报价能否压制竞对。百分比按 {quoteWeightFieldLabel} 加权，越高代表高流量 PPV 的报价竞争力越强。
           </p>
         </div>
         <div className="text-[11px] font-bold border border-[#141414] bg-white text-black px-3 py-1">
@@ -163,9 +173,9 @@ export default function CompetitivenessSummary({
       </div>
 
       {/* 4 Cards Scorecard representing Today's metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${isSelfOperated ? 'lg:grid-cols-2' : 'lg:grid-cols-4'} gap-4`}>
         {/* Metric 1 */}
-        <div className="border border-[#141414] p-4 bg-[#F9F9F8] flex flex-col justify-between">
+        {!isSelfOperated && <div className="border border-[#141414] p-4 bg-[#F9F9F8] flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center mb-1">
               <span className="text-[11px] font-bold text-slate-500">Benchmark 1</span>
@@ -180,12 +190,12 @@ export default function CompetitivenessSummary({
             <span className="text-2xl font-black font-mono tracking-tight text-[#141414]">
               {latestMetric.tmDirectScore.toFixed(1)}%
             </span>
-            <span className="text-[10px] font-mono opacity-70">报价量加权</span>
+            <span className="text-[10px] font-mono opacity-70">{quoteWeightShortLabel}</span>
           </div>
-        </div>
+        </div>}
 
         {/* Metric 2 */}
-        <div className="border border-[#141414] p-4 bg-[#F9F9F8] flex flex-col justify-between">
+        {!isSelfOperated && <div className="border border-[#141414] p-4 bg-[#F9F9F8] flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center mb-1">
               <span className="text-[11px] font-bold text-slate-500">Benchmark 2</span>
@@ -200,9 +210,9 @@ export default function CompetitivenessSummary({
             <span className="text-2xl font-black font-mono tracking-tight text-[#141414]">
               {latestMetric.tmItemScore.toFixed(1)}%
             </span>
-            <span className="text-[10px] font-mono opacity-70">报价量加权</span>
+            <span className="text-[10px] font-mono opacity-70">{quoteWeightShortLabel}</span>
           </div>
-        </div>
+        </div>}
 
         {/* Metric 3 */}
         <div className="border border-[#141414] p-4 bg-[#F9F9F8] flex flex-col justify-between">
@@ -220,7 +230,7 @@ export default function CompetitivenessSummary({
             <span className="text-2xl font-black font-mono tracking-tight text-[#141414]">
               {latestMetric.ahsVsZzDirectScore.toFixed(1)}%
             </span>
-            <span className="text-[10px] font-mono opacity-70">报价量加权</span>
+            <span className="text-[10px] font-mono opacity-70">{quoteWeightShortLabel}</span>
           </div>
         </div>
 
@@ -240,7 +250,7 @@ export default function CompetitivenessSummary({
             <span className="text-2xl font-black font-mono tracking-tight text-[#141414]">
               {latestMetric.zzItemScore.toFixed(1)}%
             </span>
-            <span className="text-[10px] font-mono opacity-70">报价量加权</span>
+            <span className="text-[10px] font-mono opacity-70">{quoteWeightShortLabel}</span>
           </div>
         </div>
       </div>
@@ -254,7 +264,7 @@ export default function CompetitivenessSummary({
               历史追平周期竞争力波动走势 (趋势折线图)
             </h4>
             <p className="text-xs text-stone-500 mt-0.5">
-              横坐标为每次批次更新节点，纵坐标为“有竞争力PPV的近30天报价量 / 有效竞品PPV的近30天报价量”。
+              横坐标为每次批次更新节点，纵坐标为“{quoteWeightFormulaLabel}”。
             </p>
           </div>
           <div className="text-[11px] text-stone-600 bg-stone-100 p-2 border border-stone-200">
@@ -307,22 +317,22 @@ export default function CompetitivenessSummary({
                 iconType="rect"
                 wrapperStyle={{ fontSize: 11, fontWeight: 'bold', paddingTop: 10 }}
               />
-              <Line 
+              {!isSelfOperated && <Line 
                 type="monotone" 
                 dataKey="tmDirectScore" 
                 name="天猫到手价竞争力" 
                 stroke="#C2873E" 
                 strokeWidth={2} 
                 strokeDasharray="4 4"
-              />
-              <Line 
+              />}
+              {!isSelfOperated && <Line 
                 type="monotone" 
                 dataKey="tmItemScore" 
                 name="天猫物品价竞争力" 
                 stroke="#B43E2B" 
                 strokeWidth={3} 
                 activeDot={{ r: 8 }} 
-              />
+              />}
               <Line 
                 type="monotone" 
                 dataKey="ahsVsZzDirectScore" 

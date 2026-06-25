@@ -60,6 +60,27 @@ export interface SubsidyRule {
   rawFields: Record<string, string | number | boolean | null>;
 }
 
+export type ChannelId = 'tradeIn' | 'selfOperated';
+
+export interface ChannelConfig {
+  id: ChannelId;
+  name: string;
+  shortName: string;
+  storageKey: string;
+  targetCompetitor: 'tm' | 'zz';
+  subsidyMode: 'seriesThreshold' | 'generalThreshold';
+  linearCostMode: 'tradeIn' | 'selfOperated';
+  competitivenessScope: 'all' | 'zzOnly';
+  channelSalesLabel: string;
+}
+
+export interface SelfOperatedSubsidyRule {
+  threshold: number;
+  ahsInput: number;
+  sourceRowNumber: number;
+  rawFields: Record<string, string | number | boolean | null>;
+}
+
 export type PricingMode = 'margin' | 'fullCompetition';
 
 export interface CompetitivenessMetrics {
@@ -92,7 +113,7 @@ export interface ManualPriceRow {
 
 export interface SourceUploadRecord {
   id: string;
-  type: 'base' | 'dailyPrice' | 'subsidy' | 'manualPrice' | 'competitivenessHistory';
+  type: 'base' | 'dailyPrice' | 'subsidy' | 'selfSubsidy' | 'manualPrice' | 'competitivenessHistory';
   fileName: string;
   uploadedAt: string;
   rowCount: number;
@@ -168,6 +189,8 @@ export interface CalculatedProduct extends Product {
 
 export interface TrackingBatch {
   id: string;
+  channelId?: ChannelId;
+  channelName?: string;
   date: string;
   operator: string;
   dataDate: string;

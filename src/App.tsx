@@ -10,6 +10,8 @@ import {
   InvestmentRateInputs,
   PricingMode,
   Product, 
+  ChannelId,
+  SelfOperatedSubsidyRule,
   SourceUploadRecord,
   SubsidyRule,
   TrackingBatch 
@@ -42,6 +44,7 @@ import MainTable from './components/MainTable';
 import UploadSection from './components/UploadSection';
 import HistoryPanel from './components/HistoryPanel';
 import CompetitivenessSummary from './components/CompetitivenessSummary';
+import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
 
 const normalizeFieldName = (value: string) => value.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLowerCase();
 
@@ -57,8 +60,11 @@ const getRawProductField = (product: Product, aliases: string[]) => {
   return found ? found[1] : null;
 };
 
-const hydrateThirtyDayQuoteVolume = (product: Product): Product => {
-  const sourceValue = getRawProductField(product, ['ppv近30天报价量', '近30天报价量']);
+const hydrateThirtyDayQuoteVolume = (product: Product, channelId: ChannelId = 'tradeIn'): Product => {
+  const aliases = channelId === 'selfOperated'
+    ? ['ppv近30天报价访客数', '近30天报价访客数', 'ppv近30天报价量', '近30天报价量']
+    : ['ppv近30天报价量', '近30天报价量'];
+  const sourceValue = getRawProductField(product, aliases);
   return sourceValue === null ? product : { ...product, quoteVolume: toSourceNumber(sourceValue) };
 };
 
@@ -67,7 +73,7 @@ const hydrateThirtyDaySoldVolume = (product: Product): Product => {
   return sourceValue === null ? product : { ...product, soldVolume: toSourceNumber(sourceValue) };
 };
 
-const hydrateThirtyDayVolumes = (product: Product): Product => hydrateThirtyDaySoldVolume(hydrateThirtyDayQuoteVolume(product));
+const hydrateThirtyDayVolumes = (product: Product, channelId: ChannelId = 'tradeIn'): Product => hydrateThirtyDaySoldVolume(hydrateThirtyDayQuoteVolume(product, channelId));
 
 const DEFAULT_INVESTMENT_RATE_INPUTS: InvestmentRateInputs = {
   androidSalesAmount30d: 0,
@@ -236,118 +242,169 @@ const mergeInitialCompetitivenessHistory = (batches: TrackingBatch[]) => {
   return [...missingInitialRows, ...batches];
 };
 
+type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness';
+
+type ChannelWorkspaceState = {
+  productsMaster: Product[];
+  dailyPriceRows: DailyPriceRow[];
+  subsidyRules: SubsidyRule[];
+  selfSubsidyRules: SelfOperatedSubsidyRule[];
+  sourceUploadRecords: SourceUploadRecord[];
+  manualRecommendPrices: Record<string, number>;
+  investmentRateInputs: InvestmentRateInputs;
+  selectedCompetitionPpvs: string[];
+  historyBatches: TrackingBatch[];
+  activeSubsidyFileName: string;
+  marginBottomLine: number;
+  pricingMode: PricingMode;
+  lastApiSyncTime: string;
+  competitionVersionIndex: number;
+};
+
+type ChannelStates = Record<ChannelId, ChannelWorkspaceState>;
+
+const CHANNEL_STATE_STORAGE_KEY = 'pricing_channel_states_v1';
+
+const safeParse = <T,>(value: string | null, fallback: T): T => {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch (err) {
+    return fallback;
+  }
+};
+
+const defaultUploadRecords = (): SourceUploadRecord[] => [
+  {
+    id: 'SRC-20260518-BASE',
+    type: 'base',
+    fileName: '手机安卓换新比价 (1).xlsx / 询价表0518',
+    uploadedAt: '2026-05-18 00:00:00',
+    rowCount: INITIAL_PRODUCTS.length,
+    matchedCount: INITIAL_PRODUCTS.length,
+    remarks: '内置初始化数据，保留询价表0518全部62个源字段。'
+  }
+];
+
+const buildInitialHistoryBatches = () => {
+  const baselineProducts = INITIAL_PRODUCTS.map(p => {
+    const yestP: Product = {
+      ...p,
+      jdPrice: Math.round(p.jdPrice * 0.98),
+      tmPrice: p.tmPrice > 0 ? Math.round(p.tmPrice * 1.01) : 0,
+      zzPrice: p.zzPrice > 0 ? Math.round(p.zzPrice * 1.008) : 0
+    };
+    return calculateProductPrice(yestP, 0.09);
+  });
+
+  return [
+    ...INITIAL_COMPETITIVENESS_HISTORY,
+    {
+      id: 'TRACK-20260518-INIT',
+      channelId: 'tradeIn' as ChannelId,
+      channelName: CHANNELS.tradeIn.name,
+      date: '2026-05-18',
+      operator: '定价运营',
+      dataDate: '2026-05-18',
+      marginBottomLine: 0.09,
+      products: baselineProducts,
+      remarks: '询价表0518线上化基准快照。保留全部源字段，采用9%追后边际利润率底线。',
+      subsidyFileName: '手机安卓换新比价 (1).xlsx'
+    }
+  ];
+};
+
+const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts: Product[], channelId: ChannelId): ChannelWorkspaceState => ({
+  productsMaster: (state.productsMaster || fallbackProducts).map(product => hydrateThirtyDayVolumes(product, channelId)),
+  dailyPriceRows: state.dailyPriceRows || [],
+  subsidyRules: state.subsidyRules || [],
+  selfSubsidyRules: state.selfSubsidyRules || [],
+  sourceUploadRecords: state.sourceUploadRecords || [],
+  manualRecommendPrices: state.manualRecommendPrices || {},
+  investmentRateInputs: { ...DEFAULT_INVESTMENT_RATE_INPUTS, ...(state.investmentRateInputs || {}) },
+  selectedCompetitionPpvs: state.selectedCompetitionPpvs || (state.productsMaster || fallbackProducts).map(product => product.ppv),
+  historyBatches: state.historyBatches || [],
+  activeSubsidyFileName: state.activeSubsidyFileName || '未上传补贴表，沿用基础表字段',
+  marginBottomLine: typeof state.marginBottomLine === 'number' ? state.marginBottomLine : 0.03,
+  pricingMode: state.pricingMode || 'margin',
+  lastApiSyncTime: state.lastApiSyncTime || '2026-05-18 询价表0518 已载入',
+  competitionVersionIndex: state.competitionVersionIndex || 1
+});
+
+const createInitialChannelStates = (): ChannelStates => {
+  const saved = safeParse<Partial<ChannelStates>>(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY), {});
+  if (saved.tradeIn || saved.selfOperated) {
+    return {
+      tradeIn: normalizeState(saved.tradeIn || {}, INITIAL_PRODUCTS, 'tradeIn'),
+      selfOperated: normalizeState(saved.selfOperated || {}, INITIAL_PRODUCTS, 'selfOperated')
+    };
+  }
+
+  const legacyProducts = safeParse<Product[] | null>(localStorage.getItem('products_master_rows'), null);
+  const tradeInProducts = (legacyProducts || INITIAL_PRODUCTS).map(product => hydrateThirtyDayVolumes(product, 'tradeIn'));
+  const legacyHistory = safeParse<TrackingBatch[] | null>(localStorage.getItem('history_batches_list'), null);
+  const historyBatches = legacyHistory
+    ? mergeInitialCompetitivenessHistory(legacyHistory).map(batch => ({
+      ...batch,
+      channelId: batch.channelId || 'tradeIn',
+      channelName: batch.channelName || CHANNELS.tradeIn.name
+    }))
+    : buildInitialHistoryBatches();
+
+  return {
+    tradeIn: normalizeState({
+      productsMaster: tradeInProducts,
+      dailyPriceRows: safeParse<DailyPriceRow[]>(localStorage.getItem('daily_price_rows'), []),
+      subsidyRules: safeParse<SubsidyRule[]>(localStorage.getItem('subsidy_rules'), []),
+      sourceUploadRecords: safeParse<SourceUploadRecord[]>(localStorage.getItem('source_upload_records'), defaultUploadRecords()),
+      manualRecommendPrices: safeParse<Record<string, number>>(localStorage.getItem('manual_recommend_prices'), {}),
+      investmentRateInputs: safeParse<InvestmentRateInputs>(localStorage.getItem('investment_rate_inputs'), DEFAULT_INVESTMENT_RATE_INPUTS),
+      selectedCompetitionPpvs: safeParse<string[]>(localStorage.getItem('selected_competition_ppvs'), tradeInProducts.map(product => product.ppv)),
+      historyBatches,
+      activeSubsidyFileName: localStorage.getItem('current_subsidies_filename') || '未上传补贴表，沿用基础表字段'
+    }, INITIAL_PRODUCTS, 'tradeIn'),
+    selfOperated: normalizeState({
+      productsMaster: tradeInProducts,
+      sourceUploadRecords: defaultUploadRecords().map(record => ({
+        ...record,
+        id: 'SRC-SELF-20260518-BASE',
+        remarks: '自营渠道初始化沿用基础竞争表，补贴按自营普发券单独维护。'
+      })),
+      historyBatches: [],
+      activeSubsidyFileName: '未粘贴自营普发券'
+    }, INITIAL_PRODUCTS, 'selfOperated')
+  };
+};
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'workspace' | 'upload' | 'history' | 'competitiveness'>('workspace');
-  
-  // App state
-  const [productsMaster, setProductsMaster] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('products_master_rows');
-    return saved ? JSON.parse(saved).map(hydrateThirtyDayVolumes) : INITIAL_PRODUCTS.map(hydrateThirtyDayVolumes);
-  });
-  const [dailyPriceRows, setDailyPriceRows] = useState<DailyPriceRow[]>(() => {
-    const saved = localStorage.getItem('daily_price_rows');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [subsidyRules, setSubsidyRules] = useState<SubsidyRule[]>(() => {
-    const saved = localStorage.getItem('subsidy_rules');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [sourceUploadRecords, setSourceUploadRecords] = useState<SourceUploadRecord[]>(() => {
-    const saved = localStorage.getItem('source_upload_records');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'SRC-20260518-BASE',
-        type: 'base',
-        fileName: '手机安卓换新比价 (1).xlsx / 询价表0518',
-        uploadedAt: '2026-05-18 00:00:00',
-        rowCount: INITIAL_PRODUCTS.length,
-        matchedCount: INITIAL_PRODUCTS.length,
-        remarks: '内置初始化数据，保留询价表0518全部62个源字段。'
-      }
-    ];
-  });
-  const [marginBottomLine, setMarginBottomLine] = useState<number>(0.03); // 追后边际利润率底线
-  const [pricingMode, setPricingMode] = useState<PricingMode>('margin');
-  const [lastApiSyncTime, setLastApiSyncTime] = useState<string>('2026-05-18 询价表0518 已载入');
+  const [activeChannelId, setActiveChannelId] = useState<ChannelId>(DEFAULT_CHANNEL_ID);
+  const [activeTab, setActiveTab] = useState<ViewTab>('workspace');
+  const [channelStates, setChannelStates] = useState<ChannelStates>(createInitialChannelStates);
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
-  const [manualRecommendPrices, setManualRecommendPrices] = useState<Record<string, number>>(() => {
-    const saved = localStorage.getItem('manual_recommend_prices');
-    if (!saved) return {};
-    try {
-      return JSON.parse(saved);
-    } catch (err) {
-      return {};
-    }
-  });
-  const [investmentRateInputs, setInvestmentRateInputs] = useState<InvestmentRateInputs>(() => {
-    const saved = localStorage.getItem('investment_rate_inputs');
-    if (!saved) return DEFAULT_INVESTMENT_RATE_INPUTS;
-    try {
-      return { ...DEFAULT_INVESTMENT_RATE_INPUTS, ...JSON.parse(saved) };
-    } catch (err) {
-      return DEFAULT_INVESTMENT_RATE_INPUTS;
-    }
-  });
-  const [competitionVersionIndex, setCompetitionVersionIndex] = useState<number>(1);
-  const [selectedCompetitionPpvs, setSelectedCompetitionPpvs] = useState<string[]>(() => {
-    const saved = localStorage.getItem('selected_competition_ppvs');
-    return saved ? JSON.parse(saved) : productsMaster.map(p => p.ppv);
-  });
-  const [activeSubsidyFileName, setActiveSubsidyFileName] = useState<string>(() => {
-    return localStorage.getItem('current_subsidies_filename') || '未上传补贴表，沿用基础表字段';
-  });
+  const activeChannel = CHANNELS[activeChannelId];
+  const activeState = channelStates[activeChannelId];
 
-  // Historical backups list (persisted in localStorage for robust record keeping "落库")
-  const [historyBatches, setHistoryBatches] = useState<TrackingBatch[]>(() => {
-    const saved = localStorage.getItem('history_batches_list');
-    if (saved) {
-      try {
-        return mergeInitialCompetitivenessHistory(JSON.parse(saved));
-      } catch (err) {
-        // Fallback below
-      }
-    }
-    
-    // Build static default initial batch so first-time users see realistic reference values
-    const baselineProducts = INITIAL_PRODUCTS.map(p => {
-      const yestP: Product = {
-        ...p,
-        jdPrice: Math.round(p.jdPrice * 0.98),
-        tmPrice: p.tmPrice > 0 ? Math.round(p.tmPrice * 1.01) : 0,
-        zzPrice: p.zzPrice > 0 ? Math.round(p.zzPrice * 1.008) : 0,
-      };
-      return calculateProductPrice(yestP, 0.09); 
-    });
+  const updateActiveState = (updater: (state: ChannelWorkspaceState) => ChannelWorkspaceState) => {
+    setChannelStates(prev => ({
+      ...prev,
+      [activeChannelId]: updater(prev[activeChannelId])
+    }));
+  };
 
-    return [
-      ...INITIAL_COMPETITIVENESS_HISTORY,
-      {
-        id: 'TRACK-20260518-INIT',
-        date: '2026-05-18',
-        operator: '定价运营',
-        dataDate: '2026-05-18',
-        marginBottomLine: 0.09,
-        products: baselineProducts,
-        remarks: '询价表0518线上化基准快照。保留全部源字段，采用9%追后边际利润率底线。',
-        subsidyFileName: '手机安卓换新比价 (1).xlsx'
-      }
-    ];
-  });
-
-  // 1. Core pricing evaluation pipeline of the tracking table
   useEffect(() => {
-    const dailyPriceByPpv = new Map<string, DailyPriceRow>(dailyPriceRows.map(row => [row.ppv, row]));
-    const subsidyRulesBySeries = subsidyRules.reduce((acc, rule) => {
+    const dailyPriceByPpv = new Map<string, DailyPriceRow>(activeState.dailyPriceRows.map(row => [row.ppv, row]));
+    const subsidyRulesBySeries = activeState.subsidyRules.reduce((acc, rule) => {
       const list = acc.get(rule.newSeries) || [];
       list.push(rule);
       acc.set(rule.newSeries, list);
       return acc;
     }, new Map<string, SubsidyRule[]>());
 
-    const matchedProducts = productsMaster.map(prod => {
+    const matchedProducts = activeState.productsMaster.map(prod => {
       const dailyMatch = dailyPriceByPpv.get(prod.ppv);
       let jdPrice = prod.jdPrice;
       let ahsInput = prod.ahsInput;
+      let jdSubsidy = prod.jdSubsidy;
       let basePrice = prod.basePrice;
       let levelId = prod.levelId || '';
 
@@ -363,83 +420,68 @@ export default function App() {
         }
       }
 
-      const seriesRules = subsidyRulesBySeries.get(prod.newSeries);
+      const seriesRules = activeChannel.subsidyMode === 'seriesThreshold' ? subsidyRulesBySeries.get(prod.newSeries) : undefined;
       if (seriesRules && seriesRules.length > 0) {
         const sortedRules = [...seriesRules].sort((a, b) => a.threshold - b.threshold);
         const rule = sortedRules.filter(item => jdPrice >= item.threshold).at(-1);
         if (rule) {
           ahsInput = rule.ahsInput;
+          jdSubsidy = rule.jdSubsidy;
         }
+      } else if (activeChannel.subsidyMode === 'generalThreshold') {
+        ahsInput = 0;
+        jdSubsidy = 0;
       }
 
       return {
         ...prod,
         jdPrice,
         ahsInput,
+        jdSubsidy,
         basePrice,
         levelId
       };
     });
 
-    const calculated = runBatchCalculations(matchedProducts, marginBottomLine, subsidyRules, pricingMode);
+    const calculated = runBatchCalculations(matchedProducts, activeState.marginBottomLine, activeState.subsidyRules, activeState.pricingMode, {
+      channel: activeChannel,
+      selfSubsidyRules: activeState.selfSubsidyRules
+    });
     const withManualPrices = calculated.map(product => {
-      const manualPrice = manualRecommendPrices[product.ppv];
+      const manualPrice = activeState.manualRecommendPrices[product.ppv];
       return Number.isFinite(manualPrice)
-        ? applyManualRecommendedPrice(product, manualPrice, marginBottomLine, subsidyRules)
+        ? applyManualRecommendedPrice(product, manualPrice, activeState.marginBottomLine, activeState.subsidyRules, {
+          channel: activeChannel,
+          selfSubsidyRules: activeState.selfSubsidyRules
+        })
         : product;
     });
-    setActiveCalculatedItems(addSmallGapOpportunityRemarks(withManualPrices));
-  }, [productsMaster, dailyPriceRows, subsidyRules, marginBottomLine, pricingMode, manualRecommendPrices]);
-
-  // 2. Sync historyBatches to localStorage on state changes for robust database preservation ("期期落库")
-  useEffect(() => {
-    localStorage.setItem('history_batches_list', JSON.stringify(historyBatches));
-  }, [historyBatches]);
+    setActiveCalculatedItems(activeChannelId === 'tradeIn' ? addSmallGapOpportunityRemarks(withManualPrices) : withManualPrices);
+  }, [activeChannel, activeChannelId, activeState]);
 
   useEffect(() => {
-    localStorage.setItem('products_master_rows', JSON.stringify(productsMaster));
-  }, [productsMaster]);
-
-  useEffect(() => {
-    localStorage.setItem('selected_competition_ppvs', JSON.stringify(selectedCompetitionPpvs));
-  }, [selectedCompetitionPpvs]);
-
-  useEffect(() => {
-    localStorage.setItem('investment_rate_inputs', JSON.stringify(investmentRateInputs));
-  }, [investmentRateInputs]);
-
-  useEffect(() => {
-    localStorage.setItem('daily_price_rows', JSON.stringify(dailyPriceRows));
-  }, [dailyPriceRows]);
-
-  useEffect(() => {
-    localStorage.setItem('subsidy_rules', JSON.stringify(subsidyRules));
-  }, [subsidyRules]);
-
-  useEffect(() => {
-    localStorage.setItem('manual_recommend_prices', JSON.stringify(manualRecommendPrices));
-  }, [manualRecommendPrices]);
-
-  useEffect(() => {
-    localStorage.setItem('source_upload_records', JSON.stringify(sourceUploadRecords));
-  }, [sourceUploadRecords]);
+    localStorage.setItem(CHANNEL_STATE_STORAGE_KEY, JSON.stringify(channelStates));
+  }, [channelStates]);
 
   const nowText = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   const addUploadRecord = (record: Omit<SourceUploadRecord, 'id' | 'uploadedAt'>) => {
-    setSourceUploadRecords(prev => [
-      {
-        ...record,
-        id: `SRC-${Date.now()}`,
-        uploadedAt: nowText()
-      },
-      ...prev
-    ]);
+    updateActiveState(state => ({
+      ...state,
+      sourceUploadRecords: [
+        {
+          ...record,
+          id: `SRC-${Date.now()}`,
+          uploadedAt: nowText()
+        },
+        ...state.sourceUploadRecords
+      ]
+    }));
   };
 
   const countPpvMatches = (rows: { ppv: string }[]) => {
     const ppvSet = new Set(rows.map(row => row.ppv));
-    return productsMaster.filter(product => ppvSet.has(product.ppv)).length;
+    return activeState.productsMaster.filter(product => ppvSet.has(product.ppv)).length;
   };
 
   const countSubsidyMatches = (rows: SubsidyRule[]) => {
@@ -450,51 +492,96 @@ export default function App() {
       return acc;
     }, new Map<string, SubsidyRule[]>());
 
-    return productsMaster.filter(product => {
+    return activeState.productsMaster.filter(product => {
       const rules = rulesBySeries.get(product.newSeries);
       return !!rules?.some(rule => product.jdPrice >= rule.threshold);
     }).length;
   };
 
   const handleBaseProductsLoaded = (products: Product[], fileName: string) => {
-    setProductsMaster(products.map(hydrateThirtyDayVolumes));
-    setManualRecommendPrices({});
-    setSelectedCompetitionPpvs(products.map(product => product.ppv));
-    setLastApiSyncTime(`${fileName} 已载入`);
-    addUploadRecord({
-      type: 'base',
-      fileName,
-      rowCount: products.length,
-      matchedCount: products.length,
-      remarks: `本次基础竞争表，保留 ${products[0]?.sourceFieldCount || 0} 个源字段。`
-    });
+    const nextProducts = products.map(product => hydrateThirtyDayVolumes(product, activeChannelId));
+    updateActiveState(state => ({
+      ...state,
+      productsMaster: nextProducts,
+      manualRecommendPrices: {},
+      selectedCompetitionPpvs: nextProducts.map(product => product.ppv),
+      lastApiSyncTime: `${fileName} 已载入`,
+      sourceUploadRecords: [
+        {
+          id: `SRC-${Date.now()}`,
+          type: 'base',
+          fileName,
+          uploadedAt: nowText(),
+          rowCount: nextProducts.length,
+          matchedCount: nextProducts.length,
+          remarks: `本次基础竞争表，保留 ${nextProducts[0]?.sourceFieldCount || 0} 个源字段。`
+        },
+        ...state.sourceUploadRecords
+      ]
+    }));
   };
 
   const handleDailyPricesLoaded = (rows: DailyPriceRow[], fileName: string) => {
-    setDailyPriceRows(rows);
-    addUploadRecord({
-      type: 'dailyPrice',
-      fileName,
-      rowCount: rows.length,
-      matchedCount: countPpvMatches(rows),
-      remarks: '按 ppv 匹配 daily price：最终报价写入 jd裸机价，BI基准价写入基准价，等级id写入等级id列。'
-    });
+    const matchedCount = countPpvMatches(rows);
+    updateActiveState(state => ({
+      ...state,
+      dailyPriceRows: rows,
+      sourceUploadRecords: [
+        {
+          id: `SRC-${Date.now()}`,
+          type: 'dailyPrice',
+          fileName,
+          uploadedAt: nowText(),
+          rowCount: rows.length,
+          matchedCount,
+          remarks: '按 ppv 匹配 daily price：最终报价写入 jd裸机价，BI基准价写入基准价，等级id写入等级id列。'
+        },
+        ...state.sourceUploadRecords
+      ]
+    }));
   };
 
   const handleSubsidyRulesLoaded = (rules: SubsidyRule[], fileName: string) => {
-    setSubsidyRules(rules);
-    setActiveSubsidyFileName(fileName);
-    localStorage.setItem('current_subsidies_filename', fileName);
-    addUploadRecord({
-      type: 'subsidy',
-      fileName,
-      rowCount: rules.length,
-      matchedCount: countSubsidyMatches(rules),
-      remarks: '按 新机系列 + jd裸机价门槛 匹配对应新品型号ahs投入。'
-    });
+    const matchedCount = countSubsidyMatches(rules);
+    updateActiveState(state => ({
+      ...state,
+      subsidyRules: rules,
+      activeSubsidyFileName: fileName,
+      sourceUploadRecords: [
+        {
+          id: `SRC-${Date.now()}`,
+          type: 'subsidy',
+          fileName,
+          uploadedAt: nowText(),
+          rowCount: rules.length,
+          matchedCount,
+          remarks: '按 新机系列 + jd裸机价门槛 匹配对应新品型号ahs投入。'
+        },
+        ...state.sourceUploadRecords
+      ]
+    }));
   };
 
-  // 6. User clicks Save Batch Snapshot
+  const handleSelfSubsidyRulesLoaded = (rules: SelfOperatedSubsidyRule[], sourceName: string) => {
+    updateActiveState(state => ({
+      ...state,
+      selfSubsidyRules: rules,
+      activeSubsidyFileName: sourceName,
+      sourceUploadRecords: [
+        {
+          id: `SRC-${Date.now()}`,
+          type: 'selfSubsidy',
+          fileName: sourceName,
+          uploadedAt: nowText(),
+          rowCount: rules.length,
+          matchedCount: activeState.productsMaster.filter(product => rules.some(rule => product.jdPrice >= rule.threshold)).length,
+          remarks: '自营普发券：不分新机系列，按京东物品价门槛匹配，补贴全部计入AHS承担。'
+        },
+        ...state.sourceUploadRecords
+      ]
+    }));
+  };
+
   const handleSaveBatch = (remarks: string, operator: string, options?: SaveBatchOptions) => {
     const todayStr = new Date().toISOString().slice(0, 10);
     const timeCode = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
@@ -502,271 +589,362 @@ export default function App() {
     const confirmCompetitiveness = !!options?.confirmCompetitiveness;
     const competitivenessDate = options?.competitivenessDate || todayStr;
     const pricingTimestamp = options?.pricingTimestamp || new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const competitivenessMetrics = calculateCompetitivenessMetrics(activeCalculatedItems);
-    const investmentRateMetrics = calculateCompetitionInvestmentMetrics(activeCalculatedItems, investmentRateInputs);
+    const competitivenessMetrics = calculateCompetitivenessMetrics(activeCalculatedItems, activeChannelId);
+    const investmentRateMetrics = calculateCompetitionInvestmentMetrics(activeCalculatedItems, activeState.investmentRateInputs);
 
     const newBatch: TrackingBatch = {
       id: newBatchId,
+      channelId: activeChannelId,
+      channelName: activeChannel.name,
       date: todayStr,
-      operator: operator,
+      operator,
       dataDate: todayStr,
-      marginBottomLine: marginBottomLine,
-      pricingMode,
-      // Create a deep copy snapshot of current calculated state
+      marginBottomLine: activeState.marginBottomLine,
+      pricingMode: activeState.pricingMode,
       products: JSON.parse(JSON.stringify(activeCalculatedItems)),
-      remarks: `${remarks || ''}${remarks ? '；' : ''}${pricingMode === 'fullCompetition' ? '100%竞争力模式' : `边际底线${formatPercent(marginBottomLine)}`}；测算行 ${activeCalculatedItems.length} 条`,
-      subsidyFileName: activeSubsidyFileName,
+      remarks: `${remarks || ''}${remarks ? '；' : ''}${activeState.pricingMode === 'fullCompetition' ? '100%竞争力模式' : `边际底线${formatPercent(activeState.marginBottomLine)}`}；${activeChannel.name}；测算行 ${activeCalculatedItems.length} 条`,
+      subsidyFileName: activeState.activeSubsidyFileName,
       subsidyUploadTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
       isCompetitivenessConfirmed: confirmCompetitiveness,
       competitivenessDate: confirmCompetitiveness ? competitivenessDate : undefined,
       pricingTimestamp: confirmCompetitiveness ? pricingTimestamp : undefined,
       confirmedAt: confirmCompetitiveness ? new Date().toISOString().replace('T', ' ').slice(0, 19) : undefined,
       competitivenessMetrics: confirmCompetitiveness ? competitivenessMetrics : undefined,
-      investmentRateInputs,
+      investmentRateInputs: activeState.investmentRateInputs,
       investmentRateMetrics
     };
 
-    setHistoryBatches(prev => [
-      newBatch,
-      ...prev.map(batch => (
-        confirmCompetitiveness && batch.isCompetitivenessConfirmed && batch.competitivenessDate === competitivenessDate
-          ? { ...batch, isCompetitivenessConfirmed: false }
-          : batch
-      ))
-    ]);
+    updateActiveState(state => ({
+      ...state,
+      historyBatches: [
+        newBatch,
+        ...state.historyBatches.map(batch => (
+          confirmCompetitiveness && batch.isCompetitivenessConfirmed && (batch.competitivenessDate || batch.date) === competitivenessDate
+            ? { ...batch, isCompetitivenessConfirmed: false }
+            : batch
+        ))
+      ]
+    }));
   };
 
   const handleCompetitivenessHistoryLoaded = (batches: TrackingBatch[], fileName: string) => {
-    const confirmedDates = new Set(batches.map(batch => batch.competitivenessDate || batch.date));
-    setHistoryBatches(prev => [
-      ...batches,
-      ...prev.map(batch => (
-        batch.isCompetitivenessConfirmed && confirmedDates.has(batch.competitivenessDate || batch.date)
-          ? { ...batch, isCompetitivenessConfirmed: false }
-          : batch
-      ))
-    ]);
-    addUploadRecord({
-      type: 'competitivenessHistory',
-      fileName,
-      rowCount: batches.length,
-      matchedCount: batches.length,
-      remarks: '导入历史竞争力汇总，并作为正式落数进入竞争力趋势。'
-    });
+    const normalizedBatches = batches.map(batch => ({
+      ...batch,
+      channelId: activeChannelId,
+      channelName: activeChannel.name
+    }));
+    const confirmedDates = new Set(normalizedBatches.map(batch => batch.competitivenessDate || batch.date));
+    updateActiveState(state => ({
+      ...state,
+      historyBatches: [
+        ...normalizedBatches,
+        ...state.historyBatches.map(batch => (
+          batch.isCompetitivenessConfirmed && confirmedDates.has(batch.competitivenessDate || batch.date)
+            ? { ...batch, isCompetitivenessConfirmed: false }
+            : batch
+        ))
+      ],
+      sourceUploadRecords: [
+        {
+          id: `SRC-${Date.now()}`,
+          type: 'competitivenessHistory',
+          fileName,
+          uploadedAt: nowText(),
+          rowCount: batches.length,
+          matchedCount: batches.length,
+          remarks: '导入历史竞争力汇总，并作为正式落数进入竞争力趋势。'
+        },
+        ...state.sourceUploadRecords
+      ]
+    }));
   };
 
-  // 7. Re-runs the deterministic matching pipeline after source uploads.
   const handleTriggerApiRefresh = () => {
-    setLastApiSyncTime(`${nowText()} 已按当前上传数据重新匹配`);
+    updateActiveState(state => ({
+      ...state,
+      lastApiSyncTime: `${nowText()} 已按当前上传数据重新匹配`
+    }));
   };
 
-  // 8. Delete snapshot helper
   const handleDeleteBatch = (id: string) => {
-    setHistoryBatches(prev => prev.filter(b => b.id !== id));
+    updateActiveState(state => ({
+      ...state,
+      historyBatches: state.historyBatches.filter(batch => batch.id !== id)
+    }));
   };
 
   const handleToggleCompetitionPpv = (ppv: string, selected: boolean) => {
-    setSelectedCompetitionPpvs(prev => {
-      if (selected) {
-        return prev.includes(ppv) ? prev : [...prev, ppv];
-      }
-      return prev.filter(item => item !== ppv);
-    });
+    updateActiveState(state => ({
+      ...state,
+      selectedCompetitionPpvs: selected
+        ? (state.selectedCompetitionPpvs.includes(ppv) ? state.selectedCompetitionPpvs : [...state.selectedCompetitionPpvs, ppv])
+        : state.selectedCompetitionPpvs.filter(item => item !== ppv)
+    }));
   };
 
   const handleMarginChange = (margin: number) => {
-    setMarginBottomLine(margin);
-    setPricingMode('margin');
+    updateActiveState(state => ({
+      ...state,
+      marginBottomLine: margin,
+      pricingMode: 'margin'
+    }));
+  };
+
+  const handlePricingModeChange = (mode: PricingMode) => {
+    updateActiveState(state => ({
+      ...state,
+      pricingMode: mode
+    }));
   };
 
   const handleCreateCompetitionVersion = () => {
-    setCompetitionVersionIndex(prev => prev + 1);
+    updateActiveState(state => ({
+      ...state,
+      competitionVersionIndex: state.competitionVersionIndex + 1
+    }));
     setActiveTab('workspace');
   };
 
   const handleManualRecommendPriceChange = (ppv: string, price?: number) => {
-    setManualRecommendPrices(prev => {
-      const next = { ...prev };
+    updateActiveState(state => {
+      const next = { ...state.manualRecommendPrices };
       if (price === undefined) {
         delete next[ppv];
       } else {
         next[ppv] = price;
       }
-      return next;
+      return {
+        ...state,
+        manualRecommendPrices: next
+      };
     });
   };
 
+  const setInvestmentRateInputs = (inputs: InvestmentRateInputs) => {
+    updateActiveState(state => ({
+      ...state,
+      investmentRateInputs: inputs
+    }));
+  };
+
+  const viewButtons: { id: ViewTab; label: string }[] = [
+    { id: 'workspace', label: '追价工作台' },
+    { id: 'upload', label: `数据源 (${activeState.sourceUploadRecords.length})` },
+    { id: 'history', label: `历史 (${activeState.historyBatches.length})` },
+    { id: 'competitiveness', label: '竞争力走势' }
+  ];
+  const channelOrder: ChannelId[] = ['tradeIn', 'selfOperated'];
+  const channelTargetLabel = (channelId: ChannelId) => (
+    CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价+2' : '天猫裸机价+2'
+  );
+
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans overflow-x-hidden selection:bg-[#141414] selection:text-[#E4E3E0]">
-      {/* 顶部标题栏 */}
-      <header className="flex flex-col md:flex-row items-start md:items-center justify-between px-6 py-4 border-b border-[#141414] bg-[#E4E3E0] gap-4">
-        <div className="flex flex-col">
-          <h1 className="text-xl font-bold tracking-tight uppercase flex items-center flex-wrap gap-2">
-            线上竞争追价系统
-          </h1>
-          <div className="flex flex-wrap gap-4 mt-1">
-            <div className="flex items-center gap-2 text-xs text-[#141414]/70">
-              <span>数据版本：{lastApiSyncTime}</span>
-            </div>
+      <div className="flex min-h-screen">
+        <aside className="w-[260px] shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col">
+          <div className="p-5 border-b border-[#141414] bg-[#E4E3E0]">
+            <h1 className="text-lg font-black leading-tight">线上竞争追价系统</h1>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button 
-            onClick={() => setActiveTab('upload')}
-            className={`px-4 py-2 border border-[#141414] text-xs font-bold transition-colors ${activeTab === 'upload' ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-[#E4E3E0] text-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0]'}`}
-          >
-            上传数据源
-          </button>
-          <button 
-            onClick={() => {
-              setActiveTab('workspace');
-              setTimeout(() => {
-                const el = document.getElementById('save-snapshot-btn-element');
-                if (el) {
-                  el.scrollIntoView({ behavior: 'smooth' });
-                  el.click();
-                } else {
-                  alert('请在测算工作台点击“保存当前测算快照”');
-                }
-              }, 150);
-            }}
-            className="px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold hover:bg-[#2A2A2B] transition-all"
-          >
-            保存测算快照
-          </button>
-        </div>
-      </header>
 
-      {/* 视图切换与全局参数配置区 */}
-      <section className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 px-6 py-3 border-b border-[#141414] bg-[#D8D7D2] items-center">
-        {/* 导航标签 */}
-        <div className="flex flex-wrap gap-4 items-center overflow-hidden">
-          <span className="text-xs font-bold opacity-70">视图：</span>
-          <div className="flex flex-wrap border border-[#141414] bg-white text-[12px]">
-            <button 
-              onClick={() => setActiveTab('workspace')}
-              className={`px-4 py-1.5 border-r border-[#141414] hover:bg-black hover:text-white cursor-pointer font-bold transition-all ${activeTab === 'workspace' ? 'bg-[#141414] text-white' : 'text-[#141414]'}`}
-            >
-              竞争追价工作台
-            </button>
-            <button 
-              onClick={() => setActiveTab('upload')}
-              className={`px-4 py-1.5 border-r border-[#141414] hover:bg-black hover:text-white cursor-pointer font-bold transition-all ${activeTab === 'upload' ? 'bg-[#141414] text-white' : 'text-[#141414]'}`}
-            >
-              数据上传与匹配 ({sourceUploadRecords.length})
-            </button>
-            <button 
-              onClick={() => setActiveTab('history')}
-              className={`px-4 py-1.5 border-r border-[#141414] hover:bg-black hover:text-white cursor-pointer font-bold transition-all ${activeTab === 'history' ? 'bg-[#141414] text-white' : 'text-[#141414]'}`}
-            >
-              历史对比 ({historyBatches.length})
-            </button>
-            <button 
-              onClick={() => setActiveTab('competitiveness')}
-              className={`px-4 py-1.5 hover:bg-black hover:text-white cursor-pointer font-bold transition-all ${activeTab === 'competitiveness' ? 'bg-[#141414] text-white' : 'text-[#141414]'}`}
-            >
-              📊 竞争力走势与总结
-            </button>
+          <div className="flex-1 p-5 space-y-7">
+            {channelOrder.map(channelId => {
+              const channel = CHANNELS[channelId];
+              const selected = activeChannelId === channelId;
+              return (
+                <div key={channelId} className="space-y-5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveChannelId(channelId);
+                      if (!selected) setActiveTab('workspace');
+                    }}
+                    className={`relative w-full border-2 px-5 py-4 text-left text-xs font-black transition-colors ${
+                      selected
+                        ? 'border-[#141414] bg-[#141414] text-white'
+                        : 'border-[#141414] bg-white text-[#141414] hover:bg-[#141414] hover:text-white'
+                    }`}
+                  >
+                    <div className="text-sm leading-none">
+                      {channel.name} {selected ? '▼' : ''}
+                    </div>
+                    <div className="mt-3 text-sm leading-none font-bold">
+                      {channelTargetLabel(channelId)}
+                    </div>
+                  </button>
+
+                  {selected && (
+                    <nav className="ml-6 space-y-2 text-sm font-bold">
+                      {viewButtons.map((button, index) => {
+                        const active = activeTab === button.id;
+                        const marker = index === viewButtons.length - 1 ? '└' : '├';
+                        return (
+                          <button
+                            key={button.id}
+                            type="button"
+                            onClick={() => setActiveTab(button.id)}
+                            className={`block w-full border px-3 py-2 text-left text-xs transition-colors ${
+                              active
+                                ? 'border-[#141414] bg-[#141414] text-white font-black'
+                                : 'border-[#141414] bg-white text-[#141414] hover:bg-[#141414] hover:text-white'
+                            }`}
+                          >
+                            <span className="inline-block w-5 font-mono">{marker}</span>
+                            <span>{button.label}</span>
+                          </button>
+                        );
+                      })}
+                    </nav>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </div>
 
-        {/* 全局追价策略 */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold opacity-70">追价策略：</span>
-          <div className="flex gap-1 bg-white p-0.5 border border-[#141414]">
-            {[-0.03, 0, 0.03].map(val => (
-              <button 
-                key={val}
-                onClick={() => handleMarginChange(val)}
-                className={`px-2.5 py-0.5 text-xs font-bold transition-all ${pricingMode === 'margin' && marginBottomLine === val ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10'}`}
-              >
-                {formatPercent(val)}
-              </button>
-            ))}
+          <div className="p-4 border-t border-[#141414] space-y-2">
             <button
               type="button"
-              onClick={() => setPricingMode('fullCompetition')}
-              className={`px-2.5 py-0.5 text-xs font-bold transition-all ${pricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10'}`}
+              onClick={() => {
+                setActiveTab('upload');
+              }}
+              className="w-full border border-[#141414] bg-white px-3 py-2 text-xs font-bold hover:bg-[#141414] hover:text-white"
             >
-              100%竞争力
+              上传数据源
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('workspace');
+                setTimeout(() => {
+                  const el = document.getElementById('save-snapshot-btn-element');
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth' });
+                    el.click();
+                  } else {
+                    alert('请在测算工作台点击“保存当前测算快照”');
+                  }
+                }, 150);
+              }}
+              className="w-full border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white hover:bg-[#2A2A2B]"
+            >
+              保存测算快照
             </button>
           </div>
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <header className="flex flex-col md:flex-row items-start md:items-center justify-between px-6 py-4 border-b border-[#141414] bg-[#E4E3E0] gap-4">
+            <div className="flex flex-col">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-xs font-black text-white">{activeChannel.name}</span>
+                <h2 className="text-xl font-bold tracking-tight uppercase">竞争追价控制台</h2>
+              </div>
+              <div className="flex flex-wrap gap-4 mt-1">
+                <div className="flex items-center gap-2 text-xs text-[#141414]/70">
+                  <span>数据版本：{activeState.lastApiSyncTime}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold opacity-70">追价策略：</span>
+              <div className="flex gap-1 bg-white p-0.5 border border-[#141414]">
+                {[-0.03, 0, 0.03].map(val => (
+                  <button
+                    key={val}
+                    onClick={() => handleMarginChange(val)}
+                    className={`px-2.5 py-0.5 text-xs font-bold transition-all ${activeState.pricingMode === 'margin' && activeState.marginBottomLine === val ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10'}`}
+                  >
+                    {formatPercent(val)}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => handlePricingModeChange('fullCompetition')}
+                  className={`px-2.5 py-0.5 text-xs font-bold transition-all ${activeState.pricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10'}`}
+                >
+                  100%竞争力
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="px-6 py-6 space-y-6 max-w-[1440px] mx-auto">
+            <DashboardStats
+              products={activeCalculatedItems}
+              marginBottomLine={activeState.marginBottomLine}
+              pricingMode={activeState.pricingMode}
+              channelId={activeChannelId}
+            />
+
+            <div className="border border-[#141414] bg-white p-1">
+              {activeTab === 'workspace' && (
+                <>
+                  <InvestmentRatePanel
+                    products={activeCalculatedItems}
+                    investmentRateInputs={activeState.investmentRateInputs}
+                    onInvestmentRateInputsChange={setInvestmentRateInputs}
+                    channelSalesLabel={activeChannel.channelSalesLabel}
+                  />
+                  <MainTable
+                    products={activeCalculatedItems}
+                    marginBottomLine={activeState.marginBottomLine}
+                    pricingMode={activeState.pricingMode}
+                    channelId={activeChannelId}
+                    onMarginChange={handleMarginChange}
+                    onPricingModeChange={handlePricingModeChange}
+                    onSaveBatch={handleSaveBatch}
+                    onTriggerApiRefresh={handleTriggerApiRefresh}
+                    lastApiSyncTime={activeState.lastApiSyncTime}
+                    competitionVersionName={`竞争版本 V${activeState.competitionVersionIndex}`}
+                    selectedCompetitionPpvs={activeState.selectedCompetitionPpvs}
+                    onToggleCompetitionPpv={handleToggleCompetitionPpv}
+                    onCreateCompetitionVersion={handleCreateCompetitionVersion}
+                    onManualRecommendPriceChange={handleManualRecommendPriceChange}
+                  />
+                </>
+              )}
+
+              {activeTab === 'upload' && (
+                <UploadSection
+                  channelId={activeChannelId}
+                  currentProducts={activeState.productsMaster}
+                  dailyPrices={activeState.dailyPriceRows}
+                  subsidyRules={activeState.subsidyRules}
+                  selfSubsidyRules={activeState.selfSubsidyRules}
+                  uploadRecords={activeState.sourceUploadRecords}
+                  onBaseProductsLoaded={handleBaseProductsLoaded}
+                  onDailyPricesLoaded={handleDailyPricesLoaded}
+                  onSubsidyRulesLoaded={handleSubsidyRulesLoaded}
+                  onSelfSubsidyRulesLoaded={handleSelfSubsidyRulesLoaded}
+                  onCompetitivenessHistoryLoaded={handleCompetitivenessHistoryLoaded}
+                />
+              )}
+
+              {activeTab === 'history' && (
+                <HistoryPanel
+                  historyBatches={activeState.historyBatches}
+                  onDeleteBatch={handleDeleteBatch}
+                  channelName={activeChannel.name}
+                />
+              )}
+
+              {activeTab === 'competitiveness' && (
+                <CompetitivenessSummary
+                  historyBatches={activeState.historyBatches}
+                  currentCalculatedItems={activeCalculatedItems}
+                  activeSubsidyFileName={activeState.activeSubsidyFileName}
+                  channelId={activeChannelId}
+                  channelName={activeChannel.name}
+                />
+              )}
+            </div>
+          </main>
+
+          <footer className="mt-12 border-t border-[#141414] bg-[#D8D7D2] py-6 text-center text-[#141414] px-6 text-xs">
+            <p className="opacity-80">线上竞争追价系统 © 2026</p>
+          </footer>
         </div>
-      </section>
-
-      {/* Main Content Area */}
-      <main className="px-6 py-6 space-y-6 max-w-[1440px] mx-auto">
-        {/* Dynamic Visual Stats Area */}
-        <DashboardStats 
-          products={activeCalculatedItems} 
-          marginBottomLine={marginBottomLine}
-          pricingMode={pricingMode}
-        />
-
-        {/* Workspace Display with exact Industrial Border themes */}
-        <div className="border border-[#141414] bg-white p-1">
-          {activeTab === 'workspace' && (
-            <>
-              <InvestmentRatePanel
-                products={activeCalculatedItems}
-                investmentRateInputs={investmentRateInputs}
-                onInvestmentRateInputsChange={setInvestmentRateInputs}
-              />
-              <MainTable
-                products={activeCalculatedItems}
-                marginBottomLine={marginBottomLine}
-                pricingMode={pricingMode}
-                onMarginChange={handleMarginChange}
-                onPricingModeChange={setPricingMode}
-                onSaveBatch={handleSaveBatch}
-                onTriggerApiRefresh={handleTriggerApiRefresh}
-                lastApiSyncTime={lastApiSyncTime}
-                competitionVersionName={`竞争版本 V${competitionVersionIndex}`}
-                selectedCompetitionPpvs={selectedCompetitionPpvs}
-                onToggleCompetitionPpv={handleToggleCompetitionPpv}
-                onCreateCompetitionVersion={handleCreateCompetitionVersion}
-                onManualRecommendPriceChange={handleManualRecommendPriceChange}
-              />
-            </>
-          )}
-
-          {activeTab === 'upload' && (
-            <UploadSection
-              currentProducts={productsMaster}
-              dailyPrices={dailyPriceRows}
-              subsidyRules={subsidyRules}
-              uploadRecords={sourceUploadRecords}
-              onBaseProductsLoaded={handleBaseProductsLoaded}
-              onDailyPricesLoaded={handleDailyPricesLoaded}
-              onSubsidyRulesLoaded={handleSubsidyRulesLoaded}
-              onCompetitivenessHistoryLoaded={handleCompetitivenessHistoryLoaded}
-            />
-          )}
-
-          {activeTab === 'history' && (
-            <HistoryPanel
-              historyBatches={historyBatches}
-              onDeleteBatch={handleDeleteBatch}
-            />
-          )}
-
-          {activeTab === 'competitiveness' && (
-            <CompetitivenessSummary
-              historyBatches={historyBatches}
-              currentCalculatedItems={activeCalculatedItems}
-              activeSubsidyFileName={activeSubsidyFileName}
-            />
-          )}
-
-        </div>
-      </main>
-
-      {/* 极简页脚 */}
-      <footer className="mt-12 border-t border-[#141414] bg-[#D8D7D2] py-6 text-center text-[#141414] px-6 text-xs">
-        <p className="opacity-80">
-          线上竞争追价系统 © 2026
-        </p>
-      </footer>
+      </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalculatedProduct, PricingMode } from '../types';
+import { CalculatedProduct, ChannelId, PricingMode } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateCompetitivenessMetrics } from '../utils/competitiveness';
 import * as XLSX from 'xlsx';
@@ -14,6 +14,7 @@ interface Props {
   products: CalculatedProduct[];
   marginBottomLine: number;
   pricingMode: PricingMode;
+  channelId?: ChannelId;
   onMarginChange: (margin: number) => void;
   onPricingModeChange: (mode: PricingMode) => void;
   onSaveBatch: (
@@ -56,11 +57,13 @@ export default function MainTable({
   products,
   marginBottomLine,
   pricingMode,
+  channelId = 'tradeIn',
   onMarginChange,
   onPricingModeChange,
   onSaveBatch,
   onManualRecommendPriceChange,
 }: Props) {
+  const isSelfOperated = channelId === 'selfOperated';
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [batchRemarks, setBatchRemarks] = useState('');
   const [operatorName, setOperatorName] = useState('定价运营');
@@ -114,8 +117,13 @@ export default function MainTable({
   const rawFieldKeys = Array.from(products.reduce((fields, product) => {
     Object.keys(product.rawFields || {}).forEach(key => fields.add(key));
     return fields;
-  }, new Set<string>()));
-  const liveCompetitiveness = calculateCompetitivenessMetrics(products);
+  }, new Set<string>())).filter(key => {
+    if (!isSelfOperated) return true;
+    const { label } = splitFieldKey(key);
+    return !/(新机系列|tm|天猫|jd总到手价|京东总补贴|对应新品型号ahs投入|含AHS补贴后报价)/i.test(`${key}${label}`);
+  });
+  const quoteWeightLabel = isSelfOperated ? 'ppv近30天报价访客数' : 'ppv近30天报价量';
+  const liveCompetitiveness = calculateCompetitivenessMetrics(products, channelId);
   const reasonOptions = Array.from(products.reduce((options, product) => {
     product.pricingRemark
       .split('；')
@@ -130,7 +138,7 @@ export default function MainTable({
     const query = searchTerm.toLowerCase();
     const matchesSearch = p.ppv.toLowerCase().includes(query) || p.oldModel.toLowerCase().includes(query) || p.newSeries.toLowerCase().includes(query);
     const matchesReason = selectedReasonFilters.length === 0 || selectedReasonFilters.some(reason => p.pricingRemark.includes(reason));
-    const matchesSeries = selectedSeries === 'ALL' || p.newSeries === selectedSeries;
+    const matchesSeries = isSelfOperated || selectedSeries === 'ALL' || p.newSeries === selectedSeries;
     const matchesRisk = filterRisk === 'ALL' || p.riskWarning === filterRisk;
     return matchesSearch && matchesReason && matchesSeries && matchesRisk;
   });
@@ -173,105 +181,26 @@ export default function MainTable({
 
   const exportToExcel = () => {
     const inquirySheetName = getInquirySheetName();
+    const channelName = isSelfOperated ? '自营' : '京东换新';
     const profitFloorText = pricingMode === 'fullCompetition' ? '100%竞争力' : formatPercent(marginBottomLine);
-    const fixedCodes = [
-      'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
-    ];
-    const exportFixedColumnWidths = [
-      ...fixedColumnWidths.slice(0, 23),
-      180,
-      ...fixedColumnWidths.slice(23, 29),
-      132,
-      ...fixedColumnWidths.slice(29)
-    ];
-    const fixedLabels = [
-      '新机系列',
-      '旧机型号',
-      'ppv',
-      '商品SKUID',
-      '等级id',
-      'ppv近30天报价量',
-      'ppv近30天成交量',
-      'jd裸机价',
-      '对应新品型号ahs投入',
-      '含AHS补贴后报价',
-      'jd总到手价',
-      'tm裸机价',
-      'tm总补贴-人工',
-      'tm总到手价',
-      'zz裸机价',
-      'zz券后价',
-      '基准价',
-      '追前边际利润率',
-      '裸机比tm',
-      '到手比tm',
-      '裸机比zz',
-      '仅含ahs补贴+裸机 vs zz到手',
-      '京东物品价-追价后',
-      '京东物品价-追价后理由',
-      '京东物品价-追价后调整金额',
-      '小差额提醒',
-      'ahs承担补贴-追价后',
-      '含AHS补贴后报价-追价后',
-      'jd总到手价-追价后',
-      '追后边际利润率',
-      '追后边际利润率说明',
-      '京东物品价-追价后 vs 天猫',
-      '京东到手价-追价后 vs 天猫',
-      '京东物品价-追价后 vs 转转',
-      '京东物品价+ahs补贴-追价后 vs 转转'
-    ];
     const dataToExport = [
-      [...fixedCodes, ...rawFieldKeys.map(key => splitFieldKey(key).code)],
-      [...fixedLabels, ...rawFieldKeys.map(key => splitFieldKey(key).label)],
+      [...exportFixedIndexes.map(index => fixedCodes[index]), ...rawFieldKeys.map(key => splitFieldKey(key).code)],
+      [...exportFixedIndexes.map(index => fixedLabels[index]), ...rawFieldKeys.map(key => splitFieldKey(key).label)],
       ...filteredProducts.map(p => [
-        p.newSeries,
-        p.oldModel,
-        p.ppv,
-        displayValue(p.skuId),
-        p.levelId || '',
-        p.quoteVolume,
-        p.soldVolume || 0,
-        displayValue(p.jdPrice),
-        displayValue(p.ahsInput),
-        formatRMB(p.ahsQuotedPrice),
-        formatRMB(p.jdHandPrice),
-        displayValue(p.tmPrice),
-        displayValue(p.tmSubsidyManual),
-        formatRMB(p.tmHandPrice),
-        displayValue(p.zzPrice),
-        formatRMB(p.zzHandPrice),
-        formatRMB(p.basePrice),
-        formatPercent(p.preMarginalProfit),
-        p.tmItemWin ? 1 : 0,
-        p.tmHandWin ? 1 : 0,
-        p.zzItemWin ? 1 : 0,
-        p.ahsZzHandWin ? 1 : 0,
-        formatRMB(p.recommendJdPrice),
-        p.pricingRemark || '',
-        formatRMB(p.recommendAdjustment),
-        p.smallGapOpportunityRemark || '',
-        formatRMB(p.ahsSubsidyAfter),
-        formatRMB(p.postAhsPrice),
-        formatRMB(p.postJdHandPrice),
-        formatPercent(p.postMarginalProfit),
-        `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
-        p.postTmItemWin ? 1 : 0,
-        p.postTmHandWin ? 1 : 0,
-        p.postZzItemWin ? 1 : 0,
-        p.postAhsZzHandWin ? 1 : 0,
+        ...exportFixedIndexes.map(index => getFixedExportValues(p)[index]),
         ...rawFieldKeys.map(key => displayValue(p.rawFields[key] ?? null))
       ])
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(dataToExport);
-    ws['!cols'] = [...exportFixedColumnWidths, ...rawColumnWidths].map(width => ({ wch: Math.max(10, Math.round(width / 7)) }));
+    ws['!cols'] = [...exportFixedIndexes.map(index => exportFixedColumnWidths[index]), ...rawColumnWidths].map(width => ({ wch: Math.max(10, Math.round(width / 7)) }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `${inquirySheetName}_线上追价`);
+    XLSX.utils.book_append_sheet(wb, ws, `${inquirySheetName}_${channelName}追价`);
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['渠道', channelName],
       ['当前追价模式/利润底线', profitFloorText]
     ]), '测算设置');
-    XLSX.writeFile(wb, `${inquirySheetName}_线上竞争追价测算_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `${inquirySheetName}_${channelName}竞争追价测算_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const displayValue = (value: string | number | boolean | null) => {
@@ -322,7 +251,97 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 104, 104, 92, 92, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 168, 150, 116, 148, 148, 110, 150, 160, 160, 220
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 104, 92, 116, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 180, 150, 150, 148, 148, 110, 150, 132, 160, 160, 160, 220
+  ];
+  const fixedCodes = [
+    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
+  ];
+  const fixedLabels = [
+    '新机系列',
+    '旧机型号',
+    'ppv',
+    '商品SKUID',
+    '等级id',
+    quoteWeightLabel,
+    'ppv近30天成交量',
+    'jd裸机价',
+    isSelfOperated ? '自营普发券AHS补贴' : '对应新品型号ahs投入',
+    isSelfOperated ? 'jd裸机价+AHS补贴' : '含AHS补贴后报价',
+    'jd总到手价',
+    'tm裸机价',
+    'tm总补贴-人工',
+    'tm总到手价',
+    'zz裸机价',
+    'zz券后价',
+    '基准价',
+    '追前边际利润率',
+    '裸机比tm',
+    '到手比tm',
+    '裸机比zz',
+    '仅含ahs补贴+裸机 vs zz到手',
+    '京东物品价-追价后',
+    '京东物品价-追价后理由',
+    '京东物品价-追价后调整金额',
+    '小差额提醒',
+    isSelfOperated ? '追后AHS补贴' : 'ahs承担补贴-追价后',
+    isSelfOperated ? '追后物品价+AHS补贴' : '含AHS补贴后报价-追价后',
+    'jd总到手价-追价后',
+    '追后边际利润率',
+    '追后边际利润率说明',
+    '京东物品价-追价后 vs 天猫',
+    '京东到手价-追价后 vs 天猫',
+    '京东物品价-追价后 vs 转转',
+    '京东物品价+ahs补贴-追价后 vs 转转'
+  ];
+  const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 18, 19, 25, 28, 31, 32]);
+  const noteDisplayHiddenColumnIndexes = new Set([23, 30]);
+  const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
+  const isFixedColumnVisible = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
+  const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index);
+  const exportFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnExported);
+  const visibleFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnVisible);
+  const visibleFixedColumnWidths = fixedColumnWidths.filter((_, index) => isFixedColumnVisible(index));
+  const exportFixedColumnWidths = fixedColumnWidths;
+  const fixedColumnStyle = (index: number): React.CSSProperties | undefined => (
+    isFixedColumnVisible(index) ? undefined : { display: 'none' }
+  );
+
+  const getFixedExportValues = (p: CalculatedProduct) => [
+    p.newSeries,
+    p.oldModel,
+    p.ppv,
+    displayValue(p.skuId),
+    p.levelId || '',
+    p.quoteVolume,
+    p.soldVolume || 0,
+    displayValue(p.jdPrice),
+    displayValue(p.ahsInput),
+    formatRMB(p.ahsQuotedPrice),
+    formatRMB(p.jdHandPrice),
+    displayValue(p.tmPrice),
+    displayValue(p.tmSubsidyManual),
+    formatRMB(p.tmHandPrice),
+    displayValue(p.zzPrice),
+    formatRMB(p.zzHandPrice),
+    formatRMB(p.basePrice),
+    formatPercent(p.preMarginalProfit),
+    p.tmItemWin ? 1 : 0,
+    p.tmHandWin ? 1 : 0,
+    p.zzItemWin ? 1 : 0,
+    p.ahsZzHandWin ? 1 : 0,
+    formatRMB(p.recommendJdPrice),
+    p.pricingRemark || '',
+    formatRMB(p.recommendAdjustment),
+    p.smallGapOpportunityRemark || '',
+    formatRMB(p.ahsSubsidyAfter),
+    formatRMB(p.postAhsPrice),
+    formatRMB(p.postJdHandPrice),
+    formatPercent(p.postMarginalProfit),
+    `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
+    p.postTmItemWin ? 1 : 0,
+    p.postTmHandWin ? 1 : 0,
+    p.postZzItemWin ? 1 : 0,
+    p.postAhsZzHandWin ? 1 : 0
   ];
 
   const rawFieldWidth = (key: string) => {
@@ -337,7 +356,7 @@ export default function MainTable({
   };
 
   const rawColumnWidths = rawFieldKeys.map(rawFieldWidth);
-  const tableWidth = fixedColumnWidths.reduce((sum, width) => sum + width, 0) + rawColumnWidths.reduce((sum, width) => sum + width, 0);
+  const tableWidth = visibleFixedColumnWidths.reduce((sum, width) => sum + width, 0) + rawColumnWidths.reduce((sum, width) => sum + width, 0);
   const rawHeaderStyle = (key: string): React.CSSProperties => {
     const width = rawFieldWidth(key);
     return { width, minWidth: width, maxWidth: width };
@@ -350,6 +369,123 @@ export default function MainTable({
       {label}
     </div>
   );
+  const renderFixedCell = (p: CalculatedProduct, index: number) => {
+    const style = fixedColumnStyle(index);
+    switch (index) {
+      case 0:
+        return <td key={index} style={style} className={bodyClass}><div className="whitespace-nowrap font-bold">{p.newSeries}</div></td>;
+      case 1:
+        return <td key={index} style={style} className={bodyClass}><div className="whitespace-nowrap font-bold">{p.oldModel}</div></td>;
+      case 2:
+        return <td key={index} style={style} className={bodyClass}><div className="truncate font-bold text-[#141414]" title={p.ppv}>{p.ppv}</div></td>;
+      case 3:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.skuId)}</td>;
+      case 4:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.levelId || ''}</td>;
+      case 5:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.quoteVolume}</td>;
+      case 6:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.soldVolume || 0}</td>;
+      case 7:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.jdPrice)}</td>;
+      case 8:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.ahsInput)}</td>;
+      case 9:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsQuotedPrice)}</td>;
+      case 10:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.jdHandPrice)}</td>;
+      case 11:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.tmPrice)}</td>;
+      case 12:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.tmSubsidyManual)}</td>;
+      case 13:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.tmHandPrice)}</td>;
+      case 14:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.zzPrice)}</td>;
+      case 15:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.zzHandPrice)}</td>;
+      case 16:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.basePrice)}</td>;
+      case 17:
+        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-bold ${p.preMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>{formatPercent(p.preMarginalProfit)}</td>;
+      case 18:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmItemWin ? 1 : 0}</td>;
+      case 19:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmHandWin ? 1 : 0}</td>;
+      case 20:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.zzItemWin ? 1 : 0}</td>;
+      case 21:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.ahsZzHandWin ? 1 : 0}</td>;
+      case 22:
+        return (
+          <td
+            key={index}
+            style={style}
+            className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-extrabold ${p.manualRecommendJdPrice !== undefined ? 'text-blue-700' : ''}`}
+            onDoubleClick={() => beginRecommendEdit(p)}
+            title="双击手动改价"
+          >
+            {editingRecommendPpv === p.ppv ? (
+              <input
+                autoFocus
+                type="text"
+                inputMode="decimal"
+                value={editingRecommendValue}
+                onChange={(e) => setEditingRecommendValue(e.target.value)}
+                onBlur={commitRecommendEdit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRecommendEdit();
+                  if (e.key === 'Escape') cancelRecommendEdit();
+                }}
+                className="w-full border border-[#141414] bg-white px-1 py-0.5 text-right font-mono text-[11px]"
+              />
+            ) : (
+              formatRMB(p.recommendJdPrice)
+            )}
+            {p.pricingRemark && <div className="truncate text-[10px] font-normal text-[#141414]/60" title={p.pricingRemark}>{p.pricingRemark}</div>}
+          </td>
+        );
+      case 23:
+        return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px]">{p.pricingRemark || ''}</td>;
+      case 24:
+        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>;
+      case 25:
+        return (
+          <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
+            {p.smallGapOpportunityRemark ? (
+              <div className="line-clamp-2 text-amber-800" title={p.smallGapOpportunityRemark}>{p.smallGapOpportunityRemark}</div>
+            ) : (
+              <span className="text-[#141414]/30">-</span>
+            )}
+          </td>
+        );
+      case 26:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsSubsidyAfter)}</td>;
+      case 27:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postAhsPrice)}</td>;
+      case 28:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postJdHandPrice)}</td>;
+      case 29:
+        return (
+          <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-extrabold ${p.postMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>
+            {formatPercent(p.postMarginalProfit)}
+            <div className="text-[10px] text-slate-500">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</div>
+          </td>
+        );
+      case 30:
+        return <td key={index} style={style} className="px-2 py-1 text-left border-r border-[#141414]/20 text-[10px]">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</td>;
+      case 31:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>;
+      case 32:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>;
+      case 33:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postZzItemWin ? 1 : 0}</td>;
+      case 34:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsZzHandWin ? 1 : 0}</td>;
+      default:
+        return null;
+    }
+  };
   const reasonFilterPopup = showReasonFilter ? createPortal((
     <div
       className="fixed z-[9999] w-80 border border-[#141414] bg-white p-2 text-left shadow-[3px_3px_0_#141414]"
@@ -418,10 +554,10 @@ export default function MainTable({
           </h2>
           <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
             <span className="border border-[#141414] bg-white px-2 py-1">
-              天猫物品价竞争力 {liveCompetitiveness.tmItemScore.toFixed(1)}%
+              {isSelfOperated ? '转转物品价竞争力' : '天猫物品价竞争力'} {(isSelfOperated ? liveCompetitiveness.zzItemScore : liveCompetitiveness.tmItemScore).toFixed(1)}%
             </span>
             <span className="border border-[#141414] bg-white px-2 py-1">
-              天猫到手价竞争力 {liveCompetitiveness.tmDirectScore.toFixed(1)}%
+              {isSelfOperated ? 'AHS补贴后 vs 转转到手价' : '天猫到手价竞争力'} {(isSelfOperated ? liveCompetitiveness.ahsVsZzDirectScore : liveCompetitiveness.tmDirectScore).toFixed(1)}%
             </span>
           </div>
         </div>
@@ -458,16 +594,20 @@ export default function MainTable({
         </div>
         <div className="text-xs bg-white/70 border border-[#141414]/20 p-2">
           {pricingMode === 'fullCompetition'
-            ? '100%竞争力：所有 jd裸机价<tm裸机价 的行追过tm裸机价；补贴、线性费用、追后边际仍照常重算。'
-            : '公式口径：补贴按新机系列+门槛动态命中；线性费用=(追价后京东物品价+补贴)*4.66%+基准价*2.18%+81；追后边际=BE。'}
+            ? `100%竞争力：所有 jd裸机价<${isSelfOperated ? 'zz裸机价' : 'tm裸机价'} 的行追过${isSelfOperated ? 'zz裸机价' : 'tm裸机价'}；补贴、线性费用、追后边际仍照常重算。`
+            : isSelfOperated
+              ? '公式口径：自营普发券按门槛动态命中；线性费用=基准价*2.18%+63；追价目标=zz裸机价+2。'
+              : '公式口径：补贴按新机系列+门槛动态命中；线性费用=(追价后京东物品价+补贴)*4.66%+基准价*2.18%+81；追后边际=BE。'}
         </div>
       </div>
 
       <div className="bg-[#E4E3E0] p-3 border-b border-[#141414] flex flex-wrap gap-3 items-center justify-between">
         <div className="flex flex-wrap gap-2">
-          <select value={selectedSeries} onChange={(e) => setSelectedSeries(e.target.value)} className="bg-white border border-[#141414] py-1.5 px-3 text-xs">
-            {seriesList.map(s => <option key={s} value={s}>{s === 'ALL' ? '全部新机系列' : s}</option>)}
-          </select>
+          {!isSelfOperated && (
+            <select value={selectedSeries} onChange={(e) => setSelectedSeries(e.target.value)} className="bg-white border border-[#141414] py-1.5 px-3 text-xs">
+              {seriesList.map(s => <option key={s} value={s}>{s === 'ALL' ? '全部新机系列' : s}</option>)}
+            </select>
+          )}
           <select value={filterRisk} onChange={(e) => setFilterRisk(e.target.value as any)} className="bg-white border border-[#141414] py-1.5 px-3 text-xs">
             <option value="ALL">全部状态</option>
             <option value="SAFE">可执行</option>
@@ -475,14 +615,14 @@ export default function MainTable({
             <option value="CRITICAL">利润击穿</option>
           </select>
         </div>
-        <input type="text" placeholder="搜索新机系列 / 旧机型号 / PPV" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full sm:w-80 bg-white border border-[#141414] px-3 py-1.5 text-xs font-bold" />
+        <input type="text" placeholder={isSelfOperated ? '搜索旧机型号 / PPV' : '搜索新机系列 / 旧机型号 / PPV'} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full sm:w-80 bg-white border border-[#141414] px-3 py-1.5 text-xs font-bold" />
       </div>
 
       <div className="tracking-table-scroll">
         <table className="table-fixed text-[11px] leading-tight" style={{ width: tableWidth, minWidth: tableWidth }}>
           <colgroup>
             {fixedColumnWidths.map((width, index) => (
-              <col key={`fixed-${index}`} style={{ width }} />
+              <col key={`fixed-${index}`} style={isFixedColumnVisible(index) ? { width } : { display: 'none', width: 0 }} />
             ))}
             {rawColumnWidths.map((width, index) => (
               <col key={`raw-${rawFieldKeys[index]}`} style={{ width }} />
@@ -490,38 +630,15 @@ export default function MainTable({
           </colgroup>
           <thead className="tracking-table-head bg-[#F0EFEC] border-b border-[#141414]">
             <tr>
-              <th className={headerClass}>A</th>
-              <th className={headerClass}>E</th>
-              <th className={headerClass}>F</th>
-              <th className={headerClass}>T</th>
-              <th className={headerClass}>U</th>
-              <th className={headerClass}>H</th>
-              <th className={headerClass}>I</th>
-              <th className={headerClass}>W</th>
-              <th className={headerClass}>X</th>
-              <th className={headerClass}>Y</th>
-              <th className={headerClass}>AA</th>
-              <th className={headerClass}>AB</th>
-              <th className={headerClass}>AC</th>
-              <th className={headerClass}>AF</th>
-              <th className={headerClass}>AG</th>
-              <th className={headerClass}>AI</th>
-              <th className={headerClass}>AT</th>
-              <th className={headerClass}>AW</th>
-              <th className={headerClass}>AO</th>
-              <th className={headerClass}>AP</th>
-              <th className={headerClass}>AQ</th>
-              <th className={headerClass}>AR</th>
-	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>AY</th>
-	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>AZ</th>
-	              <th className={headerClass}>BA</th>
-	              <th className={headerClass}>BB</th>
-	              <th className={headerClass}>BF</th>
-	              <th className={headerClass}>BE</th>
-              <th className={headerClass}>BG</th>
-              <th className={headerClass}>BH</th>
-              <th className={headerClass}>BI</th>
-              <th className={headerClass}>BJ</th>
+              {fixedCodes.map((code, index) => (
+                <th
+                  key={code}
+                  style={fixedColumnStyle(index)}
+                  className={`${headerClass} ${index === 22 || index === 24 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                >
+                  {code}
+                </th>
+              ))}
               {rawFieldKeys.map(key => (
                 <th key={`code-${key}`} style={rawHeaderStyle(key)} className="px-2 py-1 text-center border-r border-[#141414]">
                   {splitFieldKey(key).code}
@@ -529,50 +646,32 @@ export default function MainTable({
               ))}
             </tr>
             <tr>
-              <th className={headerClass}>{headerLabel('新机系列')}</th>
-              <th className={headerClass}>{headerLabel('旧机型号')}</th>
-              <th className={headerClass}>{headerLabel('ppv')}</th>
-              <th className={headerClass}>{headerLabel('商品SKUID')}</th>
-              <th className={headerClass}>{headerLabel('等级id')}</th>
-              <th className={headerClass}>{headerLabel('ppv近30天报价量')}</th>
-              <th className={headerClass}>{headerLabel('ppv近30天成交量')}</th>
-              <th className={headerClass}>{headerLabel('jd裸机价')}</th>
-              <th className={headerClass}>{headerLabel('对应新品型号ahs投入')}</th>
-              <th className={headerClass}>{headerLabel('含AHS补贴后报价')}</th>
-              <th className={headerClass}>{headerLabel('jd总到手价')}</th>
-              <th className={headerClass}>{headerLabel('tm裸机价')}</th>
-              <th className={headerClass}>{headerLabel('tm总补贴-人工')}</th>
-              <th className={headerClass}>{headerLabel('tm总到手价')}</th>
-              <th className={headerClass}>{headerLabel('zz裸机价')}</th>
-              <th className={headerClass}>{headerLabel('zz券后价')}</th>
-              <th className={headerClass}>{headerLabel('基准价')}</th>
-              <th className={headerClass}>{headerLabel('追前边际利润率')}</th>
-              <th className={headerClass}>{headerLabel('裸机比tm')}</th>
-              <th className={headerClass}>{headerLabel('到手比tm')}</th>
-              <th className={headerClass}>{headerLabel('裸机比zz')}</th>
-              <th className={headerClass}>{headerLabel('仅含ahs补贴+裸机 vs zz到手')}</th>
-	              <th
-                  ref={reasonFilterAnchorRef}
-                  className={`${headerClass} repricing-header bg-[#D8D7D2] relative cursor-pointer`}
-                  onClick={() => setShowReasonFilter(prev => !prev)}
-                >
-                  <div className="flex items-center justify-center gap-1">
-                    {headerLabel('京东物品价-追价后')}
-                    <span className="border border-[#141414] bg-white px-1 text-[9px] leading-tight">
-                      {selectedReasonFilters.length > 0 ? `已选${selectedReasonFilters.length}` : '筛'}
-                    </span>
-                  </div>
-                </th>
-	              <th className={`${headerClass} repricing-header bg-[#D8D7D2]`}>{headerLabel('京东物品价-追价后调整金额')}</th>
-	              <th className={headerClass}>{headerLabel('小差额提醒')}</th>
-	              <th className={headerClass}>{headerLabel('ahs承担补贴-追价后')}</th>
-	              <th className={headerClass}>{headerLabel('含AHS补贴后报价-追价后')}</th>
-	              <th className={headerClass}>{headerLabel('jd总到手价-追价后')}</th>
-	              <th className={headerClass}>{headerLabel('追后边际利润率')}</th>
-              <th className={headerClass}>{headerLabel('京东物品价-追价后 vs 天猫')}</th>
-              <th className={headerClass}>{headerLabel('京东到手价-追价后 vs 天猫')}</th>
-              <th className={headerClass}>{headerLabel('京东物品价-追价后 vs 转转')}</th>
-              <th className={headerClass}>{headerLabel('京东物品价+ahs补贴-追价后 vs 转转')}</th>
+              {fixedLabels.map((label, index) => (
+                index === 22 ? (
+                  <th
+                    key={index}
+                    ref={reasonFilterAnchorRef}
+                    style={fixedColumnStyle(index)}
+                    className={`${headerClass} repricing-header bg-[#D8D7D2] relative cursor-pointer`}
+                    onClick={() => setShowReasonFilter(prev => !prev)}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      {headerLabel(label)}
+                      <span className="border border-[#141414] bg-white px-1 text-[9px] leading-tight">
+                        {selectedReasonFilters.length > 0 ? `已选${selectedReasonFilters.length}` : '筛'}
+                      </span>
+                    </div>
+                  </th>
+                ) : (
+                  <th
+                    key={index}
+                    style={fixedColumnStyle(index)}
+                    className={`${headerClass} ${index === 24 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                  >
+                    {headerLabel(label)}
+                  </th>
+                )
+              ))}
               {rawFieldKeys.map(key => (
                 <th key={`label-${key}`} style={rawHeaderStyle(key)} className="px-2 py-1 text-left border-r border-[#141414]">
                   <div className="w-full truncate" title={splitFieldKey(key).label}>
@@ -585,89 +684,7 @@ export default function MainTable({
           <tbody>
             {filteredProducts.map(p => (
               <tr key={p.id} className={`border-b border-[#141414]/20 ${p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
-                <td className={bodyClass}>
-                  <div className="whitespace-nowrap font-bold">{p.newSeries}</div>
-                </td>
-                <td className={bodyClass}>
-                  <div className="whitespace-nowrap font-bold">{p.oldModel}</div>
-                </td>
-                <td className={bodyClass}>
-                  <div className="truncate font-bold text-[#141414]" title={p.ppv}>{p.ppv}</div>
-                </td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.skuId)}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.levelId || ''}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.quoteVolume}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{p.soldVolume || 0}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">
-                  {displayValue(p.jdPrice)}
-                </td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">
-                  {displayValue(p.ahsInput)}
-                </td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsQuotedPrice)}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.jdHandPrice)}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">
-                  {displayValue(p.tmPrice)}
-                </td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">
-                  {displayValue(p.tmSubsidyManual)}
-                </td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.tmHandPrice)}</td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">
-                  {displayValue(p.zzPrice)}
-                </td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">
-                  {formatRMB(p.zzHandPrice)}
-                </td>
-                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.basePrice)}</td>
-                <td className={`px-2 py-1 text-right border-r border-[#141414]/20 font-bold ${p.preMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>{formatPercent(p.preMarginalProfit)}</td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmItemWin ? 1 : 0}</td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmHandWin ? 1 : 0}</td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.zzItemWin ? 1 : 0}</td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.ahsZzHandWin ? 1 : 0}</td>
-                <td
-                  className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-extrabold ${p.manualRecommendJdPrice !== undefined ? 'text-blue-700' : ''}`}
-                  onDoubleClick={() => beginRecommendEdit(p)}
-                  title="双击手动改价"
-                >
-                  {editingRecommendPpv === p.ppv ? (
-                    <input
-                      autoFocus
-                      type="text"
-                      inputMode="decimal"
-                      value={editingRecommendValue}
-                      onChange={(e) => setEditingRecommendValue(e.target.value)}
-                      onBlur={commitRecommendEdit}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitRecommendEdit();
-                        if (e.key === 'Escape') cancelRecommendEdit();
-                      }}
-                      className="w-full border border-[#141414] bg-white px-1 py-0.5 text-right font-mono text-[11px]"
-                    />
-                  ) : (
-                    formatRMB(p.recommendJdPrice)
-                  )}
-                  {p.pricingRemark && <div className="truncate text-[10px] font-normal text-[#141414]/60" title={p.pricingRemark}>{p.pricingRemark}</div>}
-                </td>
-	                <td className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>
-	                <td className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
-                  {p.smallGapOpportunityRemark ? (
-                    <div className="line-clamp-2 text-amber-800" title={p.smallGapOpportunityRemark}>{p.smallGapOpportunityRemark}</div>
-                  ) : (
-                    <span className="text-[#141414]/30">-</span>
-                  )}
-                </td>
-	                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsSubsidyAfter)}</td>
-	                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postAhsPrice)}</td>
-	                <td className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postJdHandPrice)}</td>
-	                <td className={`px-2 py-1 text-right border-r border-[#141414]/20 font-extrabold ${p.postMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>
-                  {formatPercent(p.postMarginalProfit)}
-                  <div className="text-[10px] text-slate-500">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</div>
-                </td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postZzItemWin ? 1 : 0}</td>
-                <td className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsZzHandWin ? 1 : 0}</td>
+                {fixedCodes.map((_, index) => renderFixedCell(p, index))}
                 {rawFieldKeys.map(key => (
                   <td key={key} style={rawHeaderStyle(key)} className="px-2 py-1 border-r border-[#141414]/10 align-top">
                     <div className="max-h-10 overflow-hidden text-ellipsis break-words font-mono text-[10px] leading-snug" title={displayValue(p.rawFields[key])}>

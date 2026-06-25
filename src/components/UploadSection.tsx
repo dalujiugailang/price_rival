@@ -5,7 +5,7 @@
 
 import React, { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { DailyPriceRow, Product, SourceUploadRecord, SubsidyRule, TrackingBatch } from '../types';
+import { ChannelId, DailyPriceRow, Product, SelfOperatedSubsidyRule, SourceUploadRecord, SubsidyRule, TrackingBatch } from '../types';
 
 type CellValue = string | number | boolean | null;
 type ParsedSheet = {
@@ -24,21 +24,31 @@ type PpvAggregationRow = {
   level: string;
   quoteVolume: number;
   soldVolume: number;
+  inquiryDescription: string;
 };
 
 type PpvAggregationResult = {
   sourceRows: number;
   outputRows: PpvAggregationRow[];
+  descriptionMatchedRows: number;
+};
+
+type SelfSubsidyGridRow = {
+  threshold: string;
+  amount: string;
 };
 
 interface Props {
+  channelId: ChannelId;
   currentProducts: Product[];
   dailyPrices: DailyPriceRow[];
   subsidyRules: SubsidyRule[];
+  selfSubsidyRules: SelfOperatedSubsidyRule[];
   uploadRecords: SourceUploadRecord[];
   onBaseProductsLoaded: (products: Product[], fileName: string) => void;
   onDailyPricesLoaded: (rows: DailyPriceRow[], fileName: string) => void;
   onSubsidyRulesLoaded: (rows: SubsidyRule[], fileName: string) => void;
+  onSelfSubsidyRulesLoaded: (rows: SelfOperatedSubsidyRule[], sourceName: string) => void;
   onCompetitivenessHistoryLoaded: (rows: TrackingBatch[], fileName: string) => void;
 }
 
@@ -149,8 +159,11 @@ const rawFieldsFromRow = (headers: string[], row: CellValue[]) => {
   }, {});
 };
 
-const parseBaseProducts = async (file: File): Promise<Product[]> => {
-  const parsed = await parseWorkbook(file, ['新机系列', '旧机型号', 'ppv', 'tm裸机价', 'tm总补贴-人工', 'zz裸机价'], '询价表0518');
+const parseBaseProducts = async (file: File, channelId: ChannelId = 'tradeIn'): Promise<Product[]> => {
+  const requiredHeaders = channelId === 'selfOperated'
+    ? ['旧机型号', 'ppv', 'zz裸机价']
+    : ['新机系列', '旧机型号', 'ppv', 'tm裸机价', 'tm总补贴-人工', 'zz裸机价'];
+  const parsed = await parseWorkbook(file, requiredHeaders, '询价表0518');
   const products = parsed.records.map((record, index) => {
     const row = parsed.rows[index];
     const rawFields = rawFieldsFromRow(parsed.headers, row);
@@ -174,7 +187,9 @@ const parseBaseProducts = async (file: File): Promise<Product[]> => {
       level,
       skuId,
       levelId,
-      quoteVolume: toNumber(getField(record, ['ppv近30天报价量', '近30天报价量'])),
+      quoteVolume: toNumber(getField(record, channelId === 'selfOperated'
+        ? ['ppv近30天报价访客数', '近30天报价访客数', 'ppv近30天报价量', '近30天报价量']
+        : ['ppv近30天报价量', '近30天报价量'])),
       soldVolume: toNumber(getField(record, ['ppv近30天成交量', '近30天成交量', 'ppv近14天成交量', '近14天成交量'])),
       description: toText(getField(record, ['询价说明'])),
       jdPrice: toNumber(getField(record, ['jd裸机价'])),
@@ -188,7 +203,7 @@ const parseBaseProducts = async (file: File): Promise<Product[]> => {
     };
   });
 
-  return products.filter(product => product.ppv && product.newSeries && product.oldModel);
+  return products.filter(product => product.ppv && product.oldModel && (channelId === 'selfOperated' || product.newSeries));
 };
 
 const parseCompetitivenessHistory = async (file: File): Promise<TrackingBatch[]> => {
@@ -259,6 +274,39 @@ const parseSubsidyRules = async (file: File): Promise<SubsidyRule[]> => {
     .filter(row => row.newSeries && row.ahsInput >= 0 && row.jdSubsidy >= 0);
 };
 
+const parsePastedSelfSubsidyRules = (text: string): SelfOperatedSubsidyRule[] => {
+  const rows = text
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  return rows
+    .map((line, index): SelfOperatedSubsidyRule | null => {
+      const parts = line.includes('\t')
+        ? line.split('\t')
+        : line.includes(',')
+          ? line.split(',')
+          : line.split(/\s+/);
+      if (index === 0 && normalize(parts[0]).includes('门槛')) {
+        return null;
+      }
+      const threshold = toNumber(parts[0] ?? null);
+      const ahsInput = toNumber(parts[1] ?? null);
+      return {
+        threshold,
+        ahsInput,
+        sourceRowNumber: index + 1,
+        rawFields: {
+          门槛值: parts[0] ?? '',
+          AHS补贴: parts[1] ?? '',
+          原始行: line
+        }
+      };
+    })
+    .filter((row): row is SelfOperatedSubsidyRule => !!row)
+    .filter(row => row.threshold > 0 && row.ahsInput >= 0);
+};
+
 const sortAggregationRows = (left: PpvAggregationRow, right: PpvAggregationRow) => {
   return right.quoteVolume - left.quoteVolume
     || right.soldVolume - left.soldVolume
@@ -273,17 +321,41 @@ const sortPivotLabelRows = (left: PpvAggregationRow, right: PpvAggregationRow) =
     || left.level.localeCompare(right.level, 'zh-Hans-u-kn-true');
 };
 
-const getPpvAggregationExportName = () => {
+const PPV_INQUIRY_DESCRIPTIONS = new Map([
+  ['a+', '全完好'],
+  ['a1', '边框背板-轻微划痕，其他全完好'],
+  ['a4', '边框背板-明显划痕'],
+  ['a3', '屏幕外观-细微划痕+边框背板-细微划痕'],
+  ['b1', '边框背板-小磕碰'],
+  ['a2', '屏幕外观-细微划痕+边框背板-细微划痕'],
+  ['c+2', '边框背板-外壳破损，其他全完好'],
+  ['b', '边框背板-明显磕碰+屏幕显示-显示发黄'],
+  ['d+1', '屏幕外观-碎裂'],
+  ['c+', '边框背板-磕碰+屏幕外观-明显划痕'],
+  ['b2', '边框背板-磕碰+屏幕显示-轻微偏色'],
+  ['c1', '摄像头功能-拍照异常'],
+  ['99-a', '全完好'],
+  ['99-s', '电池85-94'],
+  ['95-a', '边框背板轻微划痕+电池85-94'],
+  ['99-a1', '边框背板细微划痕+电池85-94']
+]);
+
+const getPpvAggregationExportName = (channelId: ChannelId) => {
   const now = new Date();
   const dateText = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   const key = `ppv_aggregation_export_version_${dateText}`;
   const version = Number(localStorage.getItem(key) || '0') + 1;
   localStorage.setItem(key, String(version));
-  return `${dateText}_竞争型号ppv报价量Top2筛选_v${version}.xlsx`;
+  return `${dateText}_竞争型号ppv${channelId === 'selfOperated' ? '报价访客数' : '报价量'}Top2筛选_v${version}.xlsx`;
 };
 
-const buildPpvAggregation = async (file: File): Promise<PpvAggregationResult> => {
-  const parsed = await parseWorkbook(file, ['商品型号', '商品SKUID', '商品SKU', '商品LEVEL', '报价量', '成交量']);
+const buildPpvAggregation = async (
+  file: File,
+  channelId: ChannelId,
+  inquiryDescriptions: Map<string, string> = PPV_INQUIRY_DESCRIPTIONS
+): Promise<PpvAggregationResult> => {
+  const quoteFieldLabel = channelId === 'selfOperated' ? '报价访客数' : '报价量';
+  const parsed = await parseWorkbook(file, ['商品型号', '商品SKUID', '商品SKU', '商品LEVEL', quoteFieldLabel, '成交量']);
   if (!hasExactField(parsed.headers, ['商品SKU', '商品sku'])) {
     throw new Error('底表缺少精确字段：商品SKU。ppv 必须按 商品LEVEL&商品SKU 生成，不能使用商品SKUID。');
   }
@@ -294,9 +366,10 @@ const buildPpvAggregation = async (file: File): Promise<PpvAggregationResult> =>
     const skuId = toText(getField(record, ['商品SKUID', '商品sku id', 'skuid']));
     const sku = toText(getExactField(record, ['商品SKU', '商品sku']));
     const level = toText(getField(record, ['商品LEVEL', '商品level', 'level']));
-    const quoteVolume = toNumber(getField(record, ['报价量']));
+    const quoteVolume = toNumber(getField(record, [quoteFieldLabel]));
     const soldVolume = toNumber(getField(record, ['成交量']));
     const ppv = `${level}${sku}`;
+    const inquiryDescription = inquiryDescriptions.get(normalize(level)) || '';
 
     if (!model || !sku || !level || !ppv) return;
 
@@ -314,7 +387,8 @@ const buildPpvAggregation = async (file: File): Promise<PpvAggregationResult> =>
       skuId,
       level,
       quoteVolume,
-      soldVolume
+      soldVolume,
+      inquiryDescription
     });
   });
 
@@ -337,41 +411,70 @@ const buildPpvAggregation = async (file: File): Promise<PpvAggregationResult> =>
 
   return {
     sourceRows: parsed.records.length,
-    outputRows
+    outputRows,
+    descriptionMatchedRows: outputRows.filter(row => row.inquiryDescription).length
   };
 };
 
-const exportPpvAggregationWorkbook = (rows: PpvAggregationRow[]) => {
-  const headers = ['新机系列', '旧机型号', 'ppv', '商品SKUID', '商品LEVEL', 'ppv近30天报价量', 'ppv近30天成交量', 'tm裸机价', 'tm总补贴-人工', 'zz裸机价'];
-  const body = rows.map(row => [
-    '',
-    row.model,
-    row.ppv,
-    row.skuId,
-    row.level,
-    row.quoteVolume,
-    row.soldVolume,
-    '',
-    '',
-    ''
-  ]);
+const exportPpvAggregationWorkbook = (rows: PpvAggregationRow[], channelId: ChannelId) => {
+  const headers = channelId === 'selfOperated'
+    ? ['旧机型号', 'ppv', '商品SKUID', '商品LEVEL', 'ppv近30天报价访客数', 'ppv近30天成交量', '询价说明', 'zz裸机价']
+    : ['新机系列', '旧机型号', 'ppv', '商品SKUID', '商品LEVEL', 'ppv近30天报价量', 'ppv近30天成交量', '询价说明', 'tm裸机价', 'tm总补贴-人工', 'zz裸机价'];
+  const body = rows.map(row => (
+    channelId === 'selfOperated'
+      ? [
+        row.model,
+        row.ppv,
+        row.skuId,
+        row.level,
+        row.quoteVolume,
+        row.soldVolume,
+        row.inquiryDescription,
+        ''
+      ]
+      : [
+        '',
+        row.model,
+        row.ppv,
+        row.skuId,
+        row.level,
+        row.quoteVolume,
+        row.soldVolume,
+        row.inquiryDescription,
+        '',
+        '',
+        ''
+      ]
+  ));
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...body]);
-  worksheet['!cols'] = [
-    { wch: 16 },
-    { wch: 20 },
-    { wch: 58 },
-    { wch: 14 },
-    { wch: 12 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 12 },
-    { wch: 16 },
-    { wch: 12 }
-  ];
+  worksheet['!cols'] = channelId === 'selfOperated'
+    ? [
+      { wch: 20 },
+      { wch: 58 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 30 },
+      { wch: 12 }
+    ]
+    : [
+      { wch: 16 },
+      { wch: 20 },
+      { wch: 58 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 30 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 12 }
+    ];
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
-  XLSX.writeFile(workbook, getPpvAggregationExportName());
+  XLSX.writeFile(workbook, getPpvAggregationExportName(channelId));
 };
 
 const recordTypeLabel = (type: SourceUploadRecord['type']) => {
@@ -379,31 +482,51 @@ const recordTypeLabel = (type: SourceUploadRecord['type']) => {
     base: '基础竞争表',
     dailyPrice: 'daily price',
     subsidy: '补贴表',
+    selfSubsidy: '自营普发券',
     manualPrice: '人工价格表',
     competitivenessHistory: '竞争力历史'
   };
   return labels[type];
 };
 
+const DEFAULT_SELF_SUBSIDY_GRID_ROWS: SelfSubsidyGridRow[] = [
+  { threshold: '200', amount: '30' },
+  { threshold: '400', amount: '60' },
+  { threshold: '800', amount: '150' },
+  { threshold: '1200', amount: '220' },
+  { threshold: '2000', amount: '320' },
+  { threshold: '3000', amount: '380' },
+  { threshold: '4000', amount: '420' },
+  { threshold: '4800', amount: '470' },
+  { threshold: '6800', amount: '550' },
+  { threshold: '', amount: '' }
+];
+
 export default function UploadSection({
+  channelId,
   currentProducts,
   dailyPrices,
   subsidyRules,
+  selfSubsidyRules,
   uploadRecords,
   onBaseProductsLoaded,
   onDailyPricesLoaded,
   onSubsidyRulesLoaded,
+  onSelfSubsidyRulesLoaded,
   onCompetitivenessHistoryLoaded
 }: Props) {
   const [busyType, setBusyType] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [dailyApiStatus, setDailyApiStatus] = useState('');
   const [ppvAggregationStatus, setPpvAggregationStatus] = useState('');
+  const [selfSubsidyGridRows, setSelfSubsidyGridRows] = useState<SelfSubsidyGridRow[]>(DEFAULT_SELF_SUBSIDY_GRID_ROWS);
+  const [selfSubsidyStatus, setSelfSubsidyStatus] = useState('');
 
   const currentPpvs = useMemo(() => new Set(currentProducts.map(product => product.ppv)), [currentProducts]);
   const currentSeries = useMemo(() => new Set(currentProducts.map(product => product.newSeries)), [currentProducts]);
   const dailyMatched = dailyPrices.filter(row => currentPpvs.has(row.ppv)).length;
   const subsidySeriesMatched = new Set(subsidyRules.filter(rule => currentSeries.has(rule.newSeries)).map(rule => rule.newSeries)).size;
+  const isSelfOperated = channelId === 'selfOperated';
 
   const handleUpload = async <T,>(
     file: File | undefined,
@@ -471,17 +594,93 @@ export default function UploadSection({
     setError('');
     setPpvAggregationStatus('');
     try {
-      const result = await buildPpvAggregation(file);
+      const result = await buildPpvAggregation(file, channelId);
       if (result.outputRows.length === 0) {
-        throw new Error('没有生成可导出的聚合结果，请检查商品型号、商品SKU、商品LEVEL、报价量、成交量字段。');
+        throw new Error(`没有生成可导出的聚合结果，请检查商品型号、商品SKU、商品LEVEL、${isSelfOperated ? '报价访客数' : '报价量'}、成交量字段。`);
       }
-      exportPpvAggregationWorkbook(result.outputRows);
-      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，输出 ${result.outputRows.length} 行 Sheet1 聚合结果。`);
+      exportPpvAggregationWorkbook(result.outputRows, channelId);
+      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，按${isSelfOperated ? '报价访客数' : '报价量'}Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果，匹配询价说明 ${result.descriptionMatchedRows} 行。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ppv聚合导出失败');
     } finally {
       setBusyType(null);
     }
+  };
+
+  const updateSelfSubsidyCell = (rowIndex: number, field: keyof SelfSubsidyGridRow, value: string) => {
+    setSelfSubsidyGridRows(prev => {
+      const next = [...prev];
+      next[rowIndex] = { ...next[rowIndex], [field]: value };
+      if (rowIndex === next.length - 1 && value.trim()) {
+        next.push({ threshold: '', amount: '' });
+      }
+      return next;
+    });
+  };
+
+  const handleSelfSubsidyCellPaste = (
+    event: React.ClipboardEvent<HTMLInputElement>,
+    rowIndex: number,
+    field: keyof SelfSubsidyGridRow
+  ) => {
+    const text = event.clipboardData.getData('text');
+    if (!text.includes('\n') && !text.includes('\t')) return;
+    event.preventDefault();
+
+    const parsedRows = text
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => (
+        line.includes('\t')
+          ? line.split('\t')
+          : line.includes(',')
+            ? line.split(',')
+            : line.split(/\s+/)
+      ));
+    const rowsWithoutHeader = parsedRows[0] && normalize(parsedRows[0][0]).includes('门槛')
+      ? parsedRows.slice(1)
+      : parsedRows;
+    const startColumn = field === 'threshold' ? 0 : 1;
+
+    setSelfSubsidyGridRows(prev => {
+      const next = [...prev];
+      rowsWithoutHeader.forEach((parts, offset) => {
+        const targetIndex = rowIndex + offset;
+        while (next.length <= targetIndex) {
+          next.push({ threshold: '', amount: '' });
+        }
+        const current = next[targetIndex] || { threshold: '', amount: '' };
+        const nextRow = { ...current };
+        if (startColumn === 0) {
+          nextRow.threshold = String(parts[0] ?? '').trim();
+          nextRow.amount = String(parts[1] ?? '').trim();
+        } else {
+          nextRow.amount = String(parts[0] ?? '').trim();
+        }
+        next[targetIndex] = nextRow;
+      });
+      if (next[next.length - 1]?.threshold || next[next.length - 1]?.amount) {
+        next.push({ threshold: '', amount: '' });
+      }
+      return next;
+    });
+  };
+
+  const handleSelfSubsidyPaste = () => {
+    setError('');
+    setSelfSubsidyStatus('');
+    const rows = parsePastedSelfSubsidyRules(
+      selfSubsidyGridRows
+        .map(row => `${row.threshold}\t${row.amount}`)
+        .join('\n')
+    );
+    if (rows.length === 0) {
+      setError('没有解析到有效的自营普发券规则，请按“门槛值 AHS补贴”两列粘贴。');
+      return;
+    }
+    onSelfSubsidyRulesLoaded(rows, '自营普发券粘贴');
+    setSelfSubsidyStatus(`已导入 ${rows.length} 条自营普发券门槛规则。`);
   };
 
   const cardClass = 'border border-[#141414] bg-white p-4 space-y-3';
@@ -493,7 +692,7 @@ export default function UploadSection({
       <div className="p-4 border-b border-[#141414]">
         <h2 className="text-base font-bold">数据上传与自动匹配流程</h2>
         <p className="mt-1 text-xs text-[#141414]/70">
-          当前竞争表 {currentProducts.length} 行。现在只需要上传本次竞争追价表和补贴表；daily price API 按 ppv 自动匹配最终报价、BI基准价和等级id。
+          当前竞争表 {currentProducts.length} 行。{isSelfOperated ? '自营渠道补贴采用普发券粘贴规则。' : '现在只需要上传本次竞争追价表和补贴表。'}daily price API 按 ppv 自动匹配最终报价、BI基准价和等级id。
         </p>
       </div>
 
@@ -501,18 +700,26 @@ export default function UploadSection({
         <div className={cardClass}>
           <div>
             <div className="text-sm font-bold">1. 本次竞争追价表</div>
-            <div className="mt-1 text-[11px] text-[#141414]/70">需要字段：新机系列 / 旧机型号 / ppv / tm裸机价 / tm总补贴-人工 / zz裸机价。上传后替换本次竞争数据，并保留所有源字段。</div>
+            <div className="mt-1 text-[11px] text-[#141414]/70">
+              {isSelfOperated
+                ? '需要字段：旧机型号 / ppv / zz裸机价。自营只对标转转裸机价，上传后替换本次竞争数据，并保留所有源字段。'
+                : '需要字段：新机系列 / 旧机型号 / ppv / tm裸机价 / tm总补贴-人工 / zz裸机价。上传后替换本次竞争数据，并保留所有源字段。'}
+            </div>
           </div>
           <input
             type="file"
             accept=".xlsx,.xls,.csv"
             className={inputClass}
-            onChange={(event) => handleUpload(event.target.files?.[0], 'base', parseBaseProducts, onBaseProductsLoaded)}
+            onChange={(event) => handleUpload(event.target.files?.[0], 'base', (file) => parseBaseProducts(file, channelId), onBaseProductsLoaded)}
           />
           <div className={statClass}>当前基础行数：{currentProducts.length}</div>
           <div className="border-t border-[#141414]/20 pt-3">
-            <div className="text-xs font-bold">竞争型号ppv报价量Top2筛选工具</div>
-            <div className="mt-1 text-[11px] text-[#141414]/70">上传底表后按商品LEVEL+商品SKU生成ppv，按商品型号取ppv报价量前2名，并导出仅含Sheet1的结果；新机系列和竞品价格列留空。</div>
+            <div className="text-xs font-bold">竞争型号ppv{isSelfOperated ? '报价访客数' : '报价量'}Top2筛选工具</div>
+            <div className="mt-1 text-[11px] text-[#141414]/70">
+              {isSelfOperated
+                ? '上传底表后按商品LEVEL+商品SKU生成ppv，按商品型号取ppv报价访客数前2名，并导出仅含Sheet1的自营模板；只保留zz裸机价列用于对标转转。'
+                : '上传底表后按商品LEVEL+商品SKU生成ppv，按商品型号取ppv报价量前2名，并导出仅含Sheet1的结果；新机系列和竞品价格列留空。'}
+            </div>
           </div>
           <input
             type="file"
@@ -542,19 +749,69 @@ export default function UploadSection({
           {dailyApiStatus && <div className="text-[11px] font-bold text-green-700">{dailyApiStatus}</div>}
         </div>
 
-        <div className={cardClass}>
-          <div>
-            <div className="text-sm font-bold">3. 补贴表</div>
-            <div className="mt-1 text-[11px] text-[#141414]/70">按新机系列找到规则，再用 jd裸机价落入价格门槛，返回对应新品型号ahs投入。</div>
+        {isSelfOperated ? (
+          <div className={cardClass}>
+            <div>
+              <div className="text-sm font-bold">3. 自营普发券</div>
+              <div className="mt-1 text-[11px] text-[#141414]/70">直接粘贴两列：门槛 / 优惠金额-1组。不分新机系列，补贴全部按爱回收承担计算。</div>
+            </div>
+            <div className="max-h-72 overflow-auto border border-[#141414] bg-white">
+              <table className="w-full table-fixed text-xs">
+                <thead className="sticky top-0 bg-[#E4E3E0]">
+                  <tr className="border-b border-[#141414]">
+                    <th className="w-1/2 border-r border-[#141414] px-2 py-1.5 text-left font-black">门槛</th>
+                    <th className="w-1/2 px-2 py-1.5 text-left font-black">优惠金额-1组</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selfSubsidyGridRows.map((row, rowIndex) => (
+                    <tr key={rowIndex} className="border-b border-[#141414]/20 last:border-b-0">
+                      <td className="border-r border-[#141414]/20">
+                        <input
+                          value={row.threshold}
+                          onChange={(event) => updateSelfSubsidyCell(rowIndex, 'threshold', event.target.value)}
+                          onPaste={(event) => handleSelfSubsidyCellPaste(event, rowIndex, 'threshold')}
+                          className="h-7 w-full bg-[#F9F9F8] px-2 font-mono focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={row.amount}
+                          onChange={(event) => updateSelfSubsidyCell(rowIndex, 'amount', event.target.value)}
+                          onPaste={(event) => handleSelfSubsidyCellPaste(event, rowIndex, 'amount')}
+                          className="h-7 w-full bg-[#F9F9F8] px-2 font-mono focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              type="button"
+              onClick={handleSelfSubsidyPaste}
+              className="w-full border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white hover:bg-[#2A2A2B]"
+            >
+              应用自营普发券规则
+            </button>
+            <div className={statClass}>已导入 {selfSubsidyRules.length} 条自营普发券规则</div>
+            {selfSubsidyStatus && <div className="text-[11px] font-bold text-green-700">{selfSubsidyStatus}</div>}
           </div>
-          <input
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className={inputClass}
-            onChange={(event) => handleUpload(event.target.files?.[0], 'subsidy', parseSubsidyRules, onSubsidyRulesLoaded)}
-          />
-          <div className={statClass}>已导入 {subsidyRules.length} 条规则，覆盖 {subsidySeriesMatched}/{currentSeries.size} 个新机系列</div>
-        </div>
+        ) : (
+          <div className={cardClass}>
+            <div>
+              <div className="text-sm font-bold">3. 补贴表</div>
+              <div className="mt-1 text-[11px] text-[#141414]/70">按新机系列找到规则，再用 jd裸机价落入价格门槛，返回对应新品型号ahs投入。</div>
+            </div>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className={inputClass}
+              onChange={(event) => handleUpload(event.target.files?.[0], 'subsidy', parseSubsidyRules, onSubsidyRulesLoaded)}
+            />
+            <div className={statClass}>已导入 {subsidyRules.length} 条规则，覆盖 {subsidySeriesMatched}/{currentSeries.size} 个新机系列</div>
+          </div>
+        )}
 
       </div>
 

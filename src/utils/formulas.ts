@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Product, CalculatedProduct, SubsidyRule, PricingMode } from '../types';
+import { Product, CalculatedProduct, SubsidyRule, PricingMode, ChannelConfig, SelfOperatedSubsidyRule } from '../types';
 import { SOURCE_0518_PRODUCTS } from '../data/source0518';
+import { CHANNELS } from '../config/channels';
 
 export const INITIAL_PRODUCTS: Product[] = SOURCE_0518_PRODUCTS;
 
@@ -53,46 +54,92 @@ const normalizeRules = (rules: SubsidyRule[]) => {
     .sort((a, b) => a.threshold - b.threshold);
 };
 
-const subsidyAtPrice = (price: number, rules: SubsidyRule[], fallback: number) => {
+type NormalizedSubsidyRule = Pick<SubsidyRule, 'threshold' | 'ahsInput' | 'jdSubsidy'>;
+
+type PricingFormulaOptions = {
+  channel?: ChannelConfig;
+  selfSubsidyRules?: SelfOperatedSubsidyRule[];
+};
+
+const normalizeSelfRules = (rules: SelfOperatedSubsidyRule[]): NormalizedSubsidyRule[] => {
+  return [...rules]
+    .filter(rule => Number.isFinite(rule.threshold) && Number.isFinite(rule.ahsInput))
+    .map(rule => ({
+      threshold: rule.threshold,
+      ahsInput: rule.ahsInput,
+      jdSubsidy: 0
+    }))
+    .sort((a, b) => a.threshold - b.threshold);
+};
+
+const subsidyAtPrice = (price: number, rules: NormalizedSubsidyRule[], fallback: number) => {
   if (rules.length === 0) return fallback;
   const matched = rules.filter(rule => price >= rule.threshold).at(-1);
   return matched ? matched.ahsInput : 0;
 };
 
-const jdSubsidyAtPrice = (price: number, rules: SubsidyRule[], fallback: number) => {
+const jdSubsidyAtPrice = (price: number, rules: NormalizedSubsidyRule[], fallback: number) => {
   if (rules.length === 0) return fallback;
   const matched = rules.filter(rule => price >= rule.threshold).at(-1);
   if (!matched) return 0;
   return Number.isFinite(matched.jdSubsidy) ? matched.jdSubsidy : fallback;
 };
 
-const calcLinearCost = (itemPrice: number, subsidy: number, basePrice: number) => {
+const getChannel = (channel?: ChannelConfig) => channel || CHANNELS.tradeIn;
+
+const getSubsidyRulesForProduct = (
+  product: Product,
+  subsidyRules: SubsidyRule[],
+  selfSubsidyRules: SelfOperatedSubsidyRule[],
+  channel: ChannelConfig
+): NormalizedSubsidyRule[] => {
+  if (channel.subsidyMode === 'generalThreshold') {
+    return normalizeSelfRules(selfSubsidyRules);
+  }
+  return normalizeRules(subsidyRules.filter(rule => rule.newSeries === product.newSeries));
+};
+
+const getTargetCompetitorPrice = (product: Product, channel: ChannelConfig) => (
+  channel.targetCompetitor === 'zz' ? product.zzPrice : product.tmPrice
+);
+
+const getTargetCompetitorLabel = (channel: ChannelConfig) => (
+  channel.targetCompetitor === 'zz' ? 'zz裸机价' : 'tm裸机价'
+);
+
+const calcLinearCost = (itemPrice: number, subsidy: number, basePrice: number, channel: ChannelConfig = CHANNELS.tradeIn) => {
+  if (channel.linearCostMode === 'selfOperated') {
+    return basePrice * 0.0218 + 63;
+  }
   return (itemPrice + subsidy) * 0.0466 + basePrice * 0.0218 + 81;
 };
 
-const calcMarginalProfit = (itemPrice: number, subsidy: number, basePrice: number) => {
+const calcMarginalProfit = (itemPrice: number, subsidy: number, basePrice: number, channel: ChannelConfig = CHANNELS.tradeIn) => {
   if (basePrice <= 0) return 0;
-  const linearCost = calcLinearCost(itemPrice, subsidy, basePrice);
+  const linearCost = calcLinearCost(itemPrice, subsidy, basePrice, channel);
   return 1 - (itemPrice + subsidy + linearCost) / basePrice;
 };
 
 const findBestPriceByMargin = (
   product: Product,
-  rules: SubsidyRule[],
-  targetMargin: number
+  rules: NormalizedSubsidyRule[],
+  targetMargin: number,
+  channel: ChannelConfig
 ) => {
-  const usableRules = normalizeRules(rules);
+  const usableRules = [...rules].sort((a, b) => a.threshold - b.threshold);
   const intervals = usableRules.length > 0
     ? usableRules.map((rule, index) => ({
       min: rule.threshold,
       max: usableRules[index + 1] ? usableRules[index + 1].threshold - 0.01 : Number.POSITIVE_INFINITY,
       subsidy: rule.ahsInput
     }))
-    : [{ min: 0, max: Number.POSITIVE_INFINITY, subsidy: product.ahsInput }];
+    : [{ min: 0, max: Number.POSITIVE_INFINITY, subsidy: channel.subsidyMode === 'generalThreshold' ? 0 : product.ahsInput }];
 
   const rawUpperBounds = intervals
     .map(interval => {
-      const theoreticalAhsUpper = (product.basePrice * (1 - targetMargin - 0.0218) - 81) / 1.0466;
+      const theoreticalAhsUpper = channel.linearCostMode === 'selfOperated'
+        ? product.basePrice * (1 - targetMargin - 0.0218) - 63
+        : (product.basePrice * (1 - targetMargin - 0.0218) - 81) / 1.0466;
       return Math.min(theoreticalAhsUpper - interval.subsidy, interval.max);
     })
     .filter(value => Number.isFinite(value) && value > 0);
@@ -106,8 +153,8 @@ const findBestPriceByMargin = (
     if (checkedPrices.has(candidate)) continue;
     checkedPrices.add(candidate);
 
-    const subsidy = subsidyAtPrice(candidate, usableRules, product.ahsInput);
-    const margin = calcMarginalProfit(candidate, subsidy, product.basePrice);
+    const subsidy = subsidyAtPrice(candidate, usableRules, channel.subsidyMode === 'generalThreshold' ? 0 : product.ahsInput);
+    const margin = calcMarginalProfit(candidate, subsidy, product.basePrice, channel);
     if (margin > targetMargin) {
       bestPrice = candidate;
       bestSubsidy = subsidy;
@@ -118,10 +165,17 @@ const findBestPriceByMargin = (
   return { price: round2(bestPrice), subsidy: bestSubsidy };
 };
 
-export function calculateProductPrice(product: Product, targetMargin: number, subsidyRules: SubsidyRule[] = [], pricingMode: PricingMode = 'margin'): CalculatedProduct {
-  const seriesRules = normalizeRules(subsidyRules.filter(rule => rule.newSeries === product.newSeries));
-  const currentSubsidy = subsidyAtPrice(product.jdPrice, seriesRules, product.ahsInput);
-  const currentJdSubsidy = jdSubsidyAtPrice(product.jdPrice, seriesRules, product.jdSubsidy);
+export function calculateProductPrice(
+  product: Product,
+  targetMargin: number,
+  subsidyRules: SubsidyRule[] = [],
+  pricingMode: PricingMode = 'margin',
+  options: PricingFormulaOptions = {}
+): CalculatedProduct {
+  const channel = getChannel(options.channel);
+  const activeRules = getSubsidyRulesForProduct(product, subsidyRules, options.selfSubsidyRules || [], channel);
+  const currentSubsidy = subsidyAtPrice(product.jdPrice, activeRules, channel.subsidyMode === 'generalThreshold' ? 0 : product.ahsInput);
+  const currentJdSubsidy = channel.subsidyMode === 'generalThreshold' ? 0 : jdSubsidyAtPrice(product.jdPrice, activeRules, product.jdSubsidy);
   const ahsQuotedPrice = product.jdPrice + currentSubsidy;
   const jdHandPrice = product.jdPrice + currentJdSubsidy;
   const tmHandPrice = product.tmPrice + product.tmSubsidyManual;
@@ -135,44 +189,45 @@ export function calculateProductPrice(product: Product, targetMargin: number, su
   const jdVsZzHandGap = jdHandPrice - zzHandPrice;
 
   const preGrossMargin = product.basePrice > 0 ? 1 - ahsQuotedPrice / product.basePrice : 0;
-  const preLinearCost = calcLinearCost(product.jdPrice, currentSubsidy, product.basePrice);
-  const preMarginalProfit = calcMarginalProfit(product.jdPrice, currentSubsidy, product.basePrice);
+  const preLinearCost = calcLinearCost(product.jdPrice, currentSubsidy, product.basePrice, channel);
+  const preMarginalProfit = calcMarginalProfit(product.jdPrice, currentSubsidy, product.basePrice, channel);
   const preGapRate = product.basePrice > 0 ? jdVsTmItemGap / product.basePrice : 0;
 
-  const targetCompetitorPrice = product.tmPrice;
+  const targetCompetitorPrice = getTargetCompetitorPrice(product, channel);
+  const targetCompetitorLabel = getTargetCompetitorLabel(channel);
   let recommendJdPrice = product.jdPrice;
   let ahsSubsidyAfter = currentSubsidy;
   let maxPriceByMargin = product.jdPrice;
   let pricingRemark = '';
 
   if (pricingMode === 'fullCompetition') {
-    if (product.tmPrice <= 0) {
-      pricingRemark = 'tm裸机价缺失，不调整';
-    } else if (product.jdPrice >= product.tmPrice) {
-      pricingRemark = 'jd裸机价>=tm裸机价，不调整';
+    if (targetCompetitorPrice <= 0) {
+      pricingRemark = `${targetCompetitorLabel}缺失，不调整`;
+    } else if (product.jdPrice >= targetCompetitorPrice) {
+      pricingRemark = `jd裸机价>=${targetCompetitorLabel}，不调整`;
     } else {
-      const targetPrice = getRoundedCompetitivePrice(product.tmPrice);
+      const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice);
       recommendJdPrice = targetPrice;
-      ahsSubsidyAfter = subsidyAtPrice(targetPrice, seriesRules, currentSubsidy);
+      ahsSubsidyAfter = subsidyAtPrice(targetPrice, activeRules, currentSubsidy);
       maxPriceByMargin = targetPrice;
-      pricingRemark = '100%竞争力：追过tm裸机价';
+      pricingRemark = `100%竞争力：追过${targetCompetitorLabel}`;
     }
   } else if (preMarginalProfit <= 0) {
     pricingRemark = '追前边际利润率<=0%，不调整';
-  } else if (product.jdPrice >= product.tmPrice) {
-    pricingRemark = 'jd裸机价>=tm裸机价，不调整';
+  } else if (product.jdPrice >= targetCompetitorPrice) {
+    pricingRemark = `jd裸机价>=${targetCompetitorLabel}，不调整`;
   } else {
-    const targetPrice = getRoundedCompetitivePrice(product.tmPrice);
-    const targetSubsidy = subsidyAtPrice(targetPrice, seriesRules, currentSubsidy);
-    const targetPostMargin = calcMarginalProfit(targetPrice, targetSubsidy, product.basePrice);
+    const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice);
+    const targetSubsidy = subsidyAtPrice(targetPrice, activeRules, currentSubsidy);
+    const targetPostMargin = calcMarginalProfit(targetPrice, targetSubsidy, product.basePrice, channel);
 
     if (targetPostMargin >= targetMargin) {
       recommendJdPrice = targetPrice;
       ahsSubsidyAfter = targetSubsidy;
       maxPriceByMargin = targetPrice;
-      pricingRemark = '追过tm裸机价后边际达标';
+      pricingRemark = `追过${targetCompetitorLabel}后边际达标`;
     } else {
-      const best = findBestPriceByMargin(product, seriesRules, targetMargin);
+      const best = findBestPriceByMargin(product, activeRules, targetMargin, channel);
       maxPriceByMargin = best.price;
       if (best.price > 0 && best.price >= product.jdPrice) {
         recommendJdPrice = best.price;
@@ -190,10 +245,10 @@ export function calculateProductPrice(product: Product, targetMargin: number, su
 
   const recommendAdjustment = round2(recommendJdPrice - product.jdPrice);
   const postAhsPrice = recommendJdPrice + ahsSubsidyAfter;
-  const postLinearCost = calcLinearCost(recommendJdPrice, ahsSubsidyAfter, product.basePrice);
+  const postLinearCost = calcLinearCost(recommendJdPrice, ahsSubsidyAfter, product.basePrice, channel);
   const postGrossMargin = product.basePrice > 0 ? 1 - postAhsPrice / product.basePrice : 0;
-  const postMarginalProfit = calcMarginalProfit(recommendJdPrice, ahsSubsidyAfter, product.basePrice);
-  const postJdSubsidy = jdSubsidyAtPrice(recommendJdPrice, seriesRules, currentJdSubsidy);
+  const postMarginalProfit = calcMarginalProfit(recommendJdPrice, ahsSubsidyAfter, product.basePrice, channel);
+  const postJdSubsidy = channel.subsidyMode === 'generalThreshold' ? 0 : jdSubsidyAtPrice(recommendJdPrice, activeRules, currentJdSubsidy);
   const postJdHandPrice = recommendJdPrice + postJdSubsidy;
 
   const tmItemWin = product.tmPrice > 0 && jdVsTmItemGap > 0;
@@ -261,7 +316,7 @@ export function calculateProductPrice(product: Product, targetMargin: number, su
     currentPrice: product.jdPrice,
     totalSubsidy: postJdSubsidy,
     competitorLowestPrice: targetCompetitorPrice,
-    competitorLowestSource: product.tmPrice >= product.zzPrice ? 'TM天猫' : 'ZZ转转',
+    competitorLowestSource: channel.targetCompetitor === 'zz' ? 'ZZ转转' : 'TM天猫',
     minAllowedPrice: round2(maxPriceByMargin),
     isBelowBottomLine: riskWarning === 'CRITICAL',
     maxTrackSpace: Math.max(0, round2(maxPriceByMargin - product.jdPrice)),
@@ -274,19 +329,32 @@ export function calculateProductPrice(product: Product, targetMargin: number, su
   };
 }
 
-export function runBatchCalculations(products: Product[], targetMargin: number, subsidyRules: SubsidyRule[] = [], pricingMode: PricingMode = 'margin'): CalculatedProduct[] {
-  return products.map(p => calculateProductPrice(p, targetMargin, subsidyRules, pricingMode));
+export function runBatchCalculations(
+  products: Product[],
+  targetMargin: number,
+  subsidyRules: SubsidyRule[] = [],
+  pricingMode: PricingMode = 'margin',
+  options: PricingFormulaOptions = {}
+): CalculatedProduct[] {
+  return products.map(p => calculateProductPrice(p, targetMargin, subsidyRules, pricingMode, options));
 }
 
-export function applyManualRecommendedPrice(product: CalculatedProduct, manualPrice: number, targetMargin: number, subsidyRules: SubsidyRule[] = []): CalculatedProduct {
-  const seriesRules = normalizeRules(subsidyRules.filter(rule => rule.newSeries === product.newSeries));
+export function applyManualRecommendedPrice(
+  product: CalculatedProduct,
+  manualPrice: number,
+  targetMargin: number,
+  subsidyRules: SubsidyRule[] = [],
+  options: PricingFormulaOptions = {}
+): CalculatedProduct {
+  const channel = getChannel(options.channel);
+  const activeRules = getSubsidyRulesForProduct(product, subsidyRules, options.selfSubsidyRules || [], channel);
   const recommendJdPrice = roundUploadPrice(manualPrice);
-  const ahsSubsidyAfter = subsidyAtPrice(recommendJdPrice, seriesRules, product.ahsInput);
+  const ahsSubsidyAfter = subsidyAtPrice(recommendJdPrice, activeRules, product.ahsInput);
   const postAhsPrice = recommendJdPrice + ahsSubsidyAfter;
-  const postLinearCost = calcLinearCost(recommendJdPrice, ahsSubsidyAfter, product.basePrice);
+  const postLinearCost = calcLinearCost(recommendJdPrice, ahsSubsidyAfter, product.basePrice, channel);
   const postGrossMargin = product.basePrice > 0 ? 1 - postAhsPrice / product.basePrice : 0;
-  const postMarginalProfit = calcMarginalProfit(recommendJdPrice, ahsSubsidyAfter, product.basePrice);
-  const postJdSubsidy = jdSubsidyAtPrice(recommendJdPrice, seriesRules, product.jdSubsidy);
+  const postMarginalProfit = calcMarginalProfit(recommendJdPrice, ahsSubsidyAfter, product.basePrice, channel);
+  const postJdSubsidy = channel.subsidyMode === 'generalThreshold' ? 0 : jdSubsidyAtPrice(recommendJdPrice, activeRules, product.jdSubsidy);
   const postJdHandPrice = recommendJdPrice + postJdSubsidy;
   const recommendAdjustment = round2(recommendJdPrice - product.jdPrice);
 

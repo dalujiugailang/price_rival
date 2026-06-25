@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { CalculatedProduct, CompetitivenessMetrics } from '../types';
+import { CalculatedProduct, ChannelId, CompetitivenessMetrics } from '../types';
 
 export const emptyCompetitivenessMetrics = (): CompetitivenessMetrics => ({
   tmItemScore: 0,
@@ -26,8 +26,28 @@ const weightedScore = (
   return Math.round((competitiveQuoteVolume / totalQuoteVolume) * 1000) / 10;
 };
 
-export const calculateCompetitivenessMetrics = (products: CalculatedProduct[]): CompetitivenessMetrics => {
+export const calculateCompetitivenessMetrics = (products: CalculatedProduct[], channelId: ChannelId = 'tradeIn'): CompetitivenessMetrics => {
   if (!products || products.length === 0) return emptyCompetitivenessMetrics();
+
+  const zzItemScore = weightedScore(
+    products,
+    p => p.zzPrice > 0,
+    p => p.postZzItemWin
+  );
+  const ahsVsZzDirectScore = weightedScore(
+    products,
+    p => p.zzHandPrice > 0,
+    p => p.postAhsZzHandWin
+  );
+
+  if (channelId === 'selfOperated') {
+    return {
+      tmItemScore: 0,
+      tmDirectScore: 0,
+      zzItemScore,
+      ahsVsZzDirectScore
+    };
+  }
 
   return {
     tmItemScore: weightedScore(
@@ -40,15 +60,7 @@ export const calculateCompetitivenessMetrics = (products: CalculatedProduct[]): 
       p => p.tmHandPrice > 0,
       p => p.postTmHandWin
     ),
-    zzItemScore: weightedScore(
-      products,
-      p => p.zzPrice > 0,
-      p => p.postZzItemWin
-    ),
-    ahsVsZzDirectScore: weightedScore(
-      products,
-      p => p.zzHandPrice > 0,
-      p => p.postAhsZzHandWin
-    )
+    zzItemScore,
+    ahsVsZzDirectScore
   };
 };

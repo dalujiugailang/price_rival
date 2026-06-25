@@ -26,6 +26,7 @@ import * as XLSX from 'xlsx';
 interface Props {
   historyBatches: TrackingBatch[];
   onDeleteBatch?: (id: string) => void;
+  channelName?: string;
 }
 
 type SnapshotExportRow = Record<string, string | number | boolean | null>;
@@ -51,6 +52,7 @@ const estimatedAdjustmentInvestment = (p: CalculatedProduct) => (
 const buildRawSourceRows = (batch: TrackingBatch): SnapshotExportRow[] => {
   return batch.products.map((p, idx) => ({
     '批次编号': batch.id,
+    '渠道': batch.channelName || '京东换新',
     '操作日期': batch.date,
     '操作主管': batch.operator,
     '设定边际底线': formatPercent(batch.marginBottomLine),
@@ -67,6 +69,7 @@ const buildRawSourceRows = (batch: TrackingBatch): SnapshotExportRow[] => {
 const buildOnlineSnapshotRows = (batch: TrackingBatch): SnapshotExportRow[] => {
   return batch.products.map((p, idx) => ({
     '行号': idx + 1,
+    '渠道': batch.channelName || '京东换新',
     '新机系列': p.newSeries,
     '旧机型号': p.oldModel,
     'PPV': p.ppv,
@@ -93,6 +96,7 @@ const buildOnlineSnapshotRows = (batch: TrackingBatch): SnapshotExportRow[] => {
 const buildFullSnapshotRows = (batch: TrackingBatch): SnapshotExportRow[] => {
   return batch.products.map((p, idx) => ({
     '批次编号': batch.id,
+    '渠道': batch.channelName || '京东换新',
     '操作日期': batch.date,
     '操作主管': batch.operator,
     '设定边际底线': formatPercent(batch.marginBottomLine),
@@ -146,7 +150,7 @@ const downloadWorkbook = (workbook: XLSX.WorkBook, fileName: string) => {
   URL.revokeObjectURL(url);
 };
 
-export default function HistoryPanel({ historyBatches, onDeleteBatch }: Props) {
+export default function HistoryPanel({ historyBatches, onDeleteBatch, channelName = '京东换新' }: Props) {
   // Selection for comparison
   const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
   // Individual batch inspection
@@ -194,7 +198,7 @@ export default function HistoryPanel({ historyBatches, onDeleteBatch }: Props) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildRawSourceRows(batch)), "原始字段");
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildOnlineSnapshotRows(batch)), "线上测算");
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildFullSnapshotRows(batch)), "全字段快照");
-      downloadWorkbook(wb, `竞争追价全字段快照_${batch.id}.xlsx`);
+      downloadWorkbook(wb, `${batch.channelName || channelName}_竞争追价全字段快照_${batch.id}.xlsx`);
     } catch (err: any) {
       alert('导出历史快照失败: ' + err.message);
     }
@@ -275,7 +279,7 @@ export default function HistoryPanel({ historyBatches, onDeleteBatch }: Props) {
         {/* Left Column: Archives List */}
         <div className="lg:col-span-4 border border-[#141414] rounded-none overflow-hidden flex flex-col">
           <div className="bg-[#F0EFEC] p-3 border-b border-[#141414] flex items-center justify-between">
-            <span className="font-bold text-[#141414] text-xs">已保存快照</span>
+            <span className="font-bold text-[#141414] text-xs">{channelName}已保存快照</span>
             <span className="px-2 py-0.5 border border-[#141414] bg-white text-black text-[10px]">
               {historyBatches.length}
             </span>

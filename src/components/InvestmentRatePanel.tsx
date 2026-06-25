@@ -12,12 +12,14 @@ interface Props {
   products: CalculatedProduct[];
   investmentRateInputs: InvestmentRateInputs;
   onInvestmentRateInputsChange: (inputs: InvestmentRateInputs) => void;
+  channelSalesLabel?: string;
 }
 
 export default function InvestmentRatePanel({
   products,
   investmentRateInputs,
-  onInvestmentRateInputsChange
+  onInvestmentRateInputsChange,
+  channelSalesLabel = '手机安卓近30天京东换新渠道销售额'
 }: Props) {
   const [draftInputs, setDraftInputs] = useState(investmentRateInputs);
   const investmentMetrics = calculateCompetitionInvestmentMetrics(products, investmentRateInputs);
@@ -58,7 +60,7 @@ export default function InvestmentRatePanel({
               </div>
             </div>
             <div className="pt-2 min-h-[86px] flex flex-col justify-center min-w-0">
-              <div className="text-[10px] font-bold text-[#141414]/65 leading-tight">手机安卓换新渠道竞争投入费率</div>
+              <div className="text-[10px] font-bold text-[#141414]/65 leading-tight">{channelSalesLabel.replace('销售额', '竞争投入费率')}</div>
               <div className="font-mono text-2xl 2xl:text-[40px] font-black text-green-700 mt-1 leading-none min-h-6 2xl:min-h-[57px]">
                 {formatPercent(investmentMetrics.androidJdTradeInRate)}
               </div>
@@ -94,7 +96,7 @@ export default function InvestmentRatePanel({
             />
           </label>
           <label className="space-y-1">
-            <span className="block text-[10px] font-bold text-[#141414]/70">手机安卓近30天京东换新渠道销售额</span>
+            <span className="block text-[10px] font-bold text-[#141414]/70">{channelSalesLabel}</span>
             <input
               type="number"
               min="0"
