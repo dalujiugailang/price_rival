@@ -33,7 +33,7 @@ export default function InvestmentRatePanel({
   }, [investmentRateInputs]);
 
   return (
-    <div id="investment-rate-panel" className="mb-2 border border-[#141414] bg-white overflow-hidden">
+    <div id="investment-rate-panel" data-tour="investment-rate" className="mb-2 border border-[#141414] bg-white overflow-hidden">
       <div className="p-3 border-b border-[#141414] bg-[#F0EFEC] flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <h2 className="text-base font-bold text-[#141414] flex items-center gap-2">
           <span className="bg-[#141414] text-[#E4E3E0] px-2 py-0.5 text-xs">费率测算</span>

@@ -420,6 +420,7 @@ export default function MainTable({
         return (
           <td
             key={index}
+            data-tour="manual-price"
             style={style}
             className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-extrabold ${p.manualRecommendJdPrice !== undefined ? 'text-blue-700' : ''}`}
             onDoubleClick={() => beginRecommendEdit(p)}
@@ -451,7 +452,7 @@ export default function MainTable({
         return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>;
       case 25:
         return (
-          <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
+          <td key={index} data-tour={p.smallGapOpportunityRemark ? 'small-gap-reminder' : undefined} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
             {p.smallGapOpportunityRemark ? (
               <div className="line-clamp-2 text-amber-800" title={p.smallGapOpportunityRemark}>{p.smallGapOpportunityRemark}</div>
             ) : (
@@ -569,7 +570,7 @@ export default function MainTable({
         </button>
       </div>
 
-      <div className="p-3 border-b border-[#141414] bg-[#D8D7D2] grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-center">
+      <div data-tour="pricing-strategy" className="p-3 border-b border-[#141414] bg-[#D8D7D2] grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-center">
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs font-bold">追后边际利润率底线：</label>
           <div className="flex gap-1 bg-white p-0.5 border border-[#141414]">
@@ -594,10 +595,10 @@ export default function MainTable({
         </div>
         <div className="text-xs bg-white/70 border border-[#141414]/20 p-2">
           {pricingMode === 'fullCompetition'
-            ? `100%竞争力：所有 jd裸机价<${isSelfOperated ? 'zz裸机价' : 'tm裸机价'} 的行追过${isSelfOperated ? 'zz裸机价' : 'tm裸机价'}；补贴、线性费用、追后边际仍照常重算。`
+            ? `100%竞争力：所有 jd裸机价<${isSelfOperated ? 'zz裸机价' : 'tm裸机价'} 的行追到${isSelfOperated ? 'zz裸机价×103%' : 'tm裸机价×103%'}；补贴、线性费用、追后边际仍照常重算。`
             : isSelfOperated
-              ? '公式口径：自营普发券按门槛动态命中；线性费用=基准价*2.18%+63；追价目标=zz裸机价+2。'
-              : '公式口径：补贴按新机系列+门槛动态命中；线性费用=(追价后京东物品价+补贴)*4.66%+基准价*2.18%+81；追后边际=BE。'}
+              ? '公式口径：自营普发券按门槛动态命中；追价目标=zz裸机价×103%；线性费用=基准价*2.18%+63。'
+              : '公式口径：补贴按新机系列+门槛动态命中；追价目标=tm裸机价×103%；线性费用=(追价后京东物品价+补贴)*4.66%+基准价*2.18%+81；追后边际=BE。'}
         </div>
       </div>
 

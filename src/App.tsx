@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   CalculatedProduct, 
   DailyPriceRow,
@@ -44,6 +44,8 @@ import MainTable from './components/MainTable';
 import UploadSection from './components/UploadSection';
 import HistoryPanel from './components/HistoryPanel';
 import CompetitivenessSummary from './components/CompetitivenessSummary';
+import TmHandPriceGapPanel from './components/TmHandPriceGapPanel';
+import OnboardingTour, { TourStep } from './components/OnboardingTour';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
 
 const normalizeFieldName = (value: string) => value.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLowerCase();
@@ -242,7 +244,7 @@ const mergeInitialCompetitivenessHistory = (batches: TrackingBatch[]) => {
   return [...missingInitialRows, ...batches];
 };
 
-type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness';
+type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap';
 
 type ChannelWorkspaceState = {
   productsMaster: Product[];
@@ -381,8 +383,76 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ViewTab>('workspace');
   const [channelStates, setChannelStates] = useState<ChannelStates>(createInitialChannelStates);
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStepIndex, setTourStepIndex] = useState(0);
   const activeChannel = CHANNELS[activeChannelId];
   const activeState = channelStates[activeChannelId];
+  const isSelfOperated = activeChannelId === 'selfOperated';
+  const tourSteps = useMemo<TourStep[]>(() => [
+    {
+      target: `channel-${activeChannelId}`,
+      title: '第一步：选择业务渠道',
+      body: `先确认当前渠道是“${activeChannel.name}”。京东换新对标 TM，自营对标 ZZ，后续上传字段、补贴和竞争力口径都会跟着切换。`
+    },
+    {
+      target: 'tab-upload',
+      title: '第二步：进入数据源',
+      body: '点这里进入数据源页。新手先从这里开始，不要直接在工作台改价格。',
+      tab: 'upload'
+    },
+    {
+      target: 'base-upload',
+      title: '第三步：上传本次竞争追价表',
+      body: isSelfOperated
+        ? '点这里上传自营竞争表，需要包含旧机型号、ppv、zz裸机价等字段。'
+        : '点这里上传京东换新竞争表，需要包含新机系列、旧机型号、ppv、tm裸机价、tm总补贴-人工、zz裸机价等字段。',
+      tab: 'upload'
+    },
+    {
+      target: 'daily-api',
+      title: '第四步：匹配 daily price',
+      body: '点这个按钮自动按 ppv 匹配 JD 最终报价、BI 基准价和等级 id。匹配完再进入测算。',
+      tab: 'upload'
+    },
+    {
+      target: isSelfOperated ? 'self-subsidy' : 'subsidy-upload',
+      title: isSelfOperated ? '第五步：粘贴自营普发券' : '第五步：上传补贴表',
+      body: isSelfOperated
+        ? '在这里粘贴门槛和优惠金额，然后点击“应用自营普发券规则”。补贴会按追后价格动态命中。'
+        : '点这里上传补贴表，系统会按新机系列和 JD 物品价门槛命中 AHS 投入、京东补贴。',
+      tab: 'upload'
+    },
+    {
+      target: 'top-strategy',
+      title: '第六步：调整追价策略',
+      body: '教程会自动回到工作台。这里就是切换边际底线或 100%竞争力的按钮组，切换后追后价格、利润、投入费率和高出清单会实时变化。',
+      tab: 'workspace'
+    },
+    {
+      target: 'small-gap-reminder',
+      title: '第七步：小额价差提醒与手动改价',
+      body: '先看 AZ提醒列的小额价差机会。遇到距竞品只差一点的高价值机型，可以双击“京东物品价-追价后”这一格手动改价，再按新的价格重算利润和竞争力。',
+      tab: 'workspace'
+    },
+    {
+      target: 'investment-rate',
+      title: '第八步：计算投入费率',
+      body: '填入近 30 天销售额后点击“计算费率”。注意输入框变化不会立即刷新，必须点计算按钮。',
+      tab: 'workspace'
+    },
+    {
+      target: 'save-snapshot',
+      title: '第九步：保存和输出',
+      body: '确认结果后点这里保存测算快照。需要汇报时，可再导出追价表、查看竞争力走势或生成追后高出清单。',
+      tab: 'workspace'
+    },
+    {
+      target: 'competitiveness-trend-chart',
+      title: '第十步：查看竞争力走势',
+      body: '教程会进入竞争力走势页。重点看“历史追平周期竞争力波动走势”折线图，用正式落数和当前工作台草稿做追价复盘和汇报。',
+      tab: 'competitiveness'
+    }
+  ], [activeChannel.name, activeChannelId, isSelfOperated]);
 
   const updateActiveState = (updater: (state: ChannelWorkspaceState) => ChannelWorkspaceState) => {
     setChannelStates(prev => ({
@@ -462,6 +532,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(CHANNEL_STATE_STORAGE_KEY, JSON.stringify(channelStates));
   }, [channelStates]);
+
+  useEffect(() => {
+    if (!tourOpen) return;
+    const nextTab = tourSteps[tourStepIndex]?.tab as ViewTab | undefined;
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+  }, [activeTab, tourOpen, tourStepIndex, tourSteps]);
 
   const nowText = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
@@ -726,16 +804,33 @@ export default function App() {
       investmentRateInputs: inputs
     }));
   };
+  const startTour = () => {
+    setTourOpen(true);
+  };
+  const finishTour = () => {
+    setTourOpen(false);
+    setTourStepIndex(0);
+  };
+  const goToTourStep = (nextIndex: number) => {
+    const boundedIndex = Math.max(0, Math.min(nextIndex, tourSteps.length - 1));
+    const nextTab = tourSteps[boundedIndex]?.tab as ViewTab | undefined;
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+    setTourStepIndex(boundedIndex);
+  };
 
   const viewButtons: { id: ViewTab; label: string }[] = [
     { id: 'workspace', label: '追价工作台' },
     { id: 'upload', label: `数据源 (${activeState.sourceUploadRecords.length})` },
     { id: 'history', label: `历史 (${activeState.historyBatches.length})` },
-    { id: 'competitiveness', label: '竞争力走势' }
+    { id: 'competitiveness', label: '竞争力走势' },
+    { id: 'tmHandGap', label: activeChannelId === 'selfOperated' ? '追后AHS高出ZZ' : '追后到手高出TM' }
   ];
   const channelOrder: ChannelId[] = ['tradeIn', 'selfOperated'];
+  const hasPausedTour = !tourOpen && tourStepIndex > 0;
   const channelTargetLabel = (channelId: ChannelId) => (
-    CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价+2' : '天猫裸机价+2'
+    CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价×103%' : '天猫裸机价×103%'
   );
 
   return (
@@ -754,6 +849,7 @@ export default function App() {
                 <div key={channelId} className="space-y-5">
                   <button
                     type="button"
+                    data-tour={`channel-${channelId}`}
                     onClick={() => {
                       setActiveChannelId(channelId);
                       if (!selected) setActiveTab('workspace');
@@ -781,6 +877,7 @@ export default function App() {
                           <button
                             key={button.id}
                             type="button"
+                            data-tour={`tab-${button.id}`}
                             onClick={() => setActiveTab(button.id)}
                             className={`block w-full border px-3 py-2 text-left text-xs transition-colors ${
                               active
@@ -803,6 +900,7 @@ export default function App() {
           <div className="p-4 border-t border-[#141414] space-y-2">
             <button
               type="button"
+              data-tour="open-upload"
               onClick={() => {
                 setActiveTab('upload');
               }}
@@ -812,6 +910,7 @@ export default function App() {
             </button>
             <button
               type="button"
+              data-tour="save-snapshot"
               onClick={() => {
                 setActiveTab('workspace');
                 setTimeout(() => {
@@ -846,8 +945,17 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                data-tour="tutorial-button"
+                onClick={startTour}
+                className="inline-flex items-center gap-1.5 border border-[#141414] bg-white px-3 py-1 text-xs font-black hover:bg-[#141414] hover:text-white"
+              >
+                <Info className="h-3.5 w-3.5" />
+                {hasPausedTour ? '继续教程' : '新手教程'}
+              </button>
               <span className="text-xs font-bold opacity-70">追价策略：</span>
-              <div className="flex gap-1 bg-white p-0.5 border border-[#141414]">
+              <div data-tour="top-strategy" className="flex gap-1 bg-white p-0.5 border border-[#141414]">
                 {[-0.03, 0, 0.03].map(val => (
                   <button
                     key={val}
@@ -937,6 +1045,14 @@ export default function App() {
                   channelName={activeChannel.name}
                 />
               )}
+
+              {activeTab === 'tmHandGap' && (
+                <TmHandPriceGapPanel
+                  products={activeCalculatedItems}
+                  channelName={activeChannel.name}
+                  channelId={activeChannelId}
+                />
+              )}
             </div>
           </main>
 
@@ -945,6 +1061,15 @@ export default function App() {
           </footer>
         </div>
       </div>
+      <OnboardingTour
+        open={tourOpen}
+        steps={tourSteps}
+        currentIndex={tourStepIndex}
+        onPause={() => setTourOpen(false)}
+        onFinish={finishTour}
+        onNext={() => goToTourStep(tourStepIndex + 1)}
+        onPrev={() => goToTourStep(tourStepIndex - 1)}
+      />
     </div>
   );
 }

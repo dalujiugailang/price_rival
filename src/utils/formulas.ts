@@ -27,12 +27,12 @@ export const roundUploadPrice = (value: number) => {
   return base + 100;
 };
 
-export const getRoundedCompetitivePrice = (competitorPrice: number) => {
+export const getRoundedCompetitivePrice = (competitorPrice: number, targetPrice = competitorPrice + 2) => {
   if (!Number.isFinite(competitorPrice) || competitorPrice <= 0) return 0;
-  const start = competitorPrice + 2;
+  const start = Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : competitorPrice + 2;
   for (let price = start; price <= start + 200; price += 1) {
     const rounded = roundUploadPrice(price);
-    if (rounded > competitorPrice) return rounded;
+    if (rounded > competitorPrice && rounded >= start) return rounded;
   }
   return roundUploadPrice(start + 200);
 };
@@ -106,6 +106,12 @@ const getTargetCompetitorPrice = (product: Product, channel: ChannelConfig) => (
 const getTargetCompetitorLabel = (channel: ChannelConfig) => (
   channel.targetCompetitor === 'zz' ? 'zz裸机价' : 'tm裸机价'
 );
+
+const getTargetPricingStart = (competitorPrice: number) => (
+  competitorPrice * 1.03
+);
+
+const getTargetPricingLabel = (targetCompetitorLabel: string) => `${targetCompetitorLabel}×103%`;
 
 const calcLinearCost = (itemPrice: number, subsidy: number, basePrice: number, channel: ChannelConfig = CHANNELS.tradeIn) => {
   if (channel.linearCostMode === 'selfOperated') {
@@ -195,6 +201,7 @@ export function calculateProductPrice(
 
   const targetCompetitorPrice = getTargetCompetitorPrice(product, channel);
   const targetCompetitorLabel = getTargetCompetitorLabel(channel);
+  const targetPricingLabel = getTargetPricingLabel(targetCompetitorLabel);
   let recommendJdPrice = product.jdPrice;
   let ahsSubsidyAfter = currentSubsidy;
   let maxPriceByMargin = product.jdPrice;
@@ -206,18 +213,18 @@ export function calculateProductPrice(
     } else if (product.jdPrice >= targetCompetitorPrice) {
       pricingRemark = `jd裸机价>=${targetCompetitorLabel}，不调整`;
     } else {
-      const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice);
+      const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice, getTargetPricingStart(targetCompetitorPrice));
       recommendJdPrice = targetPrice;
       ahsSubsidyAfter = subsidyAtPrice(targetPrice, activeRules, currentSubsidy);
       maxPriceByMargin = targetPrice;
-      pricingRemark = `100%竞争力：追过${targetCompetitorLabel}`;
+      pricingRemark = `100%竞争力：追到${targetPricingLabel}`;
     }
   } else if (preMarginalProfit <= 0) {
     pricingRemark = '追前边际利润率<=0%，不调整';
   } else if (product.jdPrice >= targetCompetitorPrice) {
     pricingRemark = `jd裸机价>=${targetCompetitorLabel}，不调整`;
   } else {
-    const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice);
+    const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice, getTargetPricingStart(targetCompetitorPrice));
     const targetSubsidy = subsidyAtPrice(targetPrice, activeRules, currentSubsidy);
     const targetPostMargin = calcMarginalProfit(targetPrice, targetSubsidy, product.basePrice, channel);
 
@@ -225,7 +232,7 @@ export function calculateProductPrice(
       recommendJdPrice = targetPrice;
       ahsSubsidyAfter = targetSubsidy;
       maxPriceByMargin = targetPrice;
-      pricingRemark = `追过${targetCompetitorLabel}后边际达标`;
+      pricingRemark = `追到${targetPricingLabel}后边际达标`;
     } else {
       const best = findBestPriceByMargin(product, activeRules, targetMargin, channel);
       maxPriceByMargin = best.price;

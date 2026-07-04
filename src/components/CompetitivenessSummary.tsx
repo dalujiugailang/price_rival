@@ -256,7 +256,7 @@ export default function CompetitivenessSummary({
       </div>
 
       {/* Main Graph Content Panel */}
-      <div className="border border-[#141414] p-5 bg-[#F9F9F8] rounded-none">
+      <div data-tour="competitiveness-trend-chart" className="border border-[#141414] p-5 bg-[#F9F9F8] rounded-none">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-6">
           <div>
             <h4 className="font-bold text-stone-900 text-sm flex items-center gap-1.5">

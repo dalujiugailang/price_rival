@@ -697,7 +697,7 @@ export default function UploadSection({
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 p-4">
-        <div className={cardClass}>
+        <div className={cardClass} data-tour="base-upload">
           <div>
             <div className="text-sm font-bold">1. 本次竞争追价表</div>
             <div className="mt-1 text-[11px] text-[#141414]/70">
@@ -733,7 +733,7 @@ export default function UploadSection({
           {ppvAggregationStatus && <div className="text-[11px] font-bold text-green-700">{ppvAggregationStatus}</div>}
         </div>
 
-        <div className={cardClass}>
+        <div className={cardClass} data-tour="daily-api">
           <div>
             <div className="text-sm font-bold">2. daily price API</div>
             <div className="mt-1 text-[11px] text-[#141414]/70">不需要上传表。系统调用 daily price 项目接口：最终报价写入 jd裸机价，BI基准价写入基准价，等级id写入等级id列。</div>
@@ -750,7 +750,7 @@ export default function UploadSection({
         </div>
 
         {isSelfOperated ? (
-          <div className={cardClass}>
+          <div className={cardClass} data-tour="self-subsidy">
             <div>
               <div className="text-sm font-bold">3. 自营普发券</div>
               <div className="mt-1 text-[11px] text-[#141414]/70">直接粘贴两列：门槛 / 优惠金额-1组。不分新机系列，补贴全部按爱回收承担计算。</div>
@@ -798,7 +798,7 @@ export default function UploadSection({
             {selfSubsidyStatus && <div className="text-[11px] font-bold text-green-700">{selfSubsidyStatus}</div>}
           </div>
         ) : (
-          <div className={cardClass}>
+          <div className={cardClass} data-tour="subsidy-upload">
             <div>
               <div className="text-sm font-bold">3. 补贴表</div>
               <div className="mt-1 text-[11px] text-[#141414]/70">按新机系列找到规则，再用 jd裸机价落入价格门槛，返回对应新品型号ahs投入。</div>

@@ -125,7 +125,7 @@ export default function DashboardStats({
           </div>
           <div className="text-[11px] text-[#141414]/80 mt-3 pt-2 border-t border-[#141414]/20">
             {pricingMode === 'fullCompetition'
-              ? `检测到 ${withTrackingSpace} 条 PPV 已按${isSelfOperated ? '转转裸机价' : '天猫裸机价'}+2生成追价建议。`
+              ? `检测到 ${withTrackingSpace} 条 PPV 已按${isSelfOperated ? '转转裸机价×103%' : '天猫裸机价×103%'}生成追价建议。`
               : `检测到 ${withTrackingSpace} 条 PPV 可在利润约束内向竞品高报价追平。`}
           </div>
         </div>
