@@ -48,6 +48,7 @@ export interface DailyPriceRow {
   ppv: string;
   biBasePrice: number;
   costPrice: number;
+  zzPrePrice: number;
   levelId: string;
   rawFields: Record<string, string | number | boolean | null>;
 }

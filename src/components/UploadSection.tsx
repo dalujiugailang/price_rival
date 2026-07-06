@@ -25,12 +25,19 @@ type PpvAggregationRow = {
   quoteVolume: number;
   soldVolume: number;
   inquiryDescription: string;
+  zzPriceValue: string | number;
 };
 
 type PpvAggregationResult = {
   sourceRows: number;
   outputRows: PpvAggregationRow[];
   descriptionMatchedRows: number;
+};
+
+type PpvAggregationZzPriceResult = {
+  rows: PpvAggregationRow[];
+  crawledMatchedRows: number;
+  apiMatchedRows: number;
 };
 
 type SelfSubsidyGridRow = {
@@ -340,6 +347,94 @@ const PPV_INQUIRY_DESCRIPTIONS = new Map([
   ['99-a1', '边框背板细微划痕+电池85-94']
 ]);
 
+const ZZ_CRAWLED_PPV_ASSET = '/zz有爬价的ppv.xlsx';
+const ZZ_CRAWLED_TEXT = '无需爬价';
+
+const normalizePpvKey = (value: unknown) => normalize(value);
+
+const loadZzCrawledPpvSet = async (): Promise<Set<string>> => {
+  const response = await fetch(ZZ_CRAWLED_PPV_ASSET);
+  if (!response.ok) {
+    throw new Error('ZZ已爬价PPV名单加载失败');
+  }
+
+  const workbook = XLSX.read(await response.arrayBuffer(), { type: 'array', cellDates: false });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json<CellValue[]>(sheet, { header: 1, defval: null, raw: true });
+  const header = rows[0]?.map(cell => toText(cell)) || [];
+  const ppvIndex = header.findIndex(cell => normalize(cell) === 'ppv' || normalize(cell).includes('ppv'));
+  const targetIndex = ppvIndex >= 0 ? ppvIndex : 0;
+
+  return new Set(
+    rows
+      .slice(1)
+      .map(row => normalizePpvKey(row[targetIndex]))
+      .filter(Boolean)
+  );
+};
+
+const fetchZzPrePriceMap = async (ppvs: string[]): Promise<Map<string, string | number>> => {
+  const uniquePpvs = Array.from(new Set(ppvs.map(ppv => ppv.trim()).filter(Boolean)));
+  if (uniquePpvs.length === 0) return new Map();
+
+  const response = await fetch('/api/daily-price/lookup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ppv: uniquePpvs })
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || 'daily price API 查询ZZ券前价失败');
+  }
+
+  const priceMap = new Map<string, string | number>();
+  (payload.rows || []).forEach((row: Record<string, CellValue>) => {
+    const ppv = toText(row.ppv);
+    const value = getField(row, ['ZZ券前价', 'zz券前价', '转转券前价']);
+    if (!ppv || value === null || value === '') return;
+    if (typeof value === 'number') {
+      priceMap.set(normalizePpvKey(ppv), value);
+      return;
+    }
+    if (typeof value === 'string') {
+      priceMap.set(normalizePpvKey(ppv), value);
+    }
+  });
+  return priceMap;
+};
+
+const applyZzPriceValues = async (rows: PpvAggregationRow[]): Promise<PpvAggregationZzPriceResult> => {
+  const [crawledPpvs, zzPrePriceMap] = await Promise.all([
+    loadZzCrawledPpvSet(),
+    fetchZzPrePriceMap(rows.map(row => row.ppv))
+  ]);
+
+  let crawledMatchedRows = 0;
+  let apiMatchedRows = 0;
+  const nextRows = rows.map(row => {
+    const key = normalizePpvKey(row.ppv);
+    if (crawledPpvs.has(key)) {
+      crawledMatchedRows += 1;
+      return { ...row, zzPriceValue: ZZ_CRAWLED_TEXT };
+    }
+
+    const apiValue = zzPrePriceMap.get(key);
+    if (apiValue !== undefined) {
+      apiMatchedRows += 1;
+      return { ...row, zzPriceValue: apiValue };
+    }
+
+    return { ...row, zzPriceValue: '' };
+  });
+
+  return {
+    rows: nextRows,
+    crawledMatchedRows,
+    apiMatchedRows
+  };
+};
+
 const getPpvAggregationExportName = (channelId: ChannelId) => {
   const now = new Date();
   const dateText = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
@@ -388,7 +483,8 @@ const buildPpvAggregation = async (
       level,
       quoteVolume,
       soldVolume,
-      inquiryDescription
+      inquiryDescription,
+      zzPriceValue: ''
     });
   });
 
@@ -430,7 +526,7 @@ const exportPpvAggregationWorkbook = (rows: PpvAggregationRow[], channelId: Chan
         row.quoteVolume,
         row.soldVolume,
         row.inquiryDescription,
-        ''
+        row.zzPriceValue
       ]
       : [
         '',
@@ -443,7 +539,7 @@ const exportPpvAggregationWorkbook = (rows: PpvAggregationRow[], channelId: Chan
         row.inquiryDescription,
         '',
         '',
-        ''
+        row.zzPriceValue
       ]
   ));
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...body]);
@@ -572,15 +668,16 @@ export default function UploadSection({
           ppv: toText(row.ppv),
           biBasePrice: toNumber(row['BI基准价']),
           costPrice: toNumber(getDailyPriceFinalQuote(row)),
+          zzPrePrice: toNumber(getField(row, ['ZZ券前价', 'zz券前价', '转转券前价'])),
           levelId: toText(getField(row, ['等级id', '等级ID', 'levelid', 'level id'])),
           rawFields: {
             ...row
           }
         }))
-        .filter(row => row.ppv && (row.costPrice > 0 || row.biBasePrice > 0));
+        .filter(row => row.ppv && (row.costPrice > 0 || row.biBasePrice > 0 || row.zzPrePrice > 0));
 
       onDailyPricesLoaded(rows, `daily price API ${payload.dataDate || ''}`.trim());
-      setDailyApiStatus(`已从 daily price API 取回 ${rows.length}/${currentProducts.length} 条价格：最终报价写入jd裸机价，BI基准价写入基准价，等级id写入等级id列。数据日期 ${payload.dataDate || '未知'}`);
+      setDailyApiStatus(`已从 daily price API 取回 ${rows.length}/${currentProducts.length} 条价格：最终报价写入jd裸机价，BI基准价写入基准价，ZZ券前价写入zz裸机价，等级id写入等级id列。数据日期 ${payload.dataDate || '未知'}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'daily price API 查询失败');
     } finally {
@@ -598,8 +695,9 @@ export default function UploadSection({
       if (result.outputRows.length === 0) {
         throw new Error(`没有生成可导出的聚合结果，请检查商品型号、商品SKU、商品LEVEL、${isSelfOperated ? '报价访客数' : '报价量'}、成交量字段。`);
       }
-      exportPpvAggregationWorkbook(result.outputRows, channelId);
-      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，按${isSelfOperated ? '报价访客数' : '报价量'}Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果，匹配询价说明 ${result.descriptionMatchedRows} 行。`);
+      const zzPriceResult = await applyZzPriceValues(result.outputRows);
+      exportPpvAggregationWorkbook(zzPriceResult.rows, channelId);
+      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，按${isSelfOperated ? '报价访客数' : '报价量'}Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果；匹配询价说明 ${result.descriptionMatchedRows} 行，ZZ已爬价 ${zzPriceResult.crawledMatchedRows} 行，API写入ZZ券前价 ${zzPriceResult.apiMatchedRows} 行。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ppv聚合导出失败');
     } finally {
@@ -692,7 +790,7 @@ export default function UploadSection({
       <div className="p-4 border-b border-[#141414]">
         <h2 className="text-base font-bold">数据上传与自动匹配流程</h2>
         <p className="mt-1 text-xs text-[#141414]/70">
-          当前竞争表 {currentProducts.length} 行。{isSelfOperated ? '自营渠道补贴采用普发券粘贴规则。' : '现在只需要上传本次竞争追价表和补贴表。'}daily price API 按 ppv 自动匹配最终报价、BI基准价和等级id。
+          当前竞争表 {currentProducts.length} 行。{isSelfOperated ? '自营渠道补贴采用普发券粘贴规则。' : '现在只需要上传本次竞争追价表和补贴表。'}daily price API 按 ppv 自动匹配最终报价、BI基准价、ZZ券前价和等级id。
         </p>
       </div>
 
@@ -736,14 +834,14 @@ export default function UploadSection({
         <div className={cardClass} data-tour="daily-api">
           <div>
             <div className="text-sm font-bold">2. daily price API</div>
-            <div className="mt-1 text-[11px] text-[#141414]/70">不需要上传表。系统调用 daily price 项目接口：最终报价写入 jd裸机价，BI基准价写入基准价，等级id写入等级id列。</div>
+            <div className="mt-1 text-[11px] text-[#141414]/70">不需要上传表。系统调用 daily price 项目接口：最终报价写入 jd裸机价，BI基准价写入基准价，ZZ券前价写入 zz裸机价，等级id写入等级id列。</div>
           </div>
           <button
             type="button"
             onClick={syncDailyPriceApi}
             className="w-full border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white hover:bg-[#2A2A2B]"
           >
-            通过 API 匹配 jd裸机价 / 基准价 / 等级id
+            通过 API 匹配 jd裸机价 / 基准价 / zz裸机价 / 等级id
           </button>
           <div className={statClass}>已导入 {dailyPrices.length} 行，当前匹配 {dailyMatched}/{currentProducts.length} 行</div>
           {dailyApiStatus && <div className="text-[11px] font-bold text-green-700">{dailyApiStatus}</div>}

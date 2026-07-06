@@ -476,6 +476,7 @@ export default function App() {
       let ahsInput = prod.ahsInput;
       let jdSubsidy = prod.jdSubsidy;
       let basePrice = prod.basePrice;
+      let zzPrice = prod.zzPrice;
       let levelId = prod.levelId || '';
 
       if (dailyMatch) {
@@ -484,6 +485,9 @@ export default function App() {
         }
         if (dailyMatch.biBasePrice > 0) {
           basePrice = dailyMatch.biBasePrice;
+        }
+        if (dailyMatch.zzPrePrice > 0) {
+          zzPrice = dailyMatch.zzPrePrice;
         }
         if (dailyMatch.levelId) {
           levelId = dailyMatch.levelId;
@@ -509,6 +513,7 @@ export default function App() {
         ahsInput,
         jdSubsidy,
         basePrice,
+        zzPrice,
         levelId
       };
     });
@@ -612,7 +617,7 @@ export default function App() {
           uploadedAt: nowText(),
           rowCount: rows.length,
           matchedCount,
-          remarks: '按 ppv 匹配 daily price：最终报价写入 jd裸机价，BI基准价写入基准价，等级id写入等级id列。'
+          remarks: '按 ppv 匹配 daily price：最终报价写入 jd裸机价，BI基准价写入基准价，ZZ券前价写入 zz裸机价，等级id写入等级id列。'
         },
         ...state.sourceUploadRecords
       ]
