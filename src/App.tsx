@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { compressToUTF16, decompressFromUTF16 } from 'lz-string';
 import { 
   CalculatedProduct, 
   DailyPriceRow,
@@ -266,6 +267,7 @@ type ChannelWorkspaceState = {
 type ChannelStates = Record<ChannelId, ChannelWorkspaceState>;
 
 const CHANNEL_STATE_STORAGE_KEY = 'pricing_channel_states_v1';
+const COMPRESSED_STORAGE_PREFIX = 'lz:';
 
 const safeParse = <T,>(value: string | null, fallback: T): T => {
   if (!value) return fallback;
@@ -273,6 +275,31 @@ const safeParse = <T,>(value: string | null, fallback: T): T => {
     return JSON.parse(value) as T;
   } catch (err) {
     return fallback;
+  }
+};
+
+const parseStoredChannelStates = (value: string | null): Partial<ChannelStates> => {
+  if (!value?.startsWith(COMPRESSED_STORAGE_PREFIX)) {
+    return safeParse<Partial<ChannelStates>>(value, {});
+  }
+
+  try {
+    const json = decompressFromUTF16(value.slice(COMPRESSED_STORAGE_PREFIX.length));
+    return json ? JSON.parse(json) as Partial<ChannelStates> : {};
+  } catch (error) {
+    console.error('读取竞争追价本地数据失败', error);
+    return {};
+  }
+};
+
+const persistChannelStates = (states: ChannelStates) => {
+  try {
+    const compressed = compressToUTF16(JSON.stringify(states));
+    localStorage.setItem(CHANNEL_STATE_STORAGE_KEY, `${COMPRESSED_STORAGE_PREFIX}${compressed}`);
+    return true;
+  } catch (error) {
+    console.error('保存竞争追价本地数据失败', error);
+    return false;
   }
 };
 
@@ -334,7 +361,7 @@ const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts:
 });
 
 const createInitialChannelStates = (): ChannelStates => {
-  const saved = safeParse<Partial<ChannelStates>>(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY), {});
+  const saved = parseStoredChannelStates(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY));
   if (saved.tradeIn || saved.selfOperated) {
     return {
       tradeIn: normalizeState(saved.tradeIn || {}, INITIAL_PRODUCTS, 'tradeIn'),
@@ -535,7 +562,7 @@ export default function App() {
   }, [activeChannel, activeChannelId, activeState]);
 
   useEffect(() => {
-    localStorage.setItem(CHANNEL_STATE_STORAGE_KEY, JSON.stringify(channelStates));
+    persistChannelStates(channelStates);
   }, [channelStates]);
 
   useEffect(() => {
@@ -697,17 +724,25 @@ export default function App() {
       investmentRateMetrics
     };
 
-    updateActiveState(state => ({
-      ...state,
+    const nextActiveState: ChannelWorkspaceState = {
+      ...activeState,
       historyBatches: [
         newBatch,
-        ...state.historyBatches.map(batch => (
+        ...activeState.historyBatches.map(batch => (
           confirmCompetitiveness && batch.isCompetitivenessConfirmed && (batch.competitivenessDate || batch.date) === competitivenessDate
             ? { ...batch, isCompetitivenessConfirmed: false }
             : batch
         ))
       ]
-    }));
+    };
+    const nextChannelStates = {
+      ...channelStates,
+      [activeChannelId]: nextActiveState
+    };
+
+    if (!persistChannelStates(nextChannelStates)) return false;
+    setChannelStates(nextChannelStates);
+    return true;
   };
 
   const handleCompetitivenessHistoryLoaded = (batches: TrackingBatch[], fileName: string) => {

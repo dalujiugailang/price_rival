@@ -25,7 +25,7 @@ interface Props {
       competitivenessDate: string;
       pricingTimestamp: string;
     }
-  ) => void;
+  ) => boolean;
   onTriggerApiRefresh: () => void;
   lastApiSyncTime: string;
   competitionVersionName: string;
@@ -152,11 +152,15 @@ export default function MainTable({
       alert('请填写落数日期和追价时间。');
       return;
     }
-    onSaveBatch(batchRemarks, operatorName, {
+    const saved = onSaveBatch(batchRemarks, operatorName, {
       confirmCompetitiveness,
       competitivenessDate,
       pricingTimestamp: pricingTimestamp.replace('T', ' ')
     });
+    if (!saved) {
+      alert('保存失败：浏览器本地存储空间不足。请先不要刷新页面，导出必要数据后再联系管理员处理历史数据。');
+      return;
+    }
     setShowSaveModal(false);
     setBatchRemarks('');
     alert(confirmCompetitiveness ? '测算快照已保存，并已确认为竞争力落数。' : '测算快照已保存，可在历史对比中查看。');
