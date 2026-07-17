@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { compressToUTF16, decompressFromUTF16 } from 'lz-string';
 import { 
   CalculatedProduct, 
@@ -47,7 +47,10 @@ import HistoryPanel from './components/HistoryPanel';
 import CompetitivenessSummary from './components/CompetitivenessSummary';
 import TmHandPriceGapPanel from './components/TmHandPriceGapPanel';
 import OnboardingTour, { TourStep } from './components/OnboardingTour';
+import AuditLogPanel from './components/AuditLogPanel';
+import { useAuth } from './components/AuthGate';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
+import { deleteTrackingBatch, importTrackingBatches, listTrackingBatches, saveTrackingBatch } from './api';
 
 const normalizeFieldName = (value: string) => value.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLowerCase();
 
@@ -245,7 +248,7 @@ const mergeInitialCompetitivenessHistory = (batches: TrackingBatch[]) => {
   return [...missingInitialRows, ...batches];
 };
 
-type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap';
+type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit';
 
 type ChannelWorkspaceState = {
   productsMaster: Product[];
@@ -406,12 +409,15 @@ const createInitialChannelStates = (): ChannelStates => {
 };
 
 export default function App() {
+  const { user, logout } = useAuth();
   const [activeChannelId, setActiveChannelId] = useState<ChannelId>(DEFAULT_CHANNEL_ID);
   const [activeTab, setActiveTab] = useState<ViewTab>('workspace');
   const [channelStates, setChannelStates] = useState<ChannelStates>(createInitialChannelStates);
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourStepIndex, setTourStepIndex] = useState(0);
+  const [historySyncStatus, setHistorySyncStatus] = useState('正在连接共享历史…');
+  const historySyncStartedRef = useRef(false);
   const activeChannel = CHANNELS[activeChannelId];
   const activeState = channelStates[activeChannelId];
   const isSelfOperated = activeChannelId === 'selfOperated';
@@ -487,6 +493,62 @@ export default function App() {
       [activeChannelId]: updater(prev[activeChannelId])
     }));
   };
+
+  const applyServerBatches = (batches: TrackingBatch[]) => {
+    setChannelStates(prev => ({
+      tradeIn: {
+        ...prev.tradeIn,
+        historyBatches: batches.filter(batch => (batch.channelId || 'tradeIn') === 'tradeIn')
+      },
+      selfOperated: {
+        ...prev.selfOperated,
+        historyBatches: batches.filter(batch => batch.channelId === 'selfOperated')
+      }
+    }));
+  };
+
+  const refreshServerBatches = async (showStatus = false) => {
+    const result = await listTrackingBatches();
+    applyServerBatches(result.batches);
+    if (showStatus) {
+      setHistorySyncStatus(`共享历史已同步：${result.batches.length} 期`);
+    }
+    return result.batches;
+  };
+
+  useEffect(() => {
+    if (historySyncStartedRef.current) return;
+    historySyncStartedRef.current = true;
+    const localBatches = [...channelStates.tradeIn.historyBatches, ...channelStates.selfOperated.historyBatches];
+
+    const migrateAndLoad = async () => {
+      try {
+        let migrationText = '';
+        if (localBatches.length > 0) {
+          const migration = await importTrackingBatches(localBatches);
+          migrationText = `；本机迁移 ${migration.imported} 期，跳过 ${migration.skipped} 期`;
+        }
+        const result = await listTrackingBatches();
+        applyServerBatches(result.batches);
+        setHistorySyncStatus(`共享历史 ${result.batches.length} 期${migrationText}`);
+      } catch (error) {
+        setHistorySyncStatus(`共享历史同步失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+
+    migrateAndLoad();
+    const interval = window.setInterval(() => {
+      refreshServerBatches().catch(() => undefined);
+    }, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshServerBatches().catch(() => undefined);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
 
   useEffect(() => {
     const dailyPriceByPpv = new Map<string, DailyPriceRow>(activeState.dailyPriceRows.map(row => [row.ppv, row]));
@@ -692,10 +754,11 @@ export default function App() {
     }));
   };
 
-  const handleSaveBatch = (remarks: string, operator: string, options?: SaveBatchOptions) => {
+  const handleSaveBatch = async (remarks: string, operator: string, options?: SaveBatchOptions) => {
     const todayStr = new Date().toISOString().slice(0, 10);
     const timeCode = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
-    const newBatchId = `TRACK-${todayStr.replace(/-/g, '')}-${timeCode}`;
+    const randomSuffix = crypto.randomUUID().slice(0, 6).toUpperCase();
+    const newBatchId = `TRACK-${todayStr.replace(/-/g, '')}-${timeCode}-${randomSuffix}`;
     const confirmCompetitiveness = !!options?.confirmCompetitiveness;
     const competitivenessDate = options?.competitivenessDate || todayStr;
     const pricingTimestamp = options?.pricingTimestamp || new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -724,25 +787,24 @@ export default function App() {
       investmentRateMetrics
     };
 
-    const nextActiveState: ChannelWorkspaceState = {
-      ...activeState,
-      historyBatches: [
-        newBatch,
-        ...activeState.historyBatches.map(batch => (
-          confirmCompetitiveness && batch.isCompetitivenessConfirmed && (batch.competitivenessDate || batch.date) === competitivenessDate
-            ? { ...batch, isCompetitivenessConfirmed: false }
-            : batch
-        ))
-      ]
-    };
-    const nextChannelStates = {
-      ...channelStates,
-      [activeChannelId]: nextActiveState
-    };
-
-    if (!persistChannelStates(nextChannelStates)) return false;
-    setChannelStates(nextChannelStates);
-    return true;
+    try {
+      const result = await saveTrackingBatch(newBatch);
+      updateActiveState(state => ({
+        ...state,
+        historyBatches: [
+          result.batch,
+          ...state.historyBatches.map(batch => (
+            confirmCompetitiveness && batch.isCompetitivenessConfirmed && (batch.competitivenessDate || batch.date) === competitivenessDate
+              ? { ...batch, isCompetitivenessConfirmed: false }
+              : batch
+          ))
+        ]
+      }));
+      setHistorySyncStatus(`已写入共享历史：${result.batch.id}`);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
   };
 
   const handleCompetitivenessHistoryLoaded = (batches: TrackingBatch[], fileName: string) => {
@@ -775,6 +837,9 @@ export default function App() {
         ...state.sourceUploadRecords
       ]
     }));
+    importTrackingBatches(normalizedBatches)
+      .then(() => refreshServerBatches(true))
+      .catch(error => alert(`历史落数已读入本机，但同步到共享数据库失败：${error instanceof Error ? error.message : String(error)}`));
   };
 
   const handleTriggerApiRefresh = () => {
@@ -784,11 +849,18 @@ export default function App() {
     }));
   };
 
-  const handleDeleteBatch = (id: string) => {
-    updateActiveState(state => ({
-      ...state,
-      historyBatches: state.historyBatches.filter(batch => batch.id !== id)
-    }));
+  const handleDeleteBatch = async (id: string) => {
+    if (!window.confirm(`确认删除快照 ${id} 吗？服务端将软删除并保留完整操作日志。`)) return;
+    try {
+      await deleteTrackingBatch(id);
+      updateActiveState(state => ({
+        ...state,
+        historyBatches: state.historyBatches.filter(batch => batch.id !== id)
+      }));
+      setHistorySyncStatus(`已从共享历史删除：${id}`);
+    } catch (error) {
+      alert(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleToggleCompetitionPpv = (ppv: string, selected: boolean) => {
@@ -865,7 +937,8 @@ export default function App() {
     { id: 'upload', label: `数据源 (${activeState.sourceUploadRecords.length})` },
     { id: 'history', label: `历史 (${activeState.historyBatches.length})` },
     { id: 'competitiveness', label: '竞争力走势' },
-    { id: 'tmHandGap', label: activeChannelId === 'selfOperated' ? '追后AHS高出ZZ' : '追后到手高出TM' }
+    { id: 'tmHandGap', label: activeChannelId === 'selfOperated' ? '追后AHS高出ZZ' : '追后到手高出TM' },
+    { id: 'audit', label: '操作日志' }
   ];
   const channelOrder: ChannelId[] = ['tradeIn', 'selfOperated'];
   const hasPausedTour = !tourOpen && tourStepIndex > 0;
@@ -981,10 +1054,17 @@ export default function App() {
                 <div className="flex items-center gap-2 text-xs text-[#141414]/70">
                   <span>数据版本：{activeState.lastApiSyncTime}</span>
                 </div>
+                <div className="flex items-center gap-2 text-xs text-[#141414]/70">
+                  <span>{historySyncStatus}</span>
+                </div>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
+              <div className="border border-[#141414] bg-white px-3 py-1 text-xs font-bold">
+                {user.name}
+                <button type="button" onClick={logout} className="ml-2 underline">退出</button>
+              </div>
               <button
                 type="button"
                 data-tour="tutorial-button"
@@ -1093,6 +1173,8 @@ export default function App() {
                   channelId={activeChannelId}
                 />
               )}
+
+              {activeTab === 'audit' && <AuditLogPanel />}
             </div>
           </main>
 

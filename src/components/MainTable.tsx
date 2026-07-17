@@ -25,7 +25,7 @@ interface Props {
       competitivenessDate: string;
       pricingTimestamp: string;
     }
-  ) => boolean;
+  ) => Promise<{ success: boolean; error?: string }>;
   onTriggerApiRefresh: () => void;
   lastApiSyncTime: string;
   competitionVersionName: string;
@@ -75,6 +75,7 @@ export default function MainTable({
   const [showReasonFilter, setShowReasonFilter] = useState(false);
   const [editingRecommendPpv, setEditingRecommendPpv] = useState<string | null>(null);
   const [editingRecommendValue, setEditingRecommendValue] = useState('');
+  const [savingBatch, setSavingBatch] = useState(false);
   const reasonFilterAnchorRef = useRef<HTMLTableCellElement>(null);
   const [reasonFilterPosition, setReasonFilterPosition] = useState({ top: 0, left: 0 });
   const [selectedSeries, setSelectedSeries] = useState('ALL');
@@ -143,7 +144,7 @@ export default function MainTable({
     return matchesSearch && matchesReason && matchesSeries && matchesRisk;
   });
 
-  const handleConfirmSave = () => {
+  const handleConfirmSave = async () => {
     if (!operatorName.trim()) {
       alert('请填写操作人姓名。');
       return;
@@ -152,18 +153,23 @@ export default function MainTable({
       alert('请填写落数日期和追价时间。');
       return;
     }
-    const saved = onSaveBatch(batchRemarks, operatorName, {
-      confirmCompetitiveness,
-      competitivenessDate,
-      pricingTimestamp: pricingTimestamp.replace('T', ' ')
-    });
-    if (!saved) {
-      alert('保存失败：浏览器本地存储空间不足。请先不要刷新页面，导出必要数据后再联系管理员处理历史数据。');
-      return;
+    setSavingBatch(true);
+    try {
+      const result = await onSaveBatch(batchRemarks, operatorName, {
+        confirmCompetitiveness,
+        competitivenessDate,
+        pricingTimestamp: pricingTimestamp.replace('T', ' ')
+      });
+      if (!result.success) {
+        alert(`保存失败：${result.error || '服务端未确认写入'}`);
+        return;
+      }
+      setShowSaveModal(false);
+      setBatchRemarks('');
+      alert(confirmCompetitiveness ? '测算快照已写入共享数据库，并已确认为竞争力落数。' : '测算快照已写入共享历史。');
+    } finally {
+      setSavingBatch(false);
     }
-    setShowSaveModal(false);
-    setBatchRemarks('');
-    alert(confirmCompetitiveness ? '测算快照已保存，并已确认为竞争力落数。' : '测算快照已保存，可在历史对比中查看。');
   };
 
   const handleMarginInputChange = (value: string) => {
@@ -750,8 +756,8 @@ export default function MainTable({
                 <textarea rows={2} value={batchRemarks} onChange={(e) => setBatchRemarks(e.target.value)} className="w-full bg-[#F0EFEC] border border-[#141414] p-2 text-xs" placeholder="测算版本备注" />
                 <div className="pt-2 border-t border-[#141414] flex justify-end gap-2 text-xs">
                   <button type="button" onClick={() => setShowSaveModal(false)} className="px-3 py-1.5 border border-[#141414]">取消</button>
-                  <button type="button" onClick={handleConfirmSave} className="px-3 py-1.5 bg-[#141414] text-white">
-                    {confirmCompetitiveness ? '保存并确认落数' : '确认保存'}
+                  <button type="button" disabled={savingBatch} onClick={handleConfirmSave} className="px-3 py-1.5 bg-[#141414] text-white disabled:opacity-50">
+                    {savingBatch ? '正在写入共享数据库…' : confirmCompetitiveness ? '保存并确认落数' : '确认保存'}
                   </button>
                 </div>
             </div>

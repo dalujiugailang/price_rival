@@ -12,3 +12,13 @@ services:
       PORT: 3000
       DAILY_PRICE_LOOKUP_URL: ${DAILY_PRICE_LOOKUP_URL:-https://daily-price.gtmdudu.xyz/api/lookup}
       DAILY_PRICE_TOKEN: ${DAILY_PRICE_TOKEN:-}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      DATABASE_PATH: /app/data/price-rival.sqlite
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+      FEISHU_REDIRECT_URI: ${FEISHU_REDIRECT_URI:-}
+      FEISHU_ALLOWED_DEPARTMENT_IDS: ${FEISHU_ALLOWED_DEPARTMENT_IDS:-}
+      FEISHU_ALLOWED_OPEN_IDS: ${FEISHU_ALLOWED_OPEN_IDS:-}
+      FEISHU_ALLOWED_TENANT_KEYS: ${FEISHU_ALLOWED_TENANT_KEYS:-}
+    volumes:
+      - ./data:/app/data

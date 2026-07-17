@@ -209,6 +209,8 @@ export interface TrackingBatch {
   investmentRateInputs?: InvestmentRateInputs;
   investmentRateMetrics?: CompetitionInvestmentMetrics;
   isSummaryOnly?: boolean;
+  serverCreatedAt?: string;
+  serverCreatedBy?: string;
 }
 
 export interface OperationsLog {

@@ -27,11 +27,7 @@ npm install
 npm run dev
 ```
 
-默认 Vite 端口是 `3000`。如果需要沿用当前 Codex 浏览器地址，可直接运行：
-
-```bash
-./node_modules/.bin/vite --port 8000 --host 0.0.0.0
-```
+本地会同时启动 `3000` 端口的 Vite 页面和 `3001` 端口的 Express API。开发环境默认开启“本地验收登录”，生产环境无法使用该入口。
 
 类型检查：
 
@@ -52,7 +48,7 @@ npm run build
 npm start
 ```
 
-服务端会托管 `dist`，并提供 `/api/daily-price/lookup` 代理。
+服务端会托管 `dist`，并提供飞书登录、共享历史、审计日志和 `/api/daily-price/lookup` 代理。
 
 ## Docker 部署
 
@@ -62,6 +58,10 @@ npm start
 DAILY_PRICE_LOOKUP_URL=https://daily-price.gtmdudu.xyz/api/lookup
 DAILY_PRICE_TOKEN=你的 daily price token
 APP_PORT=3000
+APP_URL=https://你的域名
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=你的应用密钥
+FEISHU_ALLOWED_DEPARTMENT_IDS=od-xxx,od-yyy
 ```
 
 启动：
@@ -86,6 +86,13 @@ Express server 支持以下变量：
 - `HOST`: 监听地址，默认 `0.0.0.0`。
 - `DAILY_PRICE_LOOKUP_URL`: daily price 上游接口，默认 `https://daily-price.gtmdudu.xyz/api/lookup`。
 - `DAILY_PRICE_TOKEN` / `DAILY_PRICE_API_TOKEN`: daily price API token。
+- `DATABASE_PATH`: SQLite 数据库路径，Docker 内默认为 `/app/data/price-rival.sqlite`。
+- `APP_URL`: 系统对外地址，用于 OAuth 回调和 Cookie 安全策略。
+- `FEISHU_APP_ID` / `FEISHU_APP_SECRET`: 飞书自建应用凭证。
+- `FEISHU_REDIRECT_URI`: 飞书 OAuth 回调地址，不填时使用 `${APP_URL}/api/auth/feishu/callback`。
+- `FEISHU_ALLOWED_DEPARTMENT_IDS`: 允许登录的 `open_department_id`，多个逗号分隔。
+- `FEISHU_ALLOWED_OPEN_IDS`: 个人白名单，主要用于管理员例外。
+- `FEISHU_ALLOWED_TENANT_KEYS`: 可选的租户二次校验。
 
 可以放在 `.env.local` 或 `.env`。
 
@@ -240,7 +247,7 @@ Express server 支持以下变量：
 
 ## 历史和导出
 
-历史快照保存在浏览器 `localStorage` 中。快照内容包括：
+历史快照保存在服务器 SQLite 中，其他白名单用户登录后可以查看。浏览器中的旧历史会在首次登录后幂等迁移，按批次 ID 去重，不会用旧记录覆盖较新正式落数。快照内容包括：
 
 - 当前测算模式
 - 边际利润率底线
@@ -249,6 +256,8 @@ Express server 支持以下变量：
 - 补贴文件信息
 - 正式竞争力落数信息
 - 投入费率输入和结果
+
+服务端保留登录成功/失败/拒绝、历史迁移、快照保存、正式落数、删除及失败操作日志。删除为软删除，审计日志不随快照删除。
 
 导出追价表会包含源字段和线上计算字段，例如：
 
@@ -281,7 +290,11 @@ Express server 支持以下变量：
 - `src/components/UploadSection.tsx`: 当前数据上传和匹配入口。
 - `src/components/CompetitivenessSummary.tsx`: 竞争力走势和总结。
 - `src/components/HistoryPanel.tsx`: 历史快照查看和导出。
+- `src/components/AuthGate.tsx`: 飞书/本地验收登录门禁。
+- `src/components/AuditLogPanel.tsx`: 服务端操作日志查看。
 - `src/utils/formulas.ts`: 追价、补贴、利润、竞争判断公式。
 - `src/utils/competitiveness.ts`: 竞争力加权计算。
 - `src/utils/investment.ts`: 投入费用和费率计算。
-- `server/index.mjs`: daily price API 代理和静态资源服务。
+- `server/index.mjs`: 认证门禁、共享历史 API、daily price 代理和静态资源服务。
+- `server/auth.mjs`: 飞书 OAuth、部门白名单和 HttpOnly 会话。
+- `server/database.mjs`: SQLite 建表、落数事务、迁移和审计日志。
