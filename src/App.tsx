@@ -520,8 +520,12 @@ export default function App() {
     if (historySyncStartedRef.current) return;
     historySyncStartedRef.current = true;
     const localBatches = [...channelStates.tradeIn.historyBatches, ...channelStates.selfOperated.historyBatches];
+    let initialSyncComplete = false;
+    let syncInFlight = false;
 
     const migrateAndLoad = async () => {
+      if (syncInFlight) return;
+      syncInFlight = true;
       try {
         let migrationText = '';
         if (localBatches.length > 0) {
@@ -531,17 +535,29 @@ export default function App() {
         const result = await listTrackingBatches();
         applyServerBatches(result.batches);
         setHistorySyncStatus(`共享历史 ${result.batches.length} 期${migrationText}`);
+        initialSyncComplete = true;
       } catch (error) {
         setHistorySyncStatus(`共享历史同步失败：${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        syncInFlight = false;
       }
     };
 
     migrateAndLoad();
     const interval = window.setInterval(() => {
-      refreshServerBatches().catch(() => undefined);
+      if (initialSyncComplete) {
+        refreshServerBatches().catch(() => undefined);
+      } else {
+        migrateAndLoad();
+      }
     }, 30_000);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') refreshServerBatches().catch(() => undefined);
+      if (document.visibilityState !== 'visible') return;
+      if (initialSyncComplete) {
+        refreshServerBatches().catch(() => undefined);
+      } else {
+        migrateAndLoad();
+      }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
