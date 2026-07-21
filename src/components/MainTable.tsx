@@ -167,6 +167,8 @@ export default function MainTable({
       setShowSaveModal(false);
       setBatchRemarks('');
       alert(confirmCompetitiveness ? '测算快照已写入共享数据库，并已确认为竞争力落数。' : '测算快照已写入共享历史。');
+    } catch (error) {
+      alert(`保存失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSavingBatch(false);
     }

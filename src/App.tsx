@@ -54,6 +54,17 @@ import { deleteTrackingBatch, importTrackingBatches, listTrackingBatches, saveTr
 
 const normalizeFieldName = (value: string) => value.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLowerCase();
 
+const createBatchRandomSuffix = () => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID().slice(0, 6).toUpperCase();
+  }
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(3));
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+  }
+  return Math.floor(Math.random() * 0x1000000).toString(16).padStart(6, '0').toUpperCase();
+};
+
 const toSourceNumber = (value: unknown): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const parsed = Number(String(value ?? '').replace(/[¥,%\s,]/g, ''));
@@ -773,7 +784,7 @@ export default function App() {
   const handleSaveBatch = async (remarks: string, operator: string, options?: SaveBatchOptions) => {
     const todayStr = new Date().toISOString().slice(0, 10);
     const timeCode = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
-    const randomSuffix = crypto.randomUUID().slice(0, 6).toUpperCase();
+    const randomSuffix = createBatchRandomSuffix();
     const newBatchId = `TRACK-${todayStr.replace(/-/g, '')}-${timeCode}-${randomSuffix}`;
     const confirmCompetitiveness = !!options?.confirmCompetitiveness;
     const competitivenessDate = options?.competitivenessDate || todayStr;
