@@ -87,8 +87,18 @@ export const evaluateSmallGapTolerance = ({
   });
 };
 
-export const getSmallGapTolerancePrices = (products: CalculatedProduct[]) => Object.fromEntries(
+export const getSmallGapTolerancePrices = (
+  products: CalculatedProduct[],
+  toleranceMargin?: number
+) => Object.fromEntries(
   products
-    .filter(product => product.smallGapToleranceEligible && Number.isFinite(product.smallGapTolerancePrice))
+    .filter(product => (
+      Number.isFinite(product.smallGapTolerancePrice)
+      && (toleranceMargin === undefined
+        ? product.smallGapToleranceEligible
+        : product.smallGapOpportunity
+          && Number.isFinite(product.smallGapToleranceMargin)
+          && (product.smallGapToleranceMargin as number) >= toleranceMargin)
+    ))
     .map(product => [product.ppv, product.smallGapTolerancePrice as number])
 );

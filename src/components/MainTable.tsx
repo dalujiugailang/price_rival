@@ -21,8 +21,7 @@ interface Props {
   selfSubsidyRules: SelfOperatedSubsidyRule[];
   smallGapToleranceMargin: number;
   onMarginChange: (margin: number) => void;
-  onSmallGapToleranceMarginChange: (margin: number) => void;
-  onApplySmallGapTolerancePrices: (pricesByPpv: Record<string, number>) => void;
+  onApplySmallGapTolerance: (margin: number, pricesByPpv: Record<string, number>) => void;
   onPricingModeChange: (mode: PricingMode) => void;
   onSaveBatch: (
     remarks: string,
@@ -69,8 +68,7 @@ export default function MainTable({
   selfSubsidyRules,
   smallGapToleranceMargin,
   onMarginChange,
-  onSmallGapToleranceMarginChange,
-  onApplySmallGapTolerancePrices,
+  onApplySmallGapTolerance,
   onPricingModeChange,
   onSaveBatch,
   onManualRecommendPriceChange,
@@ -90,6 +88,10 @@ export default function MainTable({
   const [savingBatch, setSavingBatch] = useState(false);
   const reasonFilterAnchorRef = useRef<HTMLTableCellElement>(null);
   const [reasonFilterPosition, setReasonFilterPosition] = useState({ top: 0, left: 0 });
+  const smallGapToleranceTriggerRef = useRef<HTMLButtonElement>(null);
+  const smallGapTolerancePopoverRef = useRef<HTMLDivElement>(null);
+  const [showSmallGapTolerancePopover, setShowSmallGapTolerancePopover] = useState(false);
+  const [smallGapTolerancePopoverPosition, setSmallGapTolerancePopoverPosition] = useState({ top: 0, left: 0 });
   const [selectedSeries, setSelectedSeries] = useState('ALL');
   const [filterRisk, setFilterRisk] = useState<'ALL' | 'CRITICAL' | 'WARNING' | 'SAFE'>('ALL');
   const [marginInput, setMarginInput] = useState(marginInputText(marginBottomLine));
@@ -125,6 +127,48 @@ export default function MainTable({
       window.removeEventListener('scroll', updatePosition, true);
     };
   }, [showReasonFilter]);
+
+  useEffect(() => {
+    if (!showSmallGapTolerancePopover) return;
+
+    const updatePosition = () => {
+      const trigger = smallGapToleranceTriggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const popupWidth = 220;
+      setSmallGapTolerancePopoverPosition({
+        top: rect.bottom + 4,
+        left: Math.max(8, Math.min(rect.right - popupWidth, window.innerWidth - popupWidth - 8))
+      });
+    };
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        !smallGapToleranceTriggerRef.current?.contains(target)
+        && !smallGapTolerancePopoverRef.current?.contains(target)
+      ) {
+        setShowSmallGapTolerancePopover(false);
+        setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin));
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setShowSmallGapTolerancePopover(false);
+      setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin));
+    };
+
+    updatePosition();
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [showSmallGapTolerancePopover, smallGapToleranceMargin]);
 
   const splitFieldKey = (key: string) => {
     const match = key.match(/^([A-Z]+)_(.*)$/);
@@ -200,29 +244,44 @@ export default function MainTable({
     onMarginChange(Math.max(-50, Math.min(50, nextValue)) / 100);
   };
 
-  const handleSmallGapToleranceInputChange = (value: string) => {
-    setSmallGapToleranceInput(value);
-    if (!/^-?\d*(\.\d*)?$/.test(value) || value === '' || value === '-' || value === '.') return;
-
-    const nextValue = Number(value);
-    if (!Number.isFinite(nextValue)) return;
-    onSmallGapToleranceMarginChange(Math.max(-50, Math.min(50, nextValue)) / 100);
-  };
-
   const smallGapTolerancePrices = getSmallGapTolerancePrices(products);
   const smallGapToleranceCount = Object.keys(smallGapTolerancePrices).length;
+  const parsedSmallGapToleranceInput = /^-?\d+(\.\d*)?$/.test(smallGapToleranceInput)
+    ? Number(smallGapToleranceInput)
+    : Number.NaN;
+  const previewSmallGapToleranceMargin = Number.isFinite(parsedSmallGapToleranceInput)
+    ? Math.max(-50, Math.min(50, parsedSmallGapToleranceInput)) / 100
+    : null;
+  const previewSmallGapTolerancePrices = previewSmallGapToleranceMargin === null
+    ? {}
+    : getSmallGapTolerancePrices(products, previewSmallGapToleranceMargin);
+  const previewSmallGapToleranceCount = Object.keys(previewSmallGapTolerancePrices).length;
+
+  const closeSmallGapTolerancePopover = () => {
+    setShowSmallGapTolerancePopover(false);
+    setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin));
+  };
+
+  const toggleSmallGapTolerancePopover = () => {
+    if (!showSmallGapTolerancePopover) {
+      setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin));
+    }
+    setShowSmallGapTolerancePopover(previous => !previous);
+  };
 
   const handleApplySmallGapTolerance = () => {
-    const latestPrices = getSmallGapTolerancePrices(products);
+    if (previewSmallGapToleranceMargin === null) return;
+    const latestPrices = getSmallGapTolerancePrices(products, previewSmallGapToleranceMargin);
     const count = Object.keys(latestPrices).length;
     if (count === 0) return;
     const confirmed = window.confirm(
       `确认一键容忍 ${count} 条 PPV 吗？\n` +
-      `容忍边际底线：${formatPercent(smallGapToleranceMargin)}\n` +
+      `容忍边际底线：${formatPercent(previewSmallGapToleranceMargin)}\n` +
       '目标价将按现有取整规则调整至不低于 tm裸机价的首个合法价格。'
     );
     if (!confirmed) return;
-    onApplySmallGapTolerancePrices(latestPrices);
+    onApplySmallGapTolerance(previewSmallGapToleranceMargin, latestPrices);
+    setShowSmallGapTolerancePopover(false);
   };
 
   const toggleReasonFilter = (reason: string) => {
@@ -648,9 +707,67 @@ export default function MainTable({
     </div>
   ), document.body) : null;
 
+  const smallGapTolerancePopover = showSmallGapTolerancePopover ? createPortal((
+    <div
+      ref={smallGapTolerancePopoverRef}
+      role="dialog"
+      aria-label="小差额容忍设置"
+      className="fixed z-[9999] w-[220px] border border-[#141414] bg-white p-3 text-left shadow-[3px_3px_0_#141414]"
+      style={{ top: smallGapTolerancePopoverPosition.top, left: smallGapTolerancePopoverPosition.left }}
+    >
+      <div className="mb-2 text-[11px] font-black">小差额容忍</div>
+      <label className="block text-[10px] font-bold">
+        <span className="mb-1 block">追后边际利润率底线</span>
+        <span className="flex items-center gap-1">
+          <input
+            autoFocus
+            type="text"
+            inputMode="decimal"
+            aria-label="小差额容忍边际底线"
+            value={smallGapToleranceInput}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (/^-?\d*(\.\d*)?$/.test(value)) setSmallGapToleranceInput(value);
+            }}
+            onBlur={() => {
+              if (previewSmallGapToleranceMargin !== null) {
+                setSmallGapToleranceInput(marginInputText(previewSmallGapToleranceMargin));
+              }
+            }}
+            className="h-7 w-20 border border-[#141414] bg-white px-2 text-right font-mono text-xs"
+          />
+          <span>%</span>
+        </span>
+      </label>
+      <div className="mt-2 border-y border-[#141414]/20 py-2 text-[10px] font-bold">
+        {previewSmallGapToleranceMargin === null
+          ? '请输入 -50% 至 50%'
+          : `可一键应用 ${previewSmallGapToleranceCount} 条 PPV`}
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={closeSmallGapTolerancePopover}
+          className="h-6 border border-[#141414] bg-white px-2 text-[10px] font-bold hover:bg-[#E4E3E0]"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          disabled={previewSmallGapToleranceMargin === null || previewSmallGapToleranceCount === 0}
+          onClick={handleApplySmallGapTolerance}
+          className="h-6 border border-[#141414] bg-[#141414] px-2 text-[10px] font-bold text-white hover:bg-white hover:text-[#141414] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          一键应用
+        </button>
+      </div>
+    </div>
+  ), document.body) : null;
+
   return (
     <div className="bg-white border border-[#141414] overflow-hidden" id="main-tracking-panel">
       {reasonFilterPopup}
+      {smallGapTolerancePopover}
       <div className="p-3 border-b border-[#141414] bg-[#F0EFEC] flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-base font-bold text-[#141414] flex items-center gap-2">
@@ -776,22 +893,14 @@ export default function MainTable({
                   >
                     <div className="flex items-center justify-center gap-1 whitespace-nowrap">
                       <span className="text-[10px] font-black">{label}</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        aria-label="小差额容忍边际底线"
-                        value={smallGapToleranceInput}
-                        onChange={(event) => handleSmallGapToleranceInputChange(event.target.value)}
-                        onBlur={() => setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin))}
-                        className="h-4 w-9 border border-[#141414] bg-white px-0.5 text-right font-mono text-[9px] leading-none"
-                      />
-                      <span className="text-[9px]">%</span>
                       <button
+                        ref={smallGapToleranceTriggerRef}
                         type="button"
                         title="一键容忍符合条件的小差额 PPV"
-                        disabled={smallGapToleranceCount === 0}
-                        onClick={handleApplySmallGapTolerance}
-                        className="h-4 border border-[#141414] bg-white px-1 text-[9px] font-black leading-none hover:bg-[#141414] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-haspopup="dialog"
+                        aria-expanded={showSmallGapTolerancePopover}
+                        onClick={toggleSmallGapTolerancePopover}
+                        className="h-4 border border-[#141414] bg-white px-1 text-[9px] font-black leading-none hover:bg-[#141414] hover:text-white"
                       >
                         容忍({smallGapToleranceCount})
                       </button>

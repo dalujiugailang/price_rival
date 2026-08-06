@@ -908,16 +908,10 @@ export default function App() {
     });
   };
 
-  const handleSmallGapToleranceMarginChange = (margin: number) => {
+  const handleApplySmallGapTolerance = (margin: number, pricesByPpv: Record<string, number>) => {
     updateActiveState(state => ({
       ...state,
-      smallGapToleranceMargin: Math.max(-0.5, Math.min(0.5, margin))
-    }));
-  };
-
-  const handleApplySmallGapTolerancePrices = (pricesByPpv: Record<string, number>) => {
-    updateActiveState(state => ({
-      ...state,
+      smallGapToleranceMargin: Math.max(-0.5, Math.min(0.5, margin)),
       manualRecommendPrices: {
         ...state.manualRecommendPrices,
         ...pricesByPpv
@@ -1137,8 +1131,7 @@ export default function App() {
                     selfSubsidyRules={activeState.selfSubsidyRules}
                     smallGapToleranceMargin={activeState.smallGapToleranceMargin}
                     onMarginChange={handleMarginChange}
-                    onSmallGapToleranceMarginChange={handleSmallGapToleranceMarginChange}
-                    onApplySmallGapTolerancePrices={handleApplySmallGapTolerancePrices}
+                    onApplySmallGapTolerance={handleApplySmallGapTolerance}
                     onPricingModeChange={handlePricingModeChange}
                     onSaveBatch={handleSaveBatch}
                     onTriggerApiRefresh={handleTriggerApiRefresh}

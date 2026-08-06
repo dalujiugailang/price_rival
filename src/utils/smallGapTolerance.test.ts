@@ -94,4 +94,9 @@ assert.deepEqual(getSmallGapTolerancePrices([
   'small-gap-ppv': 1100
 });
 
+assert.deepEqual(getSmallGapTolerancePrices([exactBoundary], exactFloor), {
+  'small-gap-ppv': 1100
+});
+assert.deepEqual(getSmallGapTolerancePrices([exactBoundary], exactFloor + 0.0001), {});
+
 console.log('small-gap tolerance checks passed');
