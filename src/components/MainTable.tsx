@@ -10,6 +10,7 @@ import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateCompetitivenessMetrics } from '../utils/competitiveness';
 import { addDynamicPricingWorkbookSheets } from '../utils/pricingWorkbook';
 import { getSmallGapTolerancePrices } from '../utils/smallGapTolerance';
+import { getTmPriceGaps } from '../utils/tmPriceGaps';
 import * as XLSX from 'xlsx';
 
 interface Props {
@@ -374,10 +375,10 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 132, 160, 160, 160, 220
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 120, 120, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 120, 120, 132, 160, 160, 160, 220
   ];
   const fixedCodes = [
-    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
+    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AW物差', 'AW到手差', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE物差', 'BE到手差', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
   ];
   const fixedLabels = [
     '新机系列',
@@ -399,6 +400,8 @@ export default function MainTable({
     'zz券后价',
     '基准价',
     '追前边际利润率',
+    '追前tm物品价差',
+    '追前tm到手价差',
     '裸机比tm',
     '到手比tm',
     '裸机比zz',
@@ -411,17 +414,19 @@ export default function MainTable({
     isSelfOperated ? '追后物品价+AHS补贴' : '含AHS补贴后报价-追价后',
     'jd总到手价-追价后',
     '追后边际利润率',
+    '追后tm物品价差',
+    '追后tm到手价差',
     '追后边际利润率说明',
     '京东物品价-追价后 vs 天猫',
     '京东到手价-追价后 vs 天猫',
     '京东物品价-追价后 vs 转转',
     '京东物品价+ahs补贴-追价后 vs 转转'
   ];
-  const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 19, 20, 26, 29, 32, 33]);
-  const noteDisplayHiddenColumnIndexes = new Set([24, 31]);
+  const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 19, 20, 21, 22, 28, 31, 33, 34, 36, 37]);
+  const noteDisplayHiddenColumnIndexes = new Set([26, 35]);
   const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
   const isFixedColumnVisible = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
-  const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index) || index === 29;
+  const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index) || index === 31;
   const exportFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnExported);
   const visibleFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnVisible);
   const visibleFixedColumnWidths = fixedColumnWidths.filter((_, index) => isFixedColumnVisible(index));
@@ -429,7 +434,9 @@ export default function MainTable({
     isFixedColumnVisible(index) ? undefined : { display: 'none' }
   );
 
-  const getFixedExportValues = (p: CalculatedProduct) => [
+  const getFixedExportValues = (p: CalculatedProduct) => {
+    const gaps = getTmPriceGaps(p);
+    return [
     p.newSeries,
     p.oldModel,
     p.ppv,
@@ -449,6 +456,8 @@ export default function MainTable({
     p.zzHandPrice,
     p.basePrice,
     p.preMarginalProfit,
+    gaps.preItemGap ?? '',
+    gaps.preHandGap ?? '',
     p.tmItemWin ? 1 : 0,
     p.tmHandWin ? 1 : 0,
     p.zzItemWin ? 1 : 0,
@@ -461,12 +470,15 @@ export default function MainTable({
     p.postAhsPrice,
     p.postJdHandPrice,
     p.postMarginalProfit,
+    gaps.postItemGap ?? '',
+    gaps.postHandGap ?? '',
     `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
     p.postTmItemWin ? 1 : 0,
     p.postTmHandWin ? 1 : 0,
     p.postZzItemWin ? 1 : 0,
     p.postAhsZzHandWin ? 1 : 0
-  ];
+    ];
+  };
 
   const exportColumns = exportFixedIndexes.flatMap(index => {
     const baseColumn = {
@@ -476,7 +488,7 @@ export default function MainTable({
       getValue: (product: CalculatedProduct) => getFixedExportValues(product)[index]
     };
 
-    if (index === 23) {
+    if (index === 25) {
       return [
         {
           code: 'AY系统',
@@ -487,11 +499,11 @@ export default function MainTable({
         { ...baseColumn, label: '试算追后价' }
       ];
     }
-    if (index === 24) return [{ ...baseColumn, label: '系统追价理由' }];
-    if (index === 26) return [{ ...baseColumn, label: '系统小差额提醒' }];
-    if (index === 27) return [{ ...baseColumn, label: '追后AHS补贴' }];
-    if (index === 28) return [{ ...baseColumn, label: '追后含AHS补贴报价' }];
-    if (index === 29) {
+    if (index === 26) return [{ ...baseColumn, label: '系统追价理由' }];
+    if (index === 28) return [{ ...baseColumn, label: '系统小差额提醒' }];
+    if (index === 29) return [{ ...baseColumn, label: '追后AHS补贴' }];
+    if (index === 30) return [{ ...baseColumn, label: '追后含AHS补贴报价' }];
+    if (index === 31) {
       return [
         {
           code: 'BF补贴',
@@ -530,8 +542,26 @@ export default function MainTable({
       {label}
     </div>
   );
+  const renderGapCell = (index: number, value: number | null) => (
+    <td
+      key={index}
+      style={fixedColumnStyle(index)}
+      className={`px-2 py-1 text-right border-r border-[#141414]/20 font-mono font-bold ${
+        value === null
+          ? 'text-[#141414]/30'
+          : value > 0
+            ? 'text-green-700'
+            : value < 0
+              ? 'text-red-700'
+              : 'text-[#141414]'
+      }`}
+    >
+      {value === null ? '-' : formatRMB(value)}
+    </td>
+  );
   const renderFixedCell = (p: CalculatedProduct, index: number) => {
     const style = fixedColumnStyle(index);
+    const gaps = getTmPriceGaps(p);
     switch (index) {
       case 0:
         return <td key={index} style={style} className={bodyClass}><div className="whitespace-nowrap font-bold">{p.newSeries}</div></td>;
@@ -572,14 +602,18 @@ export default function MainTable({
       case 18:
         return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-bold ${p.preMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>{formatPercent(p.preMarginalProfit)}</td>;
       case 19:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmItemWin ? 1 : 0}</td>;
+        return renderGapCell(index, gaps.preItemGap);
       case 20:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmHandWin ? 1 : 0}</td>;
+        return renderGapCell(index, gaps.preHandGap);
       case 21:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.zzItemWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmItemWin ? 1 : 0}</td>;
       case 22:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.ahsZzHandWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmHandWin ? 1 : 0}</td>;
       case 23:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.zzItemWin ? 1 : 0}</td>;
+      case 24:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.ahsZzHandWin ? 1 : 0}</td>;
+      case 25:
         return (
           <td
             key={index}
@@ -609,11 +643,11 @@ export default function MainTable({
             {p.pricingRemark && <div className="truncate text-[10px] font-normal text-[#141414]/60" title={p.pricingRemark}>{p.pricingRemark}</div>}
           </td>
         );
-      case 24:
-        return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px]">{p.pricingRemark || ''}</td>;
-      case 25:
-        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>;
       case 26:
+        return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px]">{p.pricingRemark || ''}</td>;
+      case 27:
+        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>;
+      case 28:
         return (
           <td key={index} data-tour={p.smallGapOpportunityRemark ? 'small-gap-reminder' : undefined} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
             {p.smallGapOpportunityRemark ? (
@@ -623,28 +657,32 @@ export default function MainTable({
             )}
           </td>
         );
-      case 27:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsSubsidyAfter)}</td>;
-      case 28:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postAhsPrice)}</td>;
       case 29:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postJdHandPrice)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsSubsidyAfter)}</td>;
       case 30:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postAhsPrice)}</td>;
+      case 31:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postJdHandPrice)}</td>;
+      case 32:
         return (
           <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-extrabold ${p.postMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>
             {formatPercent(p.postMarginalProfit)}
             <div className="text-[10px] text-slate-500">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</div>
           </td>
         );
-      case 31:
-        return <td key={index} style={style} className="px-2 py-1 text-left border-r border-[#141414]/20 text-[10px]">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</td>;
-      case 32:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>;
       case 33:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>;
+        return renderGapCell(index, gaps.postItemGap);
       case 34:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postZzItemWin ? 1 : 0}</td>;
+        return renderGapCell(index, gaps.postHandGap);
       case 35:
+        return <td key={index} style={style} className="px-2 py-1 text-left border-r border-[#141414]/20 text-[10px]">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</td>;
+      case 36:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>;
+      case 37:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>;
+      case 38:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postZzItemWin ? 1 : 0}</td>;
+      case 39:
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsZzHandWin ? 1 : 0}</td>;
       default:
         return null;
@@ -856,7 +894,7 @@ export default function MainTable({
                 <th
                   key={code}
                   style={fixedColumnStyle(index)}
-                  className={`${headerClass} ${index === 22 || index === 24 || index === 26 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                  className={`${headerClass} ${index === 25 || index === 26 || index === 28 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
                 >
                   {code}
                 </th>
@@ -869,7 +907,7 @@ export default function MainTable({
             </tr>
             <tr>
               {fixedLabels.map((label, index) => (
-                index === 22 ? (
+                index === 26 ? (
                   <th
                     key={index}
                     ref={reasonFilterAnchorRef}
@@ -884,7 +922,7 @@ export default function MainTable({
                       </span>
                     </div>
                   </th>
-                ) : index === 26 ? (
+                ) : index === 28 ? (
                   <th
                     key={index}
                     style={fixedColumnStyle(index)}
@@ -910,7 +948,7 @@ export default function MainTable({
                   <th
                     key={index}
                     style={fixedColumnStyle(index)}
-                    className={`${headerClass} ${index === 24 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                    className={`${headerClass} ${index === 25 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
                   >
                     {headerLabel(label)}
                   </th>
