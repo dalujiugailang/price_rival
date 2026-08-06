@@ -11,6 +11,7 @@
     "test:pricing-logic": "tsx src/utils/pricingLogic.test.ts",
     "test:pricing-export": "tsx src/utils/pricingWorkbook.test.ts",
     "test:small-gap": "tsx src/utils/smallGapTolerance.test.ts",
+    "test:tm-price-gaps": "tsx src/utils/tmPriceGaps.test.ts",
     "start": "node server/index.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
