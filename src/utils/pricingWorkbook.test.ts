@@ -24,7 +24,8 @@ const labels = [
   '京东物品价-追价后 vs 天猫',
   '京东到手价-追价后 vs 天猫',
   '京东物品价-追价后 vs 转转',
-  '京东物品价+ahs补贴-追价后 vs 转转'
+  '京东物品价+ahs补贴-追价后 vs 转转',
+  '原始字段'
 ];
 
 const product = {
@@ -92,7 +93,8 @@ const makeWorkbook = (pricingSheetName = '询价表_京东换新追价') => {
       1,
       1,
       1,
-      1
+      1,
+      '保留'
     ]
   ]);
   const workbook = XLSX.utils.book_new();
@@ -138,6 +140,18 @@ const testTradeInFormulas = () => {
     CalcPr?: { fullCalcOnLoad?: boolean };
   };
   assert.equal(calcProperties?.CalcPr?.fullCalcOnLoad, true);
+
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['渠道', '京东换新']
+  ]), '测算设置');
+  const serialized = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+  const reloaded = XLSX.read(serialized, { type: 'buffer', cellFormula: true, xlfn: true });
+  const reloadedPricingSheet = reloaded.Sheets['询价表_京东换新追价'];
+  assert.deepEqual(reloaded.SheetNames, ['询价表_京东换新追价', '补贴规则', '测算设置']);
+  assert.match(cellFor(reloadedPricingSheet, '追后AHS补贴').f || '', /_xlfn\.XLOOKUP/);
+  assert.equal(cellFor(reloadedPricingSheet, '追后AHS补贴').v, product.ahsSubsidyAfter);
+  assert.equal(cellFor(reloadedPricingSheet, '原始字段').v, '保留');
+  assert.equal(reloaded.Sheets['补贴规则'].E1.v, 'A_新机系列');
 };
 
 const testSelfOperatedFormulaAndNoRuleFallback = () => {
