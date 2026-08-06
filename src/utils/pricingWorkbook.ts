@@ -5,6 +5,7 @@ import {
   SelfOperatedSubsidyRule,
   SubsidyRule
 } from '../types';
+import { getTmPriceGaps } from './tmPriceGaps';
 
 const RULES_SHEET_NAME = '补贴规则';
 const PRICE_FORMAT = '#,##0.00';
@@ -174,6 +175,27 @@ export const addDynamicPricingWorkbookSheets = ({
   const currentJdSubsidyColumn = channelId === 'tradeIn'
     ? requiredColumn(columns, '对应新品型号jd总投入')
     : undefined;
+  const currentJdHandPriceColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, 'jd总到手价')
+    : undefined;
+  const tmPriceColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, 'tm裸机价')
+    : undefined;
+  const tmHandPriceColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, 'tm总到手价')
+    : undefined;
+  const preItemGapColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, '追前tm物品价差')
+    : undefined;
+  const preHandGapColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, '追前tm到手价差')
+    : undefined;
+  const postItemGapColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, '追后tm物品价差')
+    : undefined;
+  const postHandGapColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, '追后tm到手价差')
+    : undefined;
   const seriesColumn = channelId === 'tradeIn'
     ? requiredColumn(columns, '新机系列')
     : undefined;
@@ -240,6 +262,45 @@ export const addDynamicPricingWorkbookSheets = ({
       PRICE_FORMAT
     );
 
+    if (channelId === 'tradeIn') {
+      const currentJdHandPriceCell = cellRef(currentJdHandPriceColumn as number, rowNumber);
+      const tmPriceCell = cellRef(tmPriceColumn as number, rowNumber);
+      const tmHandPriceCell = cellRef(tmHandPriceColumn as number, rowNumber);
+      const gaps = getTmPriceGaps(product);
+      writeFormulaCell(
+        pricingSheet,
+        preItemGapColumn as number,
+        rowNumber,
+        `IF(${tmPriceCell}>0,${currentJdCell}-${tmPriceCell},"")`,
+        gaps.preItemGap ?? 0,
+        PRICE_FORMAT
+      );
+      writeFormulaCell(
+        pricingSheet,
+        preHandGapColumn as number,
+        rowNumber,
+        `IF(${tmHandPriceCell}>0,${currentJdHandPriceCell}-${tmHandPriceCell},"")`,
+        gaps.preHandGap ?? 0,
+        PRICE_FORMAT
+      );
+      writeFormulaCell(
+        pricingSheet,
+        postItemGapColumn as number,
+        rowNumber,
+        `IF(${tmPriceCell}>0,${trialPriceCell}-${tmPriceCell},"")`,
+        gaps.postItemGap ?? 0,
+        PRICE_FORMAT
+      );
+      writeFormulaCell(
+        pricingSheet,
+        postHandGapColumn as number,
+        rowNumber,
+        `IF(${tmHandPriceCell}>0,${postJdHandPriceCell}-${tmHandPriceCell},"")`,
+        gaps.postHandGap ?? 0,
+        PRICE_FORMAT
+      );
+    }
+
     const linearCostFormula = channelId === 'selfOperated'
       ? `(${basePriceCell}*0.0218+63)`
       : `((${trialPriceCell}+${postAhsCell})*0.0466+${basePriceCell}*0.0218+81)`;
@@ -291,8 +352,12 @@ export const addDynamicPricingWorkbookSheets = ({
     'zz裸机价',
     'zz券后价',
     '基准价',
+    '追前tm物品价差',
+    '追前tm到手价差',
     '系统推荐追后价',
-    '试算追后价'
+    '试算追后价',
+    '追后tm物品价差',
+    '追后tm到手价差'
   ], products.length, PRICE_FORMAT);
   formatNumericColumn(pricingSheet, columns, ['追前边际利润率'], products.length, PERCENT_FORMAT);
 

@@ -6,6 +6,7 @@ import { addDynamicPricingWorkbookSheets } from './pricingWorkbook';
 const labels = [
   '新机系列',
   'jd裸机价',
+  'jd总到手价',
   '对应新品型号ahs投入',
   '对应新品型号jd总投入',
   'tm裸机价',
@@ -13,6 +14,8 @@ const labels = [
   'zz裸机价',
   'zz券后价',
   '基准价',
+  '追前tm物品价差',
+  '追前tm到手价差',
   '系统推荐追后价',
   '试算追后价',
   '京东物品价-追价后调整金额',
@@ -21,6 +24,8 @@ const labels = [
   '追后含AHS补贴报价',
   '追后京东总到手价',
   '追后边际利润率',
+  '追后tm物品价差',
+  '追后tm到手价差',
   '京东物品价-追价后 vs 天猫',
   '京东到手价-追价后 vs 天猫',
   '京东物品价-追价后 vs 转转',
@@ -31,6 +36,7 @@ const labels = [
 const product = {
   newSeries: 'iPhone 17',
   jdPrice: 1000,
+  jdHandPrice: 1050,
   ahsInput: 100,
   jdSubsidy: 50,
   tmPrice: 1100,
@@ -75,6 +81,7 @@ const makeWorkbook = (pricingSheetName = '询价表_京东换新追价') => {
     [
       product.newSeries,
       product.jdPrice,
+      product.jdHandPrice,
       product.ahsInput,
       product.jdSubsidy,
       product.tmPrice,
@@ -82,6 +89,8 @@ const makeWorkbook = (pricingSheetName = '询价表_京东换新追价') => {
       product.zzPrice,
       product.zzHandPrice,
       product.basePrice,
+      product.jdPrice - product.tmPrice,
+      product.jdHandPrice - product.tmHandPrice,
       product.recommendJdPrice,
       product.recommendJdPrice,
       product.recommendAdjustment,
@@ -90,6 +99,8 @@ const makeWorkbook = (pricingSheetName = '询价表_京东换新追价') => {
       product.postAhsPrice,
       product.postJdHandPrice,
       product.postMarginalProfit,
+      product.recommendJdPrice - product.tmPrice,
+      product.postJdHandPrice - product.tmHandPrice,
       1,
       1,
       1,
@@ -124,11 +135,20 @@ const testTradeInFormulas = () => {
   const postAhsCell = cellFor(pricingSheet, '追后AHS补贴');
   const postJdSubsidyCell = cellFor(pricingSheet, '追后京东总补贴');
   const postMarginCell = cellFor(pricingSheet, '追后边际利润率');
+  const preItemGapCell = cellFor(pricingSheet, '追前tm物品价差');
+  const preHandGapCell = cellFor(pricingSheet, '追前tm到手价差');
+  const postItemGapCell = cellFor(pricingSheet, '追后tm物品价差');
+  const postHandGapCell = cellFor(pricingSheet, '追后tm到手价差');
 
   assert.match(postAhsCell.f || '', /_xlfn\.XLOOKUP/);
   assert.match(postAhsCell.f || '', /,-1\)/);
   assert.match(postJdSubsidyCell.f || '', /\$D\$2:\$D\$3/);
   assert.match(postMarginCell.f || '', /0\.0466/);
+  [preItemGapCell, preHandGapCell, postItemGapCell, postHandGapCell].forEach(cell => {
+    assert.match(cell.f || '', /^IF\(.+>0,.+-.+,""\)$/);
+  });
+  assert.equal(preItemGapCell.v, product.jdPrice - product.tmPrice);
+  assert.equal(postHandGapCell.v, product.postJdHandPrice - product.tmHandPrice);
   [
     '京东物品价-追价后 vs 天猫',
     '京东到手价-追价后 vs 天猫',
@@ -192,8 +212,8 @@ const testSelfOperatedFormulaAndNoRuleFallback = () => {
     subsidyRules: [],
     selfSubsidyRules: []
   });
-  assert.equal(cellFor(noRuleWorkbook.pricingSheet, '追后AHS补贴').f, 'C3');
-  assert.equal(cellFor(noRuleWorkbook.pricingSheet, '追后京东总补贴').f, 'D3');
+  assert.equal(cellFor(noRuleWorkbook.pricingSheet, '追后AHS补贴').f, 'D3');
+  assert.equal(cellFor(noRuleWorkbook.pricingSheet, '追后京东总补贴').f, 'E3');
 };
 
 testTradeInFormulas();
