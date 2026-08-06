@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { CHANNELS } from '../config/channels';
 import { Product, SubsidyRule } from '../types';
 import { applyManualRecommendedPrice, calculateProductPrice } from './formulas';
-import { evaluateSmallGapTolerance } from './smallGapTolerance';
+import { evaluateSmallGapTolerance, getSmallGapTolerancePrices } from './smallGapTolerance';
 
 const baseProduct: Product = {
   id: 'small-gap',
@@ -86,5 +86,12 @@ const alreadyEqual = evaluateSmallGapTolerance({
 })[0];
 assert.equal(alreadyEqual.smallGapOpportunity, undefined);
 assert.equal(alreadyEqual.smallGapToleranceEligible, undefined);
+
+assert.deepEqual(getSmallGapTolerancePrices([
+  exactBoundary,
+  { ...belowFloor, ppv: 'below-floor-ppv' }
+]), {
+  'small-gap-ppv': 1100
+});
 
 console.log('small-gap tolerance checks passed');

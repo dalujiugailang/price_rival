@@ -9,6 +9,7 @@ import { CalculatedProduct, ChannelId, PricingMode, SelfOperatedSubsidyRule, Sub
 import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateCompetitivenessMetrics } from '../utils/competitiveness';
 import { addDynamicPricingWorkbookSheets } from '../utils/pricingWorkbook';
+import { getSmallGapTolerancePrices } from '../utils/smallGapTolerance';
 import * as XLSX from 'xlsx';
 
 interface Props {
@@ -18,7 +19,10 @@ interface Props {
   channelId?: ChannelId;
   subsidyRules: SubsidyRule[];
   selfSubsidyRules: SelfOperatedSubsidyRule[];
+  smallGapToleranceMargin: number;
   onMarginChange: (margin: number) => void;
+  onSmallGapToleranceMarginChange: (margin: number) => void;
+  onApplySmallGapTolerancePrices: (pricesByPpv: Record<string, number>) => void;
   onPricingModeChange: (mode: PricingMode) => void;
   onSaveBatch: (
     remarks: string,
@@ -63,7 +67,10 @@ export default function MainTable({
   channelId = 'tradeIn',
   subsidyRules,
   selfSubsidyRules,
+  smallGapToleranceMargin,
   onMarginChange,
+  onSmallGapToleranceMarginChange,
+  onApplySmallGapTolerancePrices,
   onPricingModeChange,
   onSaveBatch,
   onManualRecommendPriceChange,
@@ -86,10 +93,15 @@ export default function MainTable({
   const [selectedSeries, setSelectedSeries] = useState('ALL');
   const [filterRisk, setFilterRisk] = useState<'ALL' | 'CRITICAL' | 'WARNING' | 'SAFE'>('ALL');
   const [marginInput, setMarginInput] = useState(marginInputText(marginBottomLine));
+  const [smallGapToleranceInput, setSmallGapToleranceInput] = useState(marginInputText(smallGapToleranceMargin));
 
   useEffect(() => {
     setMarginInput(marginInputText(marginBottomLine));
   }, [marginBottomLine]);
+
+  useEffect(() => {
+    setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin));
+  }, [smallGapToleranceMargin]);
 
   useEffect(() => {
     if (!showReasonFilter) return;
@@ -188,6 +200,31 @@ export default function MainTable({
     onMarginChange(Math.max(-50, Math.min(50, nextValue)) / 100);
   };
 
+  const handleSmallGapToleranceInputChange = (value: string) => {
+    setSmallGapToleranceInput(value);
+    if (!/^-?\d*(\.\d*)?$/.test(value) || value === '' || value === '-' || value === '.') return;
+
+    const nextValue = Number(value);
+    if (!Number.isFinite(nextValue)) return;
+    onSmallGapToleranceMarginChange(Math.max(-50, Math.min(50, nextValue)) / 100);
+  };
+
+  const smallGapTolerancePrices = getSmallGapTolerancePrices(products);
+  const smallGapToleranceCount = Object.keys(smallGapTolerancePrices).length;
+
+  const handleApplySmallGapTolerance = () => {
+    const latestPrices = getSmallGapTolerancePrices(products);
+    const count = Object.keys(latestPrices).length;
+    if (count === 0) return;
+    const confirmed = window.confirm(
+      `确认一键容忍 ${count} 条 PPV 吗？\n` +
+      `容忍边际底线：${formatPercent(smallGapToleranceMargin)}\n` +
+      '目标价将按现有取整规则调整至不低于 tm裸机价的首个合法价格。'
+    );
+    if (!confirmed) return;
+    onApplySmallGapTolerancePrices(latestPrices);
+  };
+
   const toggleReasonFilter = (reason: string) => {
     setSelectedReasonFilters(prev => (
       prev.includes(reason)
@@ -278,7 +315,7 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 180, 150, 150, 148, 148, 110, 150, 132, 160, 160, 160, 220
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 180, 150, 240, 148, 148, 110, 150, 132, 160, 160, 160, 220
   ];
   const fixedCodes = [
     'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
@@ -521,7 +558,7 @@ export default function MainTable({
         return (
           <td key={index} data-tour={p.smallGapOpportunityRemark ? 'small-gap-reminder' : undefined} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
             {p.smallGapOpportunityRemark ? (
-              <div className="line-clamp-2 text-amber-800" title={p.smallGapOpportunityRemark}>{p.smallGapOpportunityRemark}</div>
+              <div className="line-clamp-3 text-amber-800" title={p.smallGapOpportunityRemark}>{p.smallGapOpportunityRemark}</div>
             ) : (
               <span className="text-[#141414]/30">-</span>
             )}
@@ -702,7 +739,7 @@ export default function MainTable({
                 <th
                   key={code}
                   style={fixedColumnStyle(index)}
-                  className={`${headerClass} ${index === 22 || index === 24 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                  className={`${headerClass} ${index === 22 || index === 24 || index === 26 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
                 >
                   {code}
                 </th>
@@ -728,6 +765,36 @@ export default function MainTable({
                       <span className="border border-[#141414] bg-white px-1 text-[9px] leading-tight">
                         {selectedReasonFilters.length > 0 ? `已选${selectedReasonFilters.length}` : '筛'}
                       </span>
+                    </div>
+                  </th>
+                ) : index === 26 ? (
+                  <th
+                    key={index}
+                    style={fixedColumnStyle(index)}
+                    className={`${headerClass} repricing-header bg-[#D8D7D2]`}
+                  >
+                    <div className="space-y-1">
+                      <div className="font-black">{label}</div>
+                      <div className="flex items-center justify-center gap-1">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          aria-label="小差额容忍边际底线"
+                          value={smallGapToleranceInput}
+                          onChange={(event) => handleSmallGapToleranceInputChange(event.target.value)}
+                          onBlur={() => setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin))}
+                          className="w-14 border border-[#141414] bg-white px-1 py-0.5 text-right font-mono text-[10px]"
+                        />
+                        <span className="text-[10px]">%</span>
+                        <button
+                          type="button"
+                          disabled={smallGapToleranceCount === 0}
+                          onClick={handleApplySmallGapTolerance}
+                          className="border border-[#141414] bg-white px-1.5 py-0.5 text-[10px] font-black hover:bg-[#141414] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          一键容忍（{smallGapToleranceCount}）
+                        </button>
+                      </div>
                     </div>
                   </th>
                 ) : (

@@ -232,6 +232,7 @@ type ChannelWorkspaceState = {
   historyBatches: TrackingBatch[];
   activeSubsidyFileName: string;
   marginBottomLine: number;
+  smallGapToleranceMargin: number;
   pricingMode: PricingMode;
   lastApiSyncTime: string;
   competitionVersionIndex: number;
@@ -328,6 +329,9 @@ const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts:
   historyBatches: state.historyBatches || [],
   activeSubsidyFileName: state.activeSubsidyFileName || '未上传补贴表，沿用基础表字段',
   marginBottomLine: typeof state.marginBottomLine === 'number' ? state.marginBottomLine : 0.03,
+  smallGapToleranceMargin: typeof state.smallGapToleranceMargin === 'number' && Number.isFinite(state.smallGapToleranceMargin)
+    ? state.smallGapToleranceMargin
+    : -0.02,
   pricingMode: state.pricingMode || 'margin',
   lastApiSyncTime: state.lastApiSyncTime || '2026-05-18 询价表0518 已载入',
   competitionVersionIndex: state.competitionVersionIndex || 1
@@ -609,7 +613,7 @@ export default function App() {
     setActiveCalculatedItems(activeChannelId === 'tradeIn'
       ? evaluateSmallGapTolerance({
         products: withManualPrices,
-        toleranceMargin: -0.02,
+        toleranceMargin: activeState.smallGapToleranceMargin,
         subsidyRules: activeState.subsidyRules,
         channel: activeChannel,
         selfSubsidyRules: activeState.selfSubsidyRules
@@ -904,6 +908,23 @@ export default function App() {
     });
   };
 
+  const handleSmallGapToleranceMarginChange = (margin: number) => {
+    updateActiveState(state => ({
+      ...state,
+      smallGapToleranceMargin: Math.max(-0.5, Math.min(0.5, margin))
+    }));
+  };
+
+  const handleApplySmallGapTolerancePrices = (pricesByPpv: Record<string, number>) => {
+    updateActiveState(state => ({
+      ...state,
+      manualRecommendPrices: {
+        ...state.manualRecommendPrices,
+        ...pricesByPpv
+      }
+    }));
+  };
+
   const setInvestmentRateInputs = (inputs: InvestmentRateInputs) => {
     updateActiveState(state => ({
       ...state,
@@ -1114,7 +1135,10 @@ export default function App() {
                     channelId={activeChannelId}
                     subsidyRules={activeState.subsidyRules}
                     selfSubsidyRules={activeState.selfSubsidyRules}
+                    smallGapToleranceMargin={activeState.smallGapToleranceMargin}
                     onMarginChange={handleMarginChange}
+                    onSmallGapToleranceMarginChange={handleSmallGapToleranceMarginChange}
+                    onApplySmallGapTolerancePrices={handleApplySmallGapTolerancePrices}
                     onPricingModeChange={handlePricingModeChange}
                     onSaveBatch={handleSaveBatch}
                     onTriggerApiRefresh={handleTriggerApiRefresh}
