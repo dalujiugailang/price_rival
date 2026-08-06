@@ -67,7 +67,7 @@ const subsidyRules: SubsidyRule[] = [
   }
 ];
 
-const makeWorkbook = () => {
+const makeWorkbook = (pricingSheetName = '询价表_京东换新追价') => {
   const pricingSheet = XLSX.utils.aoa_to_sheet([
     labels.map((_, index) => `C${index + 1}`),
     labels,
@@ -96,7 +96,7 @@ const makeWorkbook = () => {
     ]
   ]);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, pricingSheet, '询价表_京东换新追价');
+  XLSX.utils.book_append_sheet(workbook, pricingSheet, pricingSheetName);
   return { workbook, pricingSheet };
 };
 
@@ -134,11 +134,14 @@ const testTradeInFormulas = () => {
   assert.equal(workbook.SheetNames[1], '补贴规则');
   assert.equal(workbook.Sheets['补贴规则'].A2.v, 'iPhone 17');
   assert.equal(workbook.Sheets['补贴规则'].B2.v, 900);
-  assert.equal(workbook.Workbook?.CalcPr?.fullCalcOnLoad, true);
+  const calcProperties = workbook.Workbook as typeof workbook.Workbook & {
+    CalcPr?: { fullCalcOnLoad?: boolean };
+  };
+  assert.equal(calcProperties?.CalcPr?.fullCalcOnLoad, true);
 };
 
 const testSelfOperatedFormulaAndNoRuleFallback = () => {
-  const { workbook, pricingSheet } = makeWorkbook();
+  const { workbook, pricingSheet } = makeWorkbook('询价表_自营追价');
   const selfRules: SelfOperatedSubsidyRule[] = [
     { threshold: 800, ahsInput: 40, sourceRowNumber: 2, rawFields: { 'A_门槛': 800 } }
   ];
