@@ -168,6 +168,9 @@ export interface CalculatedProduct extends Product {
   manualRecommendJdPrice?: number;
   smallGapOpportunity?: boolean;
   smallGapOpportunityRemark?: string;
+  smallGapTolerancePrice?: number;
+  smallGapToleranceMargin?: number;
+  smallGapToleranceEligible?: boolean;
 
   // Compatibility aliases used by history and summary components.
   model: string;
