@@ -315,7 +315,7 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 180, 150, 240, 148, 148, 110, 150, 132, 160, 160, 160, 220
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 132, 160, 160, 160, 220
   ];
   const fixedCodes = [
     'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
@@ -772,29 +772,29 @@ export default function MainTable({
                     key={index}
                     style={fixedColumnStyle(index)}
                     className={`${headerClass} repricing-header bg-[#D8D7D2]`}
+                    title="小差额提醒批量容忍"
                   >
-                    <div className="space-y-1">
-                      <div className="font-black">{label}</div>
-                      <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          aria-label="小差额容忍边际底线"
-                          value={smallGapToleranceInput}
-                          onChange={(event) => handleSmallGapToleranceInputChange(event.target.value)}
-                          onBlur={() => setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin))}
-                          className="w-14 border border-[#141414] bg-white px-1 py-0.5 text-right font-mono text-[10px]"
-                        />
-                        <span className="text-[10px]">%</span>
-                        <button
-                          type="button"
-                          disabled={smallGapToleranceCount === 0}
-                          onClick={handleApplySmallGapTolerance}
-                          className="border border-[#141414] bg-white px-1.5 py-0.5 text-[10px] font-black hover:bg-[#141414] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          一键容忍（{smallGapToleranceCount}）
-                        </button>
-                      </div>
+                    <div className="flex items-center justify-center gap-1 whitespace-nowrap">
+                      <span className="text-[10px] font-black">{label}</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label="小差额容忍边际底线"
+                        value={smallGapToleranceInput}
+                        onChange={(event) => handleSmallGapToleranceInputChange(event.target.value)}
+                        onBlur={() => setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin))}
+                        className="h-4 w-9 border border-[#141414] bg-white px-0.5 text-right font-mono text-[9px] leading-none"
+                      />
+                      <span className="text-[9px]">%</span>
+                      <button
+                        type="button"
+                        title="一键容忍符合条件的小差额 PPV"
+                        disabled={smallGapToleranceCount === 0}
+                        onClick={handleApplySmallGapTolerance}
+                        className="h-4 border border-[#141414] bg-white px-1 text-[9px] font-black leading-none hover:bg-[#141414] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        容忍({smallGapToleranceCount})
+                      </button>
                     </div>
                   </th>
                 ) : (
