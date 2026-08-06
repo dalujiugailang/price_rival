@@ -273,7 +273,7 @@ export const addDynamicPricingWorkbookSheets = ({
         pricingSheet,
         resultColumn,
         rowNumber,
-        `--AND(${competitorCell}>0,${comparedCell}>${competitorCell})`,
+        `--AND(${competitorCell}>0,${comparedCell}>=${competitorCell})`,
         cachedWin ? 1 : 0,
         FLAG_FORMAT
       );

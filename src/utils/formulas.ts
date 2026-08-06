@@ -32,7 +32,7 @@ export const getRoundedCompetitivePrice = (competitorPrice: number, targetPrice 
   const start = Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : competitorPrice + 2;
   for (let price = start; price <= start + 200; price += 1) {
     const rounded = roundUploadPrice(price);
-    if (rounded > competitorPrice && rounded >= start) return rounded;
+    if (rounded >= competitorPrice && rounded >= start) return rounded;
   }
   return roundUploadPrice(start + 200);
 };
@@ -258,16 +258,16 @@ export function calculateProductPrice(
   const postJdSubsidy = channel.subsidyMode === 'generalThreshold' ? 0 : jdSubsidyAtPrice(recommendJdPrice, activeRules, currentJdSubsidy);
   const postJdHandPrice = recommendJdPrice + postJdSubsidy;
 
-  const tmItemWin = product.tmPrice > 0 && jdVsTmItemGap > 0;
-  const tmHandWin = tmHandPrice > 0 && jdVsTmHandGap > 0;
-  const zzItemWin = product.zzPrice > 0 && jdVsZzItemGap > 0;
-  const ahsZzHandWin = zzHandPrice > 0 && ahsVsZzHandGap > 0;
+  const tmItemWin = product.tmPrice > 0 && jdVsTmItemGap >= 0;
+  const tmHandWin = tmHandPrice > 0 && jdVsTmHandGap >= 0;
+  const zzItemWin = product.zzPrice > 0 && jdVsZzItemGap >= 0;
+  const ahsZzHandWin = zzHandPrice > 0 && ahsVsZzHandGap >= 0;
   const jdZzHandWin = zzHandPrice > 0 && jdVsZzHandGap > 0;
 
-  const postTmItemWin = product.tmPrice > 0 && recommendJdPrice > product.tmPrice;
-  const postTmHandWin = tmHandPrice > 0 && postJdHandPrice > tmHandPrice;
-  const postZzItemWin = product.zzPrice > 0 && recommendJdPrice > product.zzPrice;
-  const postAhsZzHandWin = zzHandPrice > 0 && postAhsPrice > zzHandPrice;
+  const postTmItemWin = product.tmPrice > 0 && recommendJdPrice >= product.tmPrice;
+  const postTmHandWin = tmHandPrice > 0 && postJdHandPrice >= tmHandPrice;
+  const postZzItemWin = product.zzPrice > 0 && recommendJdPrice >= product.zzPrice;
+  const postAhsZzHandWin = zzHandPrice > 0 && postAhsPrice >= zzHandPrice;
   const hasSpace = recommendAdjustment > 0;
 
   let riskWarning: 'SAFE' | 'WARNING' | 'CRITICAL' = 'SAFE';
@@ -385,10 +385,10 @@ export function applyManualRecommendedPrice(
     postGrossMargin,
     postMarginalProfit,
     postJdHandPrice,
-    postTmItemWin: product.tmPrice > 0 && recommendJdPrice > product.tmPrice,
-    postTmHandWin: product.tmHandPrice > 0 && postJdHandPrice > product.tmHandPrice,
-    postZzItemWin: product.zzPrice > 0 && recommendJdPrice > product.zzPrice,
-    postAhsZzHandWin: product.zzHandPrice > 0 && postAhsPrice > product.zzHandPrice,
+    postTmItemWin: product.tmPrice > 0 && recommendJdPrice >= product.tmPrice,
+    postTmHandWin: product.tmHandPrice > 0 && postJdHandPrice >= product.tmHandPrice,
+    postZzItemWin: product.zzPrice > 0 && recommendJdPrice >= product.zzPrice,
+    postAhsZzHandWin: product.zzHandPrice > 0 && postAhsPrice >= product.zzHandPrice,
     riskWarning,
     hasSpace: recommendAdjustment > 0,
     pricingRemark,

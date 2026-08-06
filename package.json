@@ -8,6 +8,7 @@
     "dev:api": "NODE_ENV=development AUTH_DEV_BYPASS=true PORT=3001 node server/index.mjs",
     "dev:web": "NODE_OPTIONS=--use-bundled-ca vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "test:pricing-logic": "tsx src/utils/pricingLogic.test.ts",
     "test:pricing-export": "tsx src/utils/pricingWorkbook.test.ts",
     "start": "node server/index.mjs",
     "preview": "vite preview",

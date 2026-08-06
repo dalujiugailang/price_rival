@@ -124,14 +124,21 @@ const testTradeInFormulas = () => {
   const postAhsCell = cellFor(pricingSheet, '追后AHS补贴');
   const postJdSubsidyCell = cellFor(pricingSheet, '追后京东总补贴');
   const postMarginCell = cellFor(pricingSheet, '追后边际利润率');
-  const postTmWinCell = cellFor(pricingSheet, '京东物品价-追价后 vs 天猫');
 
   assert.match(postAhsCell.f || '', /_xlfn\.XLOOKUP/);
   assert.match(postAhsCell.f || '', /,-1\)/);
   assert.match(postJdSubsidyCell.f || '', /\$D\$2:\$D\$3/);
   assert.match(postMarginCell.f || '', /0\.0466/);
-  assert.ok((postTmWinCell.f || '').includes('>'));
-  assert.ok(!(postTmWinCell.f || '').includes('>='));
+  [
+    '京东物品价-追价后 vs 天猫',
+    '京东到手价-追价后 vs 天猫',
+    '京东物品价-追价后 vs 转转',
+    '京东物品价+ahs补贴-追价后 vs 转转'
+  ].forEach(label => {
+    const formula = cellFor(pricingSheet, label).f || '';
+    assert.match(formula, />0,/);
+    assert.match(formula, />=/);
+  });
   assert.equal(postAhsCell.v, product.ahsSubsidyAfter);
   assert.equal(workbook.SheetNames[1], '补贴规则');
   assert.equal(workbook.Sheets['补贴规则'].A2.v, 'iPhone 17');
