@@ -305,3 +305,106 @@ Expected: no generated workbooks, no whitespace errors, and only the planned sou
 git add README.md
 git commit -m "docs: document bulk tolerance and equality rules"
 ```
+
+### Task 5: Move the tolerance setting into a compact popover
+
+**Files:**
+- Modify: `src/utils/smallGapTolerance.ts`
+- Test: `src/utils/smallGapTolerance.test.ts`
+- Modify: `src/components/MainTable.tsx`
+- Modify: `src/App.tsx`
+
+- [ ] **Step 1: Add a failing threshold-preview selector test**
+
+Extend `smallGapTolerance.test.ts` so the eligible price selector can evaluate an uncommitted popup threshold from the already simulated row metadata:
+
+```ts
+assert.deepEqual(getSmallGapTolerancePrices([exactBoundary], exactFloor), {
+  'small-gap-ppv': 1100
+});
+assert.deepEqual(getSmallGapTolerancePrices([exactBoundary], exactFloor + 0.0001), {});
+```
+
+- [ ] **Step 2: Run the focused test and verify RED**
+
+Run: `npm run test:small-gap`
+
+Expected: FAIL because `getSmallGapTolerancePrices` currently ignores a popup threshold argument.
+
+- [ ] **Step 3: Support an optional preview threshold**
+
+Change the selector to use row simulation metadata when a threshold is provided and preserve the existing persisted eligibility behavior when it is omitted:
+
+```ts
+export const getSmallGapTolerancePrices = (
+  products: CalculatedProduct[],
+  toleranceMargin?: number
+) => Object.fromEntries(
+  products
+    .filter(product => (
+      Number.isFinite(product.smallGapTolerancePrice)
+      && (toleranceMargin === undefined
+        ? product.smallGapToleranceEligible
+        : product.smallGapOpportunity
+          && Number.isFinite(product.smallGapToleranceMargin)
+          && (product.smallGapToleranceMargin as number) >= toleranceMargin)
+    ))
+    .map(product => [product.ppv, product.smallGapTolerancePrice as number])
+);
+```
+
+- [ ] **Step 4: Replace the inline header settings with popover state**
+
+In `MainTable`, add `showSmallGapTolerancePopover`, a popover ref, and a local percentage input initialized from `smallGapToleranceMargin` each time the popover opens. Parse and clamp valid input to `-50..50`, derive the preview margin in decimal form, and call `getSmallGapTolerancePrices(products, previewMargin)` so the count updates without persisting anything.
+
+Add a document `mousedown` and `Escape` effect while open. Outside click, Escape, and `取消` close the popover and restore the persisted input text.
+
+- [ ] **Step 5: Render the compact anchored popover**
+
+Keep only this compact trigger in the AZ header flow:
+
+```tsx
+<button type="button" onClick={() => setShowSmallGapTolerancePopover(prev => !prev)}>
+  容忍({persistedCount})
+</button>
+```
+
+Render an absolutely positioned white panel beneath it with a black border, `%` input, `可应用 N 条`, `取消`, and `一键应用`. The panel must use absolute positioning and a higher z-index so it does not participate in table-header height.
+
+- [ ] **Step 6: Commit threshold and prices atomically after confirmation**
+
+Replace the two callbacks with one prop:
+
+```ts
+onApplySmallGapTolerance: (
+  margin: number,
+  pricesByPpv: Record<string, number>
+) => void;
+```
+
+After native second confirmation, call it with the preview margin and preview map. In `App`, update `smallGapToleranceMargin` and merge `manualRecommendPrices` in the same `updateActiveState` callback. Close the popover only after confirmation succeeds.
+
+- [ ] **Step 7: Run focused and full verification**
+
+Run:
+
+```bash
+npm run test:small-gap
+npm run test:pricing-logic
+npm run test:pricing-export
+npm run lint
+npm run build
+```
+
+Expected: all commands exit 0; the existing bundle-size warning may remain.
+
+- [ ] **Step 8: Verify the live header and popover on port 5001**
+
+Reload `http://localhost:5001/` and verify the AZ second header row remains its compact height, only the small `容忍（N）` trigger is visible when closed, the popup defaults to `-2`, changing it updates the displayed count, and cancel/closing does not modify prices. Do not accept the native confirmation during non-destructive verification.
+
+- [ ] **Step 9: Commit the popover interaction**
+
+```bash
+git add src/utils/smallGapTolerance.ts src/utils/smallGapTolerance.test.ts src/components/MainTable.tsx src/App.tsx
+git commit -m "feat: move tolerance settings into popover"
+```
