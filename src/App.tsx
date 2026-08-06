@@ -1145,6 +1145,8 @@ export default function App() {
                     marginBottomLine={activeState.marginBottomLine}
                     pricingMode={activeState.pricingMode}
                     channelId={activeChannelId}
+                    subsidyRules={activeState.subsidyRules}
+                    selfSubsidyRules={activeState.selfSubsidyRules}
                     onMarginChange={handleMarginChange}
                     onPricingModeChange={handlePricingModeChange}
                     onSaveBatch={handleSaveBatch}

@@ -5,9 +5,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalculatedProduct, ChannelId, PricingMode } from '../types';
+import { CalculatedProduct, ChannelId, PricingMode, SelfOperatedSubsidyRule, SubsidyRule } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateCompetitivenessMetrics } from '../utils/competitiveness';
+import { addDynamicPricingWorkbookSheets } from '../utils/pricingWorkbook';
 import * as XLSX from 'xlsx';
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   marginBottomLine: number;
   pricingMode: PricingMode;
   channelId?: ChannelId;
+  subsidyRules: SubsidyRule[];
+  selfSubsidyRules: SelfOperatedSubsidyRule[];
   onMarginChange: (margin: number) => void;
   onPricingModeChange: (mode: PricingMode) => void;
   onSaveBatch: (
@@ -58,6 +61,8 @@ export default function MainTable({
   marginBottomLine,
   pricingMode,
   channelId = 'tradeIn',
+  subsidyRules,
+  selfSubsidyRules,
   onMarginChange,
   onPricingModeChange,
   onSaveBatch,
@@ -194,20 +199,30 @@ export default function MainTable({
   const exportToExcel = () => {
     const inquirySheetName = getInquirySheetName();
     const channelName = isSelfOperated ? '自营' : '京东换新';
+    const pricingSheetName = `${inquirySheetName}_${channelName}追价`;
     const profitFloorText = pricingMode === 'fullCompetition' ? '100%竞争力' : formatPercent(marginBottomLine);
     const dataToExport = [
-      [...exportFixedIndexes.map(index => fixedCodes[index]), ...rawFieldKeys.map(key => splitFieldKey(key).code)],
-      [...exportFixedIndexes.map(index => fixedLabels[index]), ...rawFieldKeys.map(key => splitFieldKey(key).label)],
+      [...exportColumns.map(column => column.code), ...rawFieldKeys.map(key => splitFieldKey(key).code)],
+      [...exportColumns.map(column => column.label), ...rawFieldKeys.map(key => splitFieldKey(key).label)],
       ...filteredProducts.map(p => [
-        ...exportFixedIndexes.map(index => getFixedExportValues(p)[index]),
+        ...exportColumns.map(column => column.getValue(p)),
         ...rawFieldKeys.map(key => displayValue(p.rawFields[key] ?? null))
       ])
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(dataToExport);
-    ws['!cols'] = [...exportFixedIndexes.map(index => exportFixedColumnWidths[index]), ...rawColumnWidths].map(width => ({ wch: Math.max(10, Math.round(width / 7)) }));
+    ws['!cols'] = [...exportColumns.map(column => column.width), ...rawColumnWidths].map(width => ({ wch: Math.max(10, Math.round(width / 7)) }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `${inquirySheetName}_${channelName}追价`);
+    XLSX.utils.book_append_sheet(wb, ws, pricingSheetName);
+    addDynamicPricingWorkbookSheets({
+      workbook: wb,
+      pricingSheet: ws,
+      pricingSheetName,
+      products: filteredProducts,
+      channelId,
+      subsidyRules,
+      selfSubsidyRules
+    });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ['渠道', channelName],
       ['当前追价模式/利润底线', profitFloorText]
@@ -310,11 +325,10 @@ export default function MainTable({
   const noteDisplayHiddenColumnIndexes = new Set([24, 31]);
   const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
   const isFixedColumnVisible = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
-  const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index);
+  const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index) || index === 29;
   const exportFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnExported);
   const visibleFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnVisible);
   const visibleFixedColumnWidths = fixedColumnWidths.filter((_, index) => isFixedColumnVisible(index));
-  const exportFixedColumnWidths = fixedColumnWidths;
   const fixedColumnStyle = (index: number): React.CSSProperties | undefined => (
     isFixedColumnVisible(index) ? undefined : { display: 'none' }
   );
@@ -323,40 +337,77 @@ export default function MainTable({
     p.newSeries,
     p.oldModel,
     p.ppv,
-    displayValue(p.skuId),
+    p.skuId,
     p.levelId || '',
     p.quoteVolume,
     p.soldVolume || 0,
-    displayValue(p.jdPrice),
-    displayValue(p.ahsInput),
-    formatRMB(p.ahsQuotedPrice),
-    displayValue(p.jdSubsidy),
-    formatRMB(p.jdHandPrice),
-    displayValue(p.tmPrice),
-    displayValue(p.tmSubsidyManual),
-    formatRMB(p.tmHandPrice),
-    displayValue(p.zzPrice),
-    formatRMB(p.zzHandPrice),
-    formatRMB(p.basePrice),
-    formatPercent(p.preMarginalProfit),
+    p.jdPrice,
+    p.ahsInput,
+    p.ahsQuotedPrice,
+    p.jdSubsidy,
+    p.jdHandPrice,
+    p.tmPrice,
+    p.tmSubsidyManual,
+    p.tmHandPrice,
+    p.zzPrice,
+    p.zzHandPrice,
+    p.basePrice,
+    p.preMarginalProfit,
     p.tmItemWin ? 1 : 0,
     p.tmHandWin ? 1 : 0,
     p.zzItemWin ? 1 : 0,
     p.ahsZzHandWin ? 1 : 0,
-    formatRMB(p.recommendJdPrice),
+    p.recommendJdPrice,
     p.pricingRemark || '',
-    formatRMB(p.recommendAdjustment),
+    p.recommendAdjustment,
     p.smallGapOpportunityRemark || '',
-    formatRMB(p.ahsSubsidyAfter),
-    formatRMB(p.postAhsPrice),
-    formatRMB(p.postJdHandPrice),
-    formatPercent(p.postMarginalProfit),
+    p.ahsSubsidyAfter,
+    p.postAhsPrice,
+    p.postJdHandPrice,
+    p.postMarginalProfit,
     `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
     p.postTmItemWin ? 1 : 0,
     p.postTmHandWin ? 1 : 0,
     p.postZzItemWin ? 1 : 0,
     p.postAhsZzHandWin ? 1 : 0
   ];
+
+  const exportColumns = exportFixedIndexes.flatMap(index => {
+    const baseColumn = {
+      code: fixedCodes[index],
+      label: fixedLabels[index],
+      width: fixedColumnWidths[index],
+      getValue: (product: CalculatedProduct) => getFixedExportValues(product)[index]
+    };
+
+    if (index === 23) {
+      return [
+        {
+          code: 'AY系统',
+          label: '系统推荐追后价',
+          width: fixedColumnWidths[index],
+          getValue: (product: CalculatedProduct) => product.recommendJdPrice
+        },
+        { ...baseColumn, label: '试算追后价' }
+      ];
+    }
+    if (index === 24) return [{ ...baseColumn, label: '系统追价理由' }];
+    if (index === 26) return [{ ...baseColumn, label: '系统小差额提醒' }];
+    if (index === 27) return [{ ...baseColumn, label: '追后AHS补贴' }];
+    if (index === 28) return [{ ...baseColumn, label: '追后含AHS补贴报价' }];
+    if (index === 29) {
+      return [
+        {
+          code: 'BF补贴',
+          label: '追后京东总补贴',
+          width: 132,
+          getValue: (product: CalculatedProduct) => product.totalSubsidy
+        },
+        { ...baseColumn, label: '追后京东总到手价' }
+      ];
+    }
+    return [baseColumn];
+  });
 
   const rawFieldWidth = (key: string) => {
     const { label } = splitFieldKey(key);
