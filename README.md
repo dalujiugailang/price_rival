@@ -13,6 +13,209 @@
 - 计算本次竞争预估投入费用和两个投入费率。
 - 导出包含原始字段和线上计算字段的追价表。
 
+## 系统架构
+
+### 架构定位
+
+项目采用单仓库、前后端分层的 Web 架构：
+
+- 浏览器端负责 Excel 解析、工作台草稿、追价计算、竞争力与投入费率计算、图表展示和 Excel 导出。
+- Express 服务负责飞书登录、共享历史批次、正式竞争力落数、审计日志、daily price 代理，以及生产环境静态资源托管。
+- SQLite 保存需要跨浏览器共享和长期追溯的数据；未保存的工作台草稿保存在当前浏览器的 `localStorage`。
+- daily price 与飞书 OpenAPI 均由服务端访问，令牌和应用密钥不会进入前端构建产物。
+
+这种划分让价格试算保持即时交互，同时把正式落数、权限和审计集中到服务端管理。
+
+### 总体拓扑
+
+```mermaid
+flowchart TB
+  User["运营人员 / 管理员"] --> Browser["浏览器访问"]
+
+  subgraph Frontend["① 前端应用层 · React + Vite"]
+    direction TB
+    subgraph FrontendModules["业务工作区"]
+      direction LR
+      AuthGate["登录状态<br/>AuthGate"]
+      Upload["数据接入<br/>Excel / daily price"]
+      App["流程与渠道编排<br/>App"]
+      Engine["业务计算引擎<br/>追价 / 竞争力 / 投入费率"]
+      Views["结果应用<br/>工作台 / 图表 / Excel 导出"]
+
+      AuthGate --> App
+      Upload --> App
+      App --> Engine
+      Engine --> Views
+    end
+
+    ClientApi["统一前端 API 调用"]
+    Draft[("localStorage<br/>当前浏览器工作区草稿")]
+
+    App <--> Draft
+    AuthGate --> ClientApi
+    Upload --> ClientApi
+    App --> ClientApi
+  end
+
+  Browser --> AuthGate
+  ClientApi -->|"HTTPS / JSON"| Gateway
+
+  subgraph Backend["② 服务端应用层 · Node.js + Express"]
+    direction TB
+    Gateway["统一接入层<br/>Session 鉴权 · 同源校验 · Request ID"]
+
+    subgraph BackendServices["服务模块"]
+      direction LR
+      AuthService["身份与权限<br/>飞书 OAuth / 白名单 / Session"]
+      BatchService["共享业务数据<br/>历史批次 / 正式落数 / 审计"]
+      PriceService["报价代理<br/>daily price token 隔离"]
+      StaticService["生产静态资源<br/>dist 托管"]
+    end
+
+    Gateway --> AuthService
+    Gateway --> BatchService
+    Gateway --> PriceService
+    Gateway --> StaticService
+  end
+
+  subgraph Infrastructure["③ 持久化与外部依赖"]
+    direction LR
+    Feishu["飞书开放平台<br/>OAuth 与通讯录"]
+    SQLite[("SQLite<br/>批次 · Session · 审计日志")]
+    DailyPrice["daily price API<br/>JD 报价与 BI 基准价"]
+  end
+
+  AuthService -->|"登录与白名单校验"| Feishu
+  AuthService -->|"Session"| SQLite
+  BatchService -->|"事务写入 / 查询"| SQLite
+  PriceService -->|"服务端带 token 请求"| DailyPrice
+
+  classDef actor fill:#111827,stroke:#111827,color:#ffffff,stroke-width:1px;
+  classDef frontend fill:#eaf2ff,stroke:#2563eb,color:#111827,stroke-width:1px;
+  classDef backend fill:#ecfdf3,stroke:#059669,color:#111827,stroke-width:1px;
+  classDef storage fill:#fff7e6,stroke:#d97706,color:#111827,stroke-width:1px;
+  classDef external fill:#f5edff,stroke:#7c3aed,color:#111827,stroke-width:1px;
+
+  class User,Browser actor;
+  class AuthGate,Upload,App,Engine,Views,ClientApi,Draft frontend;
+  class Gateway,AuthService,BatchService,PriceService,StaticService backend;
+  class SQLite storage;
+  class Feishu,DailyPrice external;
+```
+
+### 分层与职责
+
+| 层级 | 主要位置 | 职责 |
+| --- | --- | --- |
+| 页面与交互层 | `src/components/` | 数据上传、追价表格、竞争力图表、投入费率、历史批次、审计日志和新手引导。 |
+| 应用编排层 | `src/App.tsx` | 管理京东换新/自营两个渠道的工作区状态，组合数据源，触发重算，保存批次并同步共享历史。 |
+| 业务规则层 | `src/utils/` | 实现追价公式、补贴匹配、竞争力口径、小差额容忍、投入费率和动态 Excel 公式。该层不依赖页面组件。 |
+| 类型与渠道配置 | `src/types.ts`、`src/config/channels.ts` | 定义产品、批次、补贴、费率等数据结构，以及不同渠道的竞品和费用口径。 |
+| 前端 API 层 | `src/api.ts` | 封装登录状态、共享批次、批次迁移、软删除和审计日志请求。遇到未登录响应时触发重新登录。 |
+| HTTP 服务层 | `server/index.mjs` | 注册 API、中间件和 daily price 代理；生产环境同时提供 `dist` 静态文件。 |
+| 鉴权层 | `server/auth.mjs` | 完成飞书 OAuth、租户/部门/人员白名单校验、12 小时 Session、登录退出及鉴权审计。 |
+| 持久化层 | `server/database.mjs` | 初始化 SQLite 表和索引，以事务保存、导入、降级或软删除历史批次，并维护 Session 和审计日志。 |
+
+### 核心业务数据流
+
+1. **身份校验**：`AuthGate` 读取 `/api/auth/config` 和 `/api/auth/me`。生产环境使用飞书 OAuth；本地开发可启用验收登录。
+2. **载入工作区**：`App.tsx` 从 `localStorage` 恢复京东换新和自营渠道各自的上传数据、策略、手工价格与费率输入，同时从服务端拉取共享历史。
+3. **导入基础数据**：`UploadSection` 在浏览器内解析竞争追价 Excel，转换成统一的 `Product`，并把全部源列保存在 `rawFields` 中。
+4. **补齐价格数据**：前端把 PPV 发送到 `/api/daily-price/lookup`；Express 在服务端附加 token 并转发给上游，返回 JD 最终报价和 BI 基准价。
+5. **匹配补贴与测算**：`App.tsx` 按 PPV 合并基础表和 daily price，再调用 `runBatchCalculations`。京东换新按新机系列和价格门槛匹配补贴，自营按通用价格门槛匹配 AHS 投入。
+6. **应用人工策略**：手工追后价和小差额批量容忍通过同一套补贴、线性费用和边际利润逻辑重算，避免页面展示值与导出值采用不同口径。
+7. **生成指标**：竞争力由 `competitiveness.ts` 按报价量加权，预计投入费用和费率由 `investment.ts` 按正向调价及近 30 天成交量计算。
+8. **保存正式结果**：用户保存快照后，完整 `TrackingBatch` 写入 SQLite。若确认为某日正式竞争力落数，同渠道同日期的旧正式记录会在同一事务内降级。
+9. **展示与导出**：历史、竞争力趋势和审计日志读取服务端数据；追价表和辅助表由浏览器使用 `xlsx` 生成，源字段继续随结果导出。
+
+### 状态与数据边界
+
+| 数据 | 保存位置 | 是否共享 | 说明 |
+| --- | --- | --- | --- |
+| 当前上传的基础表、补贴规则、daily price 结果 | 浏览器 `localStorage` | 否 | 属于当前浏览器工作区，按渠道压缩保存；上传文件本身不会传给服务端。 |
+| 边际底线、追价模式、手工追后价、容忍底线、费率输入 | 浏览器 `localStorage` | 否 | 修改后立即影响当前工作区试算，尚未保存时不属于正式记录。 |
+| 历史测算快照与正式竞争力落数 | SQLite `tracking_batches` | 是 | 保存时写入完整批次 JSON；服务端每 30 秒及页面重新可见时同步到浏览器。 |
+| 登录会话 | SQLite `auth_sessions` + HttpOnly Cookie | 是 | 数据库存 token 哈希，浏览器只持有 Cookie；Session 默认有效期 12 小时。 |
+| 操作审计 | SQLite `audit_logs` | 是 | 记录登录、批次创建/确认、历史迁移、软删除和失败操作。 |
+| SQLite 文件 | `data/price-rival.sqlite` | 取决于部署磁盘 | Docker 使用 `./data:/app/data` 数据卷，更新容器时不会覆盖数据库。 |
+
+首次连接服务端时，前端会尝试把浏览器中的旧历史批次迁移到 SQLite；批次 ID 已存在时跳过。成功同步后，服务端历史是页面历史记录的权威来源。
+
+### API 边界
+
+除鉴权入口外，`/api` 下的业务接口都必须存在有效 Session；写操作还会执行同源校验。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/api/auth/config` | 查询飞书鉴权和本地验收登录是否可用。 |
+| `GET` | `/api/auth/me` | 获取当前登录用户。 |
+| `GET` | `/api/auth/login` | 发起飞书 OAuth 登录。 |
+| `GET` | `/api/auth/feishu/callback` | 校验 OAuth state、白名单并创建 Session。 |
+| `POST` | `/api/auth/dev-login` | 仅开发环境的本地验收登录。 |
+| `POST` | `/api/auth/logout` | 删除当前 Session 并清除 Cookie。 |
+| `GET` | `/api/tracking-batches` | 按渠道或全量查询共享历史。 |
+| `GET` | `/api/tracking-batches/:id` | 查询单个历史批次。 |
+| `POST` | `/api/tracking-batches` | 保存测算快照或正式落数。 |
+| `POST` | `/api/tracking-batches/import` | 把旧历史批量迁移到 SQLite，单次最多 500 批。 |
+| `DELETE` | `/api/tracking-batches/:id` | 软删除历史批次并保留审计信息。 |
+| `GET` | `/api/audit-logs` | 查询最近的操作日志，最多返回 1000 条。 |
+| `POST` | `/api/daily-price/lookup` | 由服务端带 token 代理 PPV 报价查询。 |
+
+### 本地开发与生产部署拓扑
+
+本地执行 `npm run dev` 时有两个进程：
+
+```text
+浏览器
+  └─ http://localhost:3000  Vite 开发服务器
+       ├─ React 页面与 HMR
+       └─ /api/* ─────────► http://127.0.0.1:3001  Express
+```
+
+`dev:api` 会设置 `NODE_ENV=development` 和 `AUTH_DEV_BYPASS=true`，只用于本机验收。Vite 根据 `vite.config.ts` 把 `/api` 代理到 Express，因此前端始终使用同源相对路径。
+
+生产 Docker 使用两阶段构建：
+
+1. `build` 阶段安装完整依赖并执行 `vite build`。
+2. `runtime` 阶段只安装生产依赖，复制 `server/` 和构建后的 `dist/`。
+3. Express 在容器内监听 `3000`，同时提供 API、登录页和前端静态资源。
+4. `docker-compose.yml` 把宿主机 `APP_PORT` 映射到容器 `3000`，并把 `./data` 挂载到 `/app/data`。
+
+### 目录结构
+
+```text
+竞争追价测算与管理系统/
+├── src/
+│   ├── App.tsx                  # 渠道状态、数据合并、重算和批次同步
+│   ├── api.ts                   # 前端 HTTP 客户端
+│   ├── components/              # 工作台、上传、历史、图表、鉴权等页面组件
+│   ├── config/channels.ts       # 京东换新/自营渠道差异配置
+│   ├── data/source0518.ts       # 内置初始化底表
+│   ├── types.ts                 # 核心业务类型
+│   └── utils/                   # 纯业务公式、指标、容忍策略和 Excel 逻辑
+├── server/
+│   ├── index.mjs                # Express 入口、业务 API 和静态托管
+│   ├── auth.mjs                 # 飞书 OAuth、白名单和 Session
+│   └── database.mjs             # SQLite 表、事务和审计
+├── public/                      # Vite 原样复制的静态业务资源
+├── data/                        # SQLite 运行数据，不进入 Git
+├── docs/                        # 已确认功能的设计与实施记录
+├── Dockerfile                   # Node.js 两阶段镜像
+├── docker-compose.yml           # 端口、环境变量和数据卷
+├── vite.config.ts               # React/Tailwind 插件及开发 API 代理
+└── package.json                 # 开发、测试、构建和启动命令
+```
+
+### 修改功能时的落点
+
+- 调整追价、补贴或利润口径：优先修改 `src/utils/formulas.ts`，并同步对应测试。
+- 调整竞争力或投入费率：分别修改 `src/utils/competitiveness.ts`、`src/utils/investment.ts`。
+- 调整渠道差异：先检查 `src/config/channels.ts`，避免在组件中重复硬编码渠道判断。
+- 调整上传字段映射或 Excel 解析：修改 `src/components/UploadSection.tsx`，并继续保留 `rawFields`。
+- 调整导出列和动态公式：修改 `src/components/MainTable.tsx` 与 `src/utils/pricingWorkbook.ts`。
+- 新增共享数据或审计动作：同时更新 `server/index.mjs`、`server/database.mjs`、`src/api.ts` 和相关类型。
+- 调整登录或访问范围：修改 `server/auth.mjs` 和部署环境变量，不要把飞书密钥放到前端代码。
+
 ## 运行
 
 安装依赖：
