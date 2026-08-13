@@ -16,6 +16,7 @@
     "test:brand": "node server/brand.test.mjs",
     "test:brand-backfill": "node server/databaseBrandBackfill.test.mjs",
     "test:brand-competitiveness": "tsx src/utils/brandCompetitiveness.test.ts",
+    "test:daily-price-lookup": "tsx src/utils/dailyPriceLookup.test.ts",
     "start": "node server/index.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

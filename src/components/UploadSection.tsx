@@ -6,6 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ChannelId, DailyPriceRow, Product, SelfOperatedSubsidyRule, SourceUploadRecord, SubsidyRule, TrackingBatch } from '../types';
+import { getDailyPriceLookupPpvs } from '../utils/dailyPriceLookup';
 
 type CellValue = string | number | boolean | null;
 type ParsedSheet = {
@@ -48,16 +49,12 @@ type SelfSubsidyGridRow = {
 interface Props {
   channelId: ChannelId;
   currentProducts: Product[];
-  historyBatches: TrackingBatch[];
   dailyPrices: DailyPriceRow[];
   subsidyRules: SubsidyRule[];
   selfSubsidyRules: SelfOperatedSubsidyRule[];
   uploadRecords: SourceUploadRecord[];
   onBaseProductsLoaded: (products: Product[], fileName: string) => void;
-  onDailyPricesLoaded: (rows: DailyPriceRow[], fileName: string) => Promise<{
-    updatedBatchCount: number;
-    updatedProductCount: number;
-  }>;
+  onDailyPricesLoaded: (rows: DailyPriceRow[], fileName: string) => Promise<void>;
   onSubsidyRulesLoaded: (rows: SubsidyRule[], fileName: string) => void;
   onSelfSubsidyRulesLoaded: (rows: SelfOperatedSubsidyRule[], sourceName: string) => void;
   onCompetitivenessHistoryLoaded: (rows: TrackingBatch[], fileName: string) => void;
@@ -605,7 +602,6 @@ const DEFAULT_SELF_SUBSIDY_GRID_ROWS: SelfSubsidyGridRow[] = [
 export default function UploadSection({
   channelId,
   currentProducts,
-  historyBatches,
   dailyPrices,
   subsidyRules,
   selfSubsidyRules,
@@ -656,11 +652,7 @@ export default function UploadSection({
     setError('');
     setDailyApiStatus('');
     try {
-      const currentPpvs = currentProducts.map(product => product.ppv).filter(Boolean);
-      const historyPpvs = historyBatches
-        .filter(batch => batch.products.length > 0)
-        .flatMap(batch => batch.products.map(product => product.ppv).filter(Boolean));
-      const ppvs = Array.from(new Set([...currentPpvs, ...historyPpvs]));
+      const ppvs = getDailyPriceLookupPpvs(currentProducts);
       const response = await fetch('/api/daily-price/lookup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -688,13 +680,13 @@ export default function UploadSection({
           row.brandName || row.costPrice > 0 || row.biBasePrice > 0 || row.zzPrePrice > 0
         ));
 
-      const backfill = await onDailyPricesLoaded(rows, `daily price API ${payload.dataDate || ''}`.trim());
+      await onDailyPricesLoaded(rows, `daily price API ${payload.dataDate || ''}`.trim());
       const priceMatchedCount = rows.filter(row => row.matched).length;
       const brandMatchedCount = rows.filter(row => row.brandName).length;
       const unmatchedPpvs = ppvs.filter(ppv => !rows.some(row => row.ppv === ppv && row.brandName));
       setDailyApiStatus(
-        `已查询当前及历史共 ${ppvs.length} 个PPV；价格匹配 ${priceMatchedCount} 个，品牌匹配 ${brandMatchedCount} 个。` +
-        `品牌已写入当前工作台，并回填 ${backfill.updatedBatchCount} 期历史、${backfill.updatedProductCount} 条明细。` +
+        `已查询本次上传共 ${ppvs.length} 个PPV；价格匹配 ${priceMatchedCount} 个，品牌匹配 ${brandMatchedCount} 个。` +
+        `品牌已写入当前工作台。` +
         `最终报价写入jd裸机价，BI基准价写入基准价，ZZ券前价写入zz裸机价，等级id写入等级id列。` +
         `数据日期 ${payload.dataDate || '未知'}` +
         (unmatchedPpvs.length > 0 ? `；未匹配品牌PPV：${unmatchedPpvs.join('、')}` : '')

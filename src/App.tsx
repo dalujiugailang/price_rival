@@ -52,7 +52,6 @@ import AuditLogPanel from './components/AuditLogPanel';
 import { useAuth } from './components/AuthGate';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
 import {
-  backfillTrackingBatchBrands,
   deleteTrackingBatch,
   importTrackingBatches,
   listTrackingBatches,
@@ -727,9 +726,6 @@ export default function App() {
         ...state.sourceUploadRecords
       ]
     }));
-    const backfill = await backfillTrackingBatchBrands(activeChannelId, brandsByPpv);
-    await refreshServerBatches();
-    return backfill;
   };
 
   const handleSubsidyRulesLoaded = (rules: SubsidyRule[], fileName: string) => {
@@ -1170,7 +1166,6 @@ export default function App() {
                 <UploadSection
                   channelId={activeChannelId}
                   currentProducts={activeState.productsMaster}
-                  historyBatches={activeState.historyBatches}
                   dailyPrices={activeState.dailyPriceRows}
                   subsidyRules={activeState.subsidyRules}
                   selfSubsidyRules={activeState.selfSubsidyRules}
