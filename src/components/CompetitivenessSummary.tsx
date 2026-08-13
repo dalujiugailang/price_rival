@@ -18,6 +18,7 @@ import { TrendingUp, TrendingDown, Target, Info, AlertCircle, ShoppingBag, Radio
 import { CalculatedProduct, ChannelId, TrackingBatch } from '../types';
 import { formatPercent, formatRMB } from '../utils/formulas';
 import { calculateCompetitivenessMetrics, emptyCompetitivenessMetrics } from '../utils/competitiveness';
+import { getTrendRangeData, TrendRange } from '../utils/trendRange';
 
 interface Props {
   historyBatches: TrackingBatch[];
@@ -54,6 +55,7 @@ export default function CompetitivenessSummary({
     : '有竞争力PPV的近30天报价量 / 有效竞品PPV的近30天报价量';
   // We can choose which batch to inspect individual model details for
   const [selectedBatchId, setSelectedBatchId] = useState<string>('LIVE_DRAFT');
+  const [trendRange, setTrendRange] = useState<TrendRange>('recent15');
 
   // Generate complete trend timeline data, merging historical database with the live draft state
   const timelineData = useMemo(() => {
@@ -104,6 +106,11 @@ export default function CompetitivenessSummary({
 
     return list;
   }, [historyBatches, currentCalculatedItems, channelId]);
+
+  const displayedTimelineData = useMemo(
+    () => getTrendRangeData(timelineData, trendRange),
+    [timelineData, trendRange]
+  );
 
   // Find the selected details row
   const selectedBatchDetails = useMemo(() => {
@@ -276,7 +283,7 @@ export default function CompetitivenessSummary({
         <div className="w-full h-80 min-h-[300px]" id="competitiveness-recharts-container">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
-              data={timelineData}
+              data={displayedTimelineData}
               margin={{ top: 10, right: 30, left: -10, bottom: 5 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e0deda" />
@@ -350,6 +357,30 @@ export default function CompetitivenessSummary({
               />
             </LineChart>
           </ResponsiveContainer>
+        </div>
+        <div
+          className="inline-flex border border-[#141414] bg-white"
+          role="group"
+          aria-label="趋势展示范围"
+        >
+          {([
+            ['recent15', '近15次追价'],
+            ['all', '全部']
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={trendRange === value}
+              onClick={() => setTrendRange(value)}
+              className={`px-2.5 py-1 text-[10px] font-bold leading-none first:border-r first:border-[#141414] ${
+                trendRange === value
+                  ? 'bg-[#141414] text-white'
+                  : 'bg-white text-[#141414] hover:bg-stone-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
