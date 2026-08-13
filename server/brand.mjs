@@ -7,6 +7,8 @@ const INFERRED_BRANDS = [
   { name: 'REDMI', pattern: /REDMI/i },
   { name: 'iQOO', pattern: /iQOO/i },
   { name: 'vivo', pattern: /vivo/i },
+  { name: '摩托罗拉', pattern: /摩托罗拉|Motorola/i },
+  { name: '三星', pattern: /三星|Samsung|Galaxy/i },
   { name: '一加', pattern: /一加|OnePlus/i },
   { name: '努比亚', pattern: /努比亚|红魔|Nubia/i },
   { name: '华为', pattern: /华为|HUAWEI/i },

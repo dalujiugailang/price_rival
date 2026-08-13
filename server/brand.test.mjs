@@ -10,6 +10,8 @@ const inferredCases = [
   ['A+iQOO 13 大陆国行', 'iQOO'],
   ['A+vivo X200 Ultra 大陆国行', 'vivo'],
   ['A1vivo X200 Pro mini 大陆国行', 'vivo'],
+  ['A+摩托罗拉 Moto G55 大陆国行', '摩托罗拉'],
+  ['A+三星 Galaxy S25 Ultra 大陆国行', '三星'],
   ['A+一加 13 大陆国行', '一加'],
   ['A+努比亚 红魔 10 Pro 大陆国行', '努比亚'],
   ['A+华为 Mate 70 Pro 大陆国行', '华为'],
