@@ -280,7 +280,7 @@ export default function CompetitivenessSummary({
         </div>
 
         {/* Interactive Line Chart */}
-        <div className="w-full h-80 min-h-[300px]" id="competitiveness-recharts-container">
+        <div className="relative w-full h-80 min-h-[300px]" id="competitiveness-recharts-container">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={displayedTimelineData}
@@ -357,30 +357,30 @@ export default function CompetitivenessSummary({
               />
             </LineChart>
           </ResponsiveContainer>
-        </div>
-        <div
-          className="inline-flex border border-[#141414] bg-white"
-          role="group"
-          aria-label="趋势展示范围"
-        >
-          {([
-            ['recent15', '近15次追价'],
-            ['all', '全部']
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={trendRange === value}
-              onClick={() => setTrendRange(value)}
-              className={`px-2.5 py-1 text-[10px] font-bold leading-none first:border-r first:border-[#141414] ${
-                trendRange === value
-                  ? 'bg-[#141414] text-white'
-                  : 'bg-white text-[#141414] hover:bg-stone-100'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+          <div
+            className="absolute bottom-[13px] left-0 z-10 inline-flex border border-[#141414] bg-white"
+            role="group"
+            aria-label="趋势展示范围"
+          >
+            {([
+              ['recent15', '近15次追价'],
+              ['all', '全部']
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={trendRange === value}
+                onClick={() => setTrendRange(value)}
+                className={`px-2.5 py-1 text-[10px] font-bold leading-none first:border-r first:border-[#141414] ${
+                  trendRange === value
+                    ? 'bg-[#141414] text-white'
+                    : 'bg-white text-[#141414] hover:bg-stone-100'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
