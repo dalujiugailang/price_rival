@@ -20,9 +20,11 @@ import { formatPercent, formatRMB } from '../utils/formulas';
 import { calculateCompetitivenessMetrics, emptyCompetitivenessMetrics } from '../utils/competitiveness';
 import { getTrendRangeData, TrendRange } from '../utils/trendRange';
 import {
-  BrandCompetitivenessDataPoint,
+  ALL_BRANDS,
   buildBrandCompetitivenessTimeline,
-  listCompetitivenessBrands
+  filterCompetitivenessProducts,
+  listCompetitivenessBrands,
+  selectCompetitivenessTimeline
 } from '../utils/brandCompetitiveness';
 
 interface Props {
@@ -61,7 +63,7 @@ export default function CompetitivenessSummary({
   // We can choose which batch to inspect individual model details for
   const [selectedBatchId, setSelectedBatchId] = useState<string>('LIVE_DRAFT');
   const [trendRange, setTrendRange] = useState<TrendRange>('recent15');
-  const [selectedBrand, setSelectedBrand] = useState('');
+  const [selectedBrand, setSelectedBrand] = useState(ALL_BRANDS);
 
   // Generate complete trend timeline data, merging historical database with the live draft state
   const timelineData = useMemo(() => {
@@ -113,30 +115,30 @@ export default function CompetitivenessSummary({
     return list;
   }, [historyBatches, currentCalculatedItems, channelId]);
 
-  const displayedTimelineData = useMemo(
-    () => getTrendRangeData(timelineData, trendRange),
-    [timelineData, trendRange]
-  );
-
   const brandOptions = useMemo(
     () => listCompetitivenessBrands(historyBatches, currentCalculatedItems),
     [historyBatches, currentCalculatedItems]
   );
 
   useEffect(() => {
-    setSelectedBrand(current => brandOptions.includes(current) ? current : (brandOptions[0] || ''));
+    setSelectedBrand(current => (
+      current === ALL_BRANDS || brandOptions.includes(current) ? current : ALL_BRANDS
+    ));
   }, [brandOptions]);
 
   const brandTimelineData = useMemo(() => buildBrandCompetitivenessTimeline({
     historyBatches,
     currentCalculatedItems,
-    brand: selectedBrand,
+    brand: selectedBrand === ALL_BRANDS ? '' : selectedBrand,
     channelId
   }), [historyBatches, currentCalculatedItems, selectedBrand, channelId]);
 
-  const displayedBrandTimelineData = useMemo(
-    () => getTrendRangeData(brandTimelineData, trendRange),
-    [brandTimelineData, trendRange]
+  const displayedTimelineData = useMemo(
+    () => getTrendRangeData(
+      selectCompetitivenessTimeline(timelineData, brandTimelineData, selectedBrand),
+      trendRange
+    ),
+    [timelineData, brandTimelineData, selectedBrand, trendRange]
   );
 
   // Find the selected details row
@@ -171,16 +173,22 @@ export default function CompetitivenessSummary({
 
   const confirmedBatches = historyBatches.filter(batch => batch.isCompetitivenessConfirmed);
 
-  // Header cards follow the selected data source. Default is the live workbench draft.
+  // Header cards follow both the selected data source and the chart brand filter.
   const latestMetric = useMemo(() => {
     if (selectedBatchDetails) {
-      return selectedBatchDetails.metrics;
+      if (selectedBrand === ALL_BRANDS) {
+        return selectedBatchDetails.metrics;
+      }
+      return calculateCompetitivenessMetrics(
+        filterCompetitivenessProducts(selectedBatchDetails.products, selectedBrand),
+        channelId
+      );
     }
-    if (timelineData.length > 0) {
-      return timelineData[timelineData.length - 1];
+    if (displayedTimelineData.length > 0) {
+      return displayedTimelineData[displayedTimelineData.length - 1];
     }
     return emptyCompetitivenessMetrics();
-  }, [selectedBatchDetails, timelineData]);
+  }, [selectedBatchDetails, selectedBrand, channelId, displayedTimelineData]);
 
   const getScoreRating = (val: number) => {
     if (val >= 80) return { label: '高强竞争力', color: 'text-green-700 bg-green-50 border-green-300' };
@@ -301,9 +309,20 @@ export default function CompetitivenessSummary({
               横坐标为每次批次更新节点，纵坐标为“{quoteWeightFormulaLabel}”。
             </p>
           </div>
-          <div className="text-[11px] text-stone-600 bg-stone-100 p-2 border border-stone-200">
-            📊 走势分析：当折线上行时表示我司本期补贴方案对竞品的价格压制力变强。
-          </div>
+          <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
+            品牌
+            <select
+              aria-label="品牌筛选"
+              value={selectedBrand}
+              onChange={event => setSelectedBrand(event.target.value)}
+              className="min-w-36 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none"
+            >
+              <option value={ALL_BRANDS}>全部品牌</option>
+              {brandOptions.map(brand => (
+                <option key={brand} value={brand}>{brand}</option>
+              ))}
+            </select>
+          </label>
         </div>
 
         {/* Interactive Line Chart */}
@@ -409,85 +428,6 @@ export default function CompetitivenessSummary({
             ))}
           </div>
         </div>
-      </div>
-
-      <div data-tour="brand-competitiveness-trend" className="border border-[#141414] p-5 bg-[#F9F9F8] rounded-none">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6">
-          <div>
-            <h4 className="font-bold text-stone-900 text-sm flex items-center gap-1.5">
-              <Target className="w-4 h-4 text-[#141414]" />
-              品牌竞争力波动走势
-            </h4>
-            <p className="text-xs text-stone-500 mt-0.5">
-              按品牌筛选PPV明细并以{quoteWeightFieldLabel}加权；纯汇总、无PPV明细的历史记录不参与。展示范围跟随上图。
-            </p>
-          </div>
-          <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
-            品牌
-            <select
-              aria-label="品牌筛选"
-              value={selectedBrand}
-              onChange={event => setSelectedBrand(event.target.value)}
-              className="min-w-36 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none"
-            >
-              {brandOptions.length === 0 ? (
-                <option value="">暂无品牌明细</option>
-              ) : brandOptions.map(brand => (
-                <option key={brand} value={brand}>{brand}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {displayedBrandTimelineData.length === 0 ? (
-          <div className="flex h-64 items-center justify-center border border-dashed border-[#141414]/40 text-xs text-stone-500">
-            暂无带品牌的PPV明细
-          </div>
-        ) : (
-          <div className="w-full h-80 min-h-[300px]" id="brand-competitiveness-recharts-container">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={displayedBrandTimelineData} margin={{ top: 10, right: 30, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0deda" />
-                <XAxis dataKey="date" tick={{ fill: '#141414', fontSize: 11, fontWeight: 'bold' }} />
-                <YAxis
-                  domain={[0, 100]}
-                  tickFormatter={value => `${value}%`}
-                  tick={{ fill: '#141414', fontSize: 11 }}
-                />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const data = payload[0].payload as BrandCompetitivenessDataPoint;
-                    return (
-                      <div className="bg-white border-2 border-black p-3 text-xs shadow-none rounded-none space-y-1 w-64">
-                        <p className="font-bold text-stone-950 border-b border-stone-200 pb-1 flex justify-between">
-                          <span>📅 {data.batchName}</span>
-                          {data.isDraft && <span className="bg-red-600 text-white px-1 text-[9px]">实时</span>}
-                        </p>
-                        {payload.map((item, index) => (
-                          <div key={index} className="flex justify-between items-center py-0.5">
-                            <span className="text-stone-600 text-[11px]" style={{ color: item.color }}>● {item.name}:</span>
-                            <span className="font-bold font-mono text-stone-900">{Number(item.value).toFixed(1)}%</span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  }}
-                />
-                <Legend
-                  verticalAlign="bottom"
-                  height={36}
-                  iconType="rect"
-                  wrapperStyle={{ fontSize: 11, fontWeight: 'bold', paddingTop: 10 }}
-                />
-                {!isSelfOperated && <Line type="monotone" dataKey="tmDirectScore" name="天猫到手价竞争力" stroke="#C2873E" strokeWidth={2} strokeDasharray="4 4" />}
-                {!isSelfOperated && <Line type="monotone" dataKey="tmItemScore" name="天猫物品价竞争力" stroke="#B43E2B" strokeWidth={3} activeDot={{ r: 8 }} />}
-                <Line type="monotone" dataKey="ahsVsZzDirectScore" name="物品价+ahs补贴 vs 转转到手价" stroke="#1E824C" strokeWidth={3} activeDot={{ r: 8 }} />
-                <Line type="monotone" dataKey="zzItemScore" name="转转物品价竞争力" stroke="#1B6D87" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
       </div>
 
       {/* Model Breakdown Inspection List */}

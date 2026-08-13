@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { CalculatedProduct, TrackingBatch } from '../types';
-import { buildBrandCompetitivenessTimeline, listCompetitivenessBrands } from './brandCompetitiveness';
+import {
+  ALL_BRANDS,
+  buildBrandCompetitivenessTimeline,
+  filterCompetitivenessProducts,
+  listCompetitivenessBrands,
+  selectCompetitivenessTimeline
+} from './brandCompetitiveness';
 
 const product = (
   brand: string,
@@ -70,5 +76,23 @@ assert.deepEqual(buildBrandCompetitivenessTimeline({
   brand: '不存在品牌',
   channelId: 'tradeIn'
 }), []);
+
+const overallTimeline = [{ date: '08-01', tmItemScore: 60 }];
+const brandOnlyTimeline = [{ date: '08-02', tmItemScore: 30 }];
+
+assert.equal(
+  selectCompetitivenessTimeline(overallTimeline, brandOnlyTimeline, ALL_BRANDS),
+  overallTimeline
+);
+assert.equal(
+  selectCompetitivenessTimeline(overallTimeline, brandOnlyTimeline, '小米'),
+  brandOnlyTimeline
+);
+
+assert.equal(filterCompetitivenessProducts(current, ALL_BRANDS), current);
+assert.deepEqual(
+  filterCompetitivenessProducts(current, '小米').map(item => item.brand),
+  ['小米']
+);
 
 console.log('brand competitiveness checks passed');

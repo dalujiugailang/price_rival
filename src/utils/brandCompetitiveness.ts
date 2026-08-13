@@ -7,7 +7,22 @@ export interface BrandCompetitivenessDataPoint extends CompetitivenessMetrics {
   isDraft?: boolean;
 }
 
+export const ALL_BRANDS = 'ALL';
+
+export const selectCompetitivenessTimeline = <T>(
+  overallTimeline: T[],
+  brandTimeline: T[],
+  selectedBrand: string
+) => selectedBrand === ALL_BRANDS ? overallTimeline : brandTimeline;
+
 const brandOf = (product: CalculatedProduct) => String(product.brand || '').trim();
+
+export const filterCompetitivenessProducts = (
+  products: CalculatedProduct[],
+  selectedBrand: string
+) => selectedBrand === ALL_BRANDS
+  ? products
+  : products.filter(product => brandOf(product) === selectedBrand);
 
 const compareBrands = (left: string, right: string) => {
   const leftAscii = /^[\x00-\x7F]/.test(left);
