@@ -51,7 +51,13 @@ import OnboardingTour, { TourStep } from './components/OnboardingTour';
 import AuditLogPanel from './components/AuditLogPanel';
 import { useAuth } from './components/AuthGate';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
-import { deleteTrackingBatch, importTrackingBatches, listTrackingBatches, saveTrackingBatch } from './api';
+import {
+  backfillTrackingBatchBrands,
+  deleteTrackingBatch,
+  importTrackingBatches,
+  listTrackingBatches,
+  saveTrackingBatch
+} from './api';
 
 const normalizeFieldName = (value: string) => value.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLowerCase();
 
@@ -557,6 +563,7 @@ export default function App() {
       let basePrice = prod.basePrice;
       let zzPrice = prod.zzPrice;
       let levelId = prod.levelId || '';
+      let brand = prod.brand;
 
       if (dailyMatch) {
         if (dailyMatch.costPrice > 0) {
@@ -570,6 +577,9 @@ export default function App() {
         }
         if (dailyMatch.levelId) {
           levelId = dailyMatch.levelId;
+        }
+        if (dailyMatch.brandName) {
+          brand = dailyMatch.brandName;
         }
       }
 
@@ -593,7 +603,8 @@ export default function App() {
         jdSubsidy,
         basePrice,
         zzPrice,
-        levelId
+        levelId,
+        brand
       };
     });
 
@@ -691,11 +702,18 @@ export default function App() {
     }));
   };
 
-  const handleDailyPricesLoaded = (rows: DailyPriceRow[], fileName: string) => {
+  const handleDailyPricesLoaded = async (rows: DailyPriceRow[], fileName: string) => {
     const matchedCount = countPpvMatches(rows);
+    const brandsByPpv = Object.fromEntries(
+      rows.filter(row => row.ppv && row.brandName).map(row => [row.ppv, row.brandName])
+    );
     updateActiveState(state => ({
       ...state,
       dailyPriceRows: rows,
+      productsMaster: state.productsMaster.map(product => ({
+        ...product,
+        brand: brandsByPpv[product.ppv] || product.brand
+      })),
       sourceUploadRecords: [
         {
           id: `SRC-${Date.now()}`,
@@ -704,11 +722,14 @@ export default function App() {
           uploadedAt: nowText(),
           rowCount: rows.length,
           matchedCount,
-          remarks: '按 ppv 匹配 daily price：最终报价写入 jd裸机价，BI基准价写入基准价，ZZ券前价写入 zz裸机价，等级id写入等级id列。'
+          remarks: '按 ppv 匹配 daily price：品牌名称写入BK列，最终报价写入 jd裸机价，BI基准价写入基准价，ZZ券前价写入 zz裸机价，等级id写入等级id列。'
         },
         ...state.sourceUploadRecords
       ]
     }));
+    const backfill = await backfillTrackingBatchBrands(activeChannelId, brandsByPpv);
+    await refreshServerBatches();
+    return backfill;
   };
 
   const handleSubsidyRulesLoaded = (rules: SubsidyRule[], fileName: string) => {
@@ -1149,6 +1170,7 @@ export default function App() {
                 <UploadSection
                   channelId={activeChannelId}
                   currentProducts={activeState.productsMaster}
+                  historyBatches={activeState.historyBatches}
                   dailyPrices={activeState.dailyPriceRows}
                   subsidyRules={activeState.subsidyRules}
                   selfSubsidyRules={activeState.selfSubsidyRules}

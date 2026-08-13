@@ -73,6 +73,7 @@ const buildOnlineSnapshotRows = (batch: TrackingBatch): SnapshotExportRow[] => {
     '新机系列': p.newSeries,
     '旧机型号': p.oldModel,
     'PPV': p.ppv,
+    '品牌名称': p.brand,
     '测算模式': pricingModeText(batch),
     'ppv近30天成交量': p.soldVolume || 0,
     'jd裸机价': p.jdPrice,
@@ -131,6 +132,7 @@ const buildFullSnapshotRows = (batch: TrackingBatch): SnapshotExportRow[] => {
     '线上_追后天猫到手价竞争力(AU)': p.postTmHandWin ? 1 : 0,
     '线上_追后转转物品价竞争力(BI)': p.postZzItemWin ? 1 : 0,
     '线上_追后AHS对转转到手竞争力(BJ)': p.postAhsZzHandWin ? 1 : 0,
+    '线上_品牌名称(BK)': p.brand,
     '线上_状态': statusText(p)
   }));
 };

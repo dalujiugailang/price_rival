@@ -146,6 +146,13 @@ export const createDatabase = databasePath => {
       created_by_open_id, created_by_name, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const listBrandBackfillBatchesStatement = db.prepare(`
+    SELECT * FROM tracking_batches
+    WHERE deleted_at IS NULL AND channel_id = ?
+  `);
+  const updateBatchPayloadStatement = db.prepare(`
+    UPDATE tracking_batches SET payload_json = ?, updated_at = ? WHERE id = ?
+  `);
 
   const insertBatch = (batch, actor, forceConfirmed = undefined) => {
     const createdAt = nowText();
@@ -268,6 +275,52 @@ export const createDatabase = databasePath => {
           details: { requested: batches.length, imported, skipped, invalid }
         });
         return { requested: batches.length, imported, skipped, invalid };
+      });
+    },
+
+    backfillBatchBrands(channelId, brandsByPpv, context) {
+      const entries = Object.entries(brandsByPpv || {})
+        .map(([ppv, brand]) => [String(ppv).trim(), String(brand).trim()])
+        .filter(([ppv, brand]) => ppv && brand);
+      if (entries.length > 5000) {
+        throw Object.assign(new Error('单次最多回填 5000 个品牌映射'), { statusCode: 400 });
+      }
+      const brandMap = new Map(entries);
+
+      return withTransaction(() => {
+        let updatedBatchCount = 0;
+        let updatedProductCount = 0;
+
+        listBrandBackfillBatchesStatement.all(channelId || 'tradeIn').forEach(row => {
+          const batch = parseJson(row.payload_json, {});
+          if (batch.isSummaryOnly || !Array.isArray(batch.products) || batch.products.length === 0) return;
+          let batchChanged = false;
+          const products = batch.products.map(product => {
+            const brand = brandMap.get(String(product?.ppv || '').trim());
+            if (!brand || product.brand === brand) return product;
+            batchChanged = true;
+            updatedProductCount += 1;
+            return { ...product, brand };
+          });
+          if (!batchChanged) return;
+          updatedBatchCount += 1;
+          updateBatchPayloadStatement.run(jsonText({ ...batch, products }), nowText(), row.id);
+        });
+
+        const result = { updatedBatchCount, updatedProductCount };
+        if (updatedProductCount > 0) {
+          writeAudit({
+            ...context,
+            action: 'BATCH_BRAND_BACKFILL',
+            resourceType: 'tracking_batch',
+            details: {
+              channelId: channelId || 'tradeIn',
+              mappingCount: brandMap.size,
+              ...result
+            }
+          });
+        }
+        return result;
       });
     },
 

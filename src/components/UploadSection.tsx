@@ -48,12 +48,16 @@ type SelfSubsidyGridRow = {
 interface Props {
   channelId: ChannelId;
   currentProducts: Product[];
+  historyBatches: TrackingBatch[];
   dailyPrices: DailyPriceRow[];
   subsidyRules: SubsidyRule[];
   selfSubsidyRules: SelfOperatedSubsidyRule[];
   uploadRecords: SourceUploadRecord[];
   onBaseProductsLoaded: (products: Product[], fileName: string) => void;
-  onDailyPricesLoaded: (rows: DailyPriceRow[], fileName: string) => void;
+  onDailyPricesLoaded: (rows: DailyPriceRow[], fileName: string) => Promise<{
+    updatedBatchCount: number;
+    updatedProductCount: number;
+  }>;
   onSubsidyRulesLoaded: (rows: SubsidyRule[], fileName: string) => void;
   onSelfSubsidyRulesLoaded: (rows: SelfOperatedSubsidyRule[], sourceName: string) => void;
   onCompetitivenessHistoryLoaded: (rows: TrackingBatch[], fileName: string) => void;
@@ -601,6 +605,7 @@ const DEFAULT_SELF_SUBSIDY_GRID_ROWS: SelfSubsidyGridRow[] = [
 export default function UploadSection({
   channelId,
   currentProducts,
+  historyBatches,
   dailyPrices,
   subsidyRules,
   selfSubsidyRules,
@@ -651,7 +656,11 @@ export default function UploadSection({
     setError('');
     setDailyApiStatus('');
     try {
-      const ppvs = currentProducts.map(product => product.ppv).filter(Boolean);
+      const currentPpvs = currentProducts.map(product => product.ppv).filter(Boolean);
+      const historyPpvs = historyBatches
+        .filter(batch => batch.products.length > 0)
+        .flatMap(batch => batch.products.map(product => product.ppv).filter(Boolean));
+      const ppvs = Array.from(new Set([...currentPpvs, ...historyPpvs]));
       const response = await fetch('/api/daily-price/lookup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -663,9 +672,10 @@ export default function UploadSection({
       }
 
       const rows: DailyPriceRow[] = (payload.rows || [])
-        .filter((row: Record<string, CellValue>) => row.matched)
         .map((row: Record<string, CellValue>) => ({
           ppv: toText(row.ppv),
+          brandName: toText(getField(row, ['品牌名称', '品牌', 'brandName', 'brand'])),
+          matched: Boolean(row.matched),
           biBasePrice: toNumber(row['BI基准价']),
           costPrice: toNumber(getDailyPriceFinalQuote(row)),
           zzPrePrice: toNumber(getField(row, ['ZZ券前价', 'zz券前价', '转转券前价'])),
@@ -674,10 +684,21 @@ export default function UploadSection({
             ...row
           }
         }))
-        .filter(row => row.ppv && (row.costPrice > 0 || row.biBasePrice > 0 || row.zzPrePrice > 0));
+        .filter(row => row.ppv && (
+          row.brandName || row.costPrice > 0 || row.biBasePrice > 0 || row.zzPrePrice > 0
+        ));
 
-      onDailyPricesLoaded(rows, `daily price API ${payload.dataDate || ''}`.trim());
-      setDailyApiStatus(`已从 daily price API 取回 ${rows.length}/${currentProducts.length} 条价格：最终报价写入jd裸机价，BI基准价写入基准价，ZZ券前价写入zz裸机价，等级id写入等级id列。数据日期 ${payload.dataDate || '未知'}`);
+      const backfill = await onDailyPricesLoaded(rows, `daily price API ${payload.dataDate || ''}`.trim());
+      const priceMatchedCount = rows.filter(row => row.matched).length;
+      const brandMatchedCount = rows.filter(row => row.brandName).length;
+      const unmatchedPpvs = ppvs.filter(ppv => !rows.some(row => row.ppv === ppv && row.brandName));
+      setDailyApiStatus(
+        `已查询当前及历史共 ${ppvs.length} 个PPV；价格匹配 ${priceMatchedCount} 个，品牌匹配 ${brandMatchedCount} 个。` +
+        `品牌已写入当前工作台，并回填 ${backfill.updatedBatchCount} 期历史、${backfill.updatedProductCount} 条明细。` +
+        `最终报价写入jd裸机价，BI基准价写入基准价，ZZ券前价写入zz裸机价，等级id写入等级id列。` +
+        `数据日期 ${payload.dataDate || '未知'}` +
+        (unmatchedPpvs.length > 0 ? `；未匹配品牌PPV：${unmatchedPpvs.join('、')}` : '')
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'daily price API 查询失败');
     } finally {
@@ -790,7 +811,7 @@ export default function UploadSection({
       <div className="p-4 border-b border-[#141414]">
         <h2 className="text-base font-bold">数据上传与自动匹配流程</h2>
         <p className="mt-1 text-xs text-[#141414]/70">
-          当前竞争表 {currentProducts.length} 行。{isSelfOperated ? '自营渠道补贴采用普发券粘贴规则。' : '现在只需要上传本次竞争追价表和补贴表。'}daily price API 按 ppv 自动匹配最终报价、BI基准价、ZZ券前价和等级id。
+          当前竞争表 {currentProducts.length} 行。{isSelfOperated ? '自营渠道补贴采用普发券粘贴规则。' : '现在只需要上传本次竞争追价表和补贴表。'}daily price API 按 ppv 自动匹配品牌名称、最终报价、BI基准价、ZZ券前价和等级id。
         </p>
       </div>
 
@@ -834,14 +855,14 @@ export default function UploadSection({
         <div className={cardClass} data-tour="daily-api">
           <div>
             <div className="text-sm font-bold">2. daily price API</div>
-            <div className="mt-1 text-[11px] text-[#141414]/70">不需要上传表。系统调用 daily price 项目接口：最终报价写入 jd裸机价，BI基准价写入基准价，ZZ券前价写入 zz裸机价，等级id写入等级id列。</div>
+            <div className="mt-1 text-[11px] text-[#141414]/70">不需要上传表。系统调用 daily price 项目接口：品牌名称写入BK列，最终报价写入 jd裸机价，BI基准价写入基准价，ZZ券前价写入 zz裸机价，等级id写入等级id列。</div>
           </div>
           <button
             type="button"
             onClick={syncDailyPriceApi}
             className="w-full border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white hover:bg-[#2A2A2B]"
           >
-            通过 API 匹配 jd裸机价 / 基准价 / zz裸机价 / 等级id
+            通过 API 匹配 品牌名称 / jd裸机价 / 基准价 / zz裸机价 / 等级id
           </button>
           <div className={statClass}>已导入 {dailyPrices.length} 行，当前匹配 {dailyMatched}/{currentProducts.length} 行</div>
           {dailyApiStatus && <div className="text-[11px] font-bold text-green-700">{dailyApiStatus}</div>}

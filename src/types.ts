@@ -46,6 +46,8 @@ export interface SubsidyRow {
 
 export interface DailyPriceRow {
   ppv: string;
+  brandName: string;
+  matched: boolean;
   biBasePrice: number;
   costPrice: number;
   zzPrePrice: number;

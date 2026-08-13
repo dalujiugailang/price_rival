@@ -83,6 +83,19 @@ export const deleteTrackingBatch = (id: string) => requestJson<{ success: true; 
   { method: 'DELETE' }
 );
 
+export interface BrandBackfillResult {
+  updatedBatchCount: number;
+  updatedProductCount: number;
+}
+
+export const backfillTrackingBatchBrands = (
+  channelId: string,
+  brandsByPpv: Record<string, string>
+) => requestJson<{ success: true } & BrandBackfillResult>('/api/tracking-batches/brand-backfill', {
+  method: 'POST',
+  body: JSON.stringify({ channelId, brandsByPpv })
+});
+
 export const listAuditLogs = (limit = 300) => requestJson<{ success: true; logs: AuditLog[] }>(
   `/api/audit-logs?limit=${limit}`
 );

@@ -199,7 +199,7 @@ export default function MainTable({
 
   const filteredProducts = products.filter(p => {
     const query = searchTerm.toLowerCase();
-    const matchesSearch = p.ppv.toLowerCase().includes(query) || p.oldModel.toLowerCase().includes(query) || p.newSeries.toLowerCase().includes(query);
+    const matchesSearch = p.ppv.toLowerCase().includes(query) || p.oldModel.toLowerCase().includes(query) || p.newSeries.toLowerCase().includes(query) || p.brand.toLowerCase().includes(query);
     const matchesReason = selectedReasonFilters.length === 0 || selectedReasonFilters.some(reason => p.pricingRemark.includes(reason));
     const matchesSeries = isSelfOperated || selectedSeries === 'ALL' || p.newSeries === selectedSeries;
     const matchesRisk = filterRisk === 'ALL' || p.riskWarning === filterRisk;
@@ -375,10 +375,10 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 120, 120, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 120, 120, 132, 160, 160, 160, 220
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 120, 120, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 120, 120, 132, 160, 160, 160, 220, 120
   ];
   const fixedCodes = [
-    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AW物差', 'AW到手差', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE物差', 'BE到手差', 'BE说明', 'BG', 'BH', 'BI', 'BJ'
+    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AW物差', 'AW到手差', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE物差', 'BE到手差', 'BE说明', 'BG', 'BH', 'BI', 'BJ', 'BK'
   ];
   const fixedLabels = [
     '新机系列',
@@ -420,7 +420,8 @@ export default function MainTable({
     '京东物品价-追价后 vs 天猫',
     '京东到手价-追价后 vs 天猫',
     '京东物品价-追价后 vs 转转',
-    '京东物品价+ahs补贴-追价后 vs 转转'
+    '京东物品价+ahs补贴-追价后 vs 转转',
+    '品牌名称'
   ];
   const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 19, 20, 21, 22, 28, 31, 33, 34, 36, 37]);
   const noteDisplayHiddenColumnIndexes = new Set([26, 35]);
@@ -476,7 +477,8 @@ export default function MainTable({
     p.postTmItemWin ? 1 : 0,
     p.postTmHandWin ? 1 : 0,
     p.postZzItemWin ? 1 : 0,
-    p.postAhsZzHandWin ? 1 : 0
+    p.postAhsZzHandWin ? 1 : 0,
+    p.brand || ''
     ];
   };
 
@@ -684,6 +686,8 @@ export default function MainTable({
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postZzItemWin ? 1 : 0}</td>;
       case 39:
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsZzHandWin ? 1 : 0}</td>;
+      case 40:
+        return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 font-bold">{p.brand || '-'}</td>;
       default:
         return null;
     }
@@ -875,7 +879,7 @@ export default function MainTable({
             <option value="CRITICAL">利润击穿</option>
           </select>
         </div>
-        <input type="text" placeholder={isSelfOperated ? '搜索旧机型号 / PPV' : '搜索新机系列 / 旧机型号 / PPV'} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full sm:w-80 bg-white border border-[#141414] px-3 py-1.5 text-xs font-bold" />
+        <input type="text" placeholder={isSelfOperated ? '搜索品牌 / 旧机型号 / PPV' : '搜索品牌 / 新机系列 / 旧机型号 / PPV'} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full sm:w-80 bg-white border border-[#141414] px-3 py-1.5 text-xs font-bold" />
       </div>
 
       <div className="tracking-table-scroll">

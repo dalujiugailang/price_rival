@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import compression from 'compression';
 import express from 'express';
 import { createAuth } from './auth.mjs';
+import { enrichDailyPricePayload } from './brand.mjs';
 import { createDatabase } from './database.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -130,6 +131,20 @@ app.delete('/api/tracking-batches/:id', (req, res) => {
   }
 });
 
+app.post('/api/tracking-batches/brand-backfill', (req, res) => {
+  try {
+    const result = db.backfillBatchBrands(
+      String(req.body?.channelId || 'tradeIn'),
+      req.body?.brandsByPpv || {},
+      auth.requestContext(req)
+    );
+    res.json({ success: true, ...result });
+  } catch (error) {
+    auditFailure(req, 'BATCH_BRAND_BACKFILL_FAILED', error);
+    res.status(error.statusCode || 500).json({ success: false, error: error.message || '品牌回填失败' });
+  }
+});
+
 app.get('/api/audit-logs', (req, res) => {
   res.json({ success: true, logs: db.listAuditLogs(req.query.limit) });
 });
@@ -149,7 +164,8 @@ app.post('/api/daily-price/lookup', async (req, res) => {
       body: JSON.stringify({ ppv })
     });
     const text = await upstream.text();
-    res.status(upstream.status).type('application/json').send(text || '{}');
+    const payload = text ? JSON.parse(text) : {};
+    res.status(upstream.status).json(enrichDailyPricePayload(payload));
   } catch (error) {
     res.status(503).json({
       success: false,
