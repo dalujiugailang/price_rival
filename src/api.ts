@@ -1,4 +1,5 @@
 import { TrackingBatch } from './types';
+import { CompetitivenessTrendExportPayload } from './utils/competitivenessTrendExport';
 
 export interface AuthUser {
   openId: string;
@@ -41,6 +42,18 @@ const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> =
     throw new Error(payload.error || `请求失败 (${response.status})`);
   }
   return payload as T;
+};
+
+const fileNameFromDisposition = (disposition: string | null) => {
+  const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      // Fall through to the basic filename below.
+    }
+  }
+  return disposition?.match(/filename="?([^";]+)"?/i)?.[1] || '竞争力走势_总盘及品牌.xlsx';
 };
 
 export const getAuthConfig = () => requestJson<{
@@ -99,3 +112,20 @@ export const backfillTrackingBatchBrands = (
 export const listAuditLogs = (limit = 300) => requestJson<{ success: true; logs: AuditLog[] }>(
   `/api/audit-logs?limit=${limit}`
 );
+
+export const exportCompetitivenessTrends = async (payload: CompetitivenessTrendExportPayload) => {
+  const response = await fetch('/api/exports/competitiveness-trends', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => ({}));
+    if (response.status === 401) window.location.reload();
+    throw new Error(errorPayload.error || `导出失败 (${response.status})`);
+  }
+  return {
+    blob: await response.blob(),
+    fileName: fileNameFromDisposition(response.headers.get('content-disposition'))
+  };
+};

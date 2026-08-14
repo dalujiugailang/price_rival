@@ -16,6 +16,8 @@
     "test:brand": "node server/brand.test.mjs",
     "test:brand-backfill": "node server/databaseBrandBackfill.test.mjs",
     "test:brand-competitiveness": "tsx src/utils/brandCompetitiveness.test.ts",
+    "test:competitiveness-export-model": "tsx src/utils/competitivenessTrendExport.test.ts",
+    "test:competitiveness-workbook": "node server/competitivenessWorkbook.test.mjs",
     "test:daily-price-lookup": "tsx src/utils/dailyPriceLookup.test.ts",
     "start": "node server/index.mjs",
     "preview": "vite preview",
@@ -23,6 +25,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@office-kit/xlsx": "0.9.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "compression": "^1.8.1",

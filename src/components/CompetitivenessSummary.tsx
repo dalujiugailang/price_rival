@@ -14,8 +14,9 @@ import {
   Tooltip, 
   Legend 
 } from 'recharts';
-import { TrendingUp, TrendingDown, Target, Info, AlertCircle, ShoppingBag, Radio } from 'lucide-react';
+import { TrendingUp, TrendingDown, Target, Info, AlertCircle, ShoppingBag, Radio, Download } from 'lucide-react';
 import { CalculatedProduct, ChannelId, TrackingBatch } from '../types';
+import { exportCompetitivenessTrends } from '../api';
 import { formatPercent, formatRMB } from '../utils/formulas';
 import { calculateCompetitivenessMetrics, emptyCompetitivenessMetrics } from '../utils/competitiveness';
 import { getTrendRangeData, TrendRange } from '../utils/trendRange';
@@ -26,6 +27,7 @@ import {
   listCompetitivenessBrands,
   selectCompetitivenessTimeline
 } from '../utils/brandCompetitiveness';
+import { buildCompetitivenessTrendExportPayload } from '../utils/competitivenessTrendExport';
 
 interface Props {
   historyBatches: TrackingBatch[];
@@ -64,6 +66,8 @@ export default function CompetitivenessSummary({
   const [selectedBatchId, setSelectedBatchId] = useState<string>('LIVE_DRAFT');
   const [trendRange, setTrendRange] = useState<TrendRange>('recent15');
   const [selectedBrand, setSelectedBrand] = useState(ALL_BRANDS);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   // Generate complete trend timeline data, merging historical database with the live draft state
   const timelineData = useMemo(() => {
@@ -140,6 +144,34 @@ export default function CompetitivenessSummary({
     ),
     [timelineData, brandTimelineData, selectedBrand, trendRange]
   );
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    setExportError('');
+    try {
+      const payload = buildCompetitivenessTrendExportPayload({
+        overallTimeline: timelineData,
+        historyBatches,
+        currentCalculatedItems,
+        brandOptions,
+        trendRange,
+        channelId
+      });
+      const { blob, fileName } = await exportCompetitivenessTrends(payload);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : '导出失败');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Find the selected details row
   const selectedBatchDetails = useMemo(() => {
@@ -309,20 +341,32 @@ export default function CompetitivenessSummary({
               横坐标为每次批次更新节点，纵坐标为“{quoteWeightFormulaLabel}”。
             </p>
           </div>
-          <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
-            品牌
-            <select
-              aria-label="品牌筛选"
-              value={selectedBrand}
-              onChange={event => setSelectedBrand(event.target.value)}
-              className="min-w-36 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none"
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
+              品牌
+              <select
+                aria-label="品牌筛选"
+                value={selectedBrand}
+                onChange={event => setSelectedBrand(event.target.value)}
+                className="min-w-36 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none"
+              >
+                <option value={ALL_BRANDS}>全部品牌</option>
+                {brandOptions.map(brand => (
+                  <option key={brand} value={brand}>{brand}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={isExporting || timelineData.length === 0}
+              className="inline-flex items-center gap-1.5 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold text-[#141414] hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <option value={ALL_BRANDS}>全部品牌</option>
-              {brandOptions.map(brand => (
-                <option key={brand} value={brand}>{brand}</option>
-              ))}
-            </select>
-          </label>
+              <Download className="h-3.5 w-3.5" />
+              {isExporting ? '导出中...' : '导出Excel'}
+            </button>
+            {exportError && <span className="text-[11px] font-bold text-red-700">{exportError}</span>}
+          </div>
         </div>
 
         {/* Interactive Line Chart */}

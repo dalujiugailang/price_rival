@@ -6,6 +6,10 @@ import compression from 'compression';
 import express from 'express';
 import { createAuth } from './auth.mjs';
 import { enrichDailyPricePayload } from './brand.mjs';
+import {
+  createCompetitivenessTrendWorkbook,
+  getCompetitivenessExportFileName
+} from './competitivenessWorkbook.mjs';
 import { createDatabase } from './database.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -147,6 +151,21 @@ app.post('/api/tracking-batches/brand-backfill', (req, res) => {
 
 app.get('/api/audit-logs', (req, res) => {
   res.json({ success: true, logs: db.listAuditLogs(req.query.limit) });
+});
+
+app.post('/api/exports/competitiveness-trends', async (req, res) => {
+  try {
+    const workbook = await createCompetitivenessTrendWorkbook(req.body);
+    const fileName = getCompetitivenessExportFileName();
+    res
+      .status(200)
+      .set('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .set('content-disposition', `attachment; filename="competitiveness-trends.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`)
+      .send(workbook);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '竞争力走势导出失败';
+    res.status(message.includes('没有可导出') ? 400 : 500).json({ success: false, error: message });
+  }
 });
 
 app.post('/api/daily-price/lookup', async (req, res) => {
