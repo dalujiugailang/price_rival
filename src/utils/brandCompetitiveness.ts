@@ -15,7 +15,47 @@ export const selectCompetitivenessTimeline = <T>(
   selectedBrand: string
 ) => selectedBrand === ALL_BRANDS ? overallTimeline : brandTimeline;
 
-const brandOf = (product: CalculatedProduct) => String(product.brand || '').trim();
+const BRAND_ALIASES = new Map([
+  ['iqoo', 'iQOO'],
+  ['oppo', 'OPPO'],
+  ['redmi', 'REDMI'],
+  ['vivo', 'vivo'],
+  ['华为', '华为'],
+  ['huawei', '华为'],
+  ['摩托罗拉', '摩托罗拉'],
+  ['motorola', '摩托罗拉'],
+  ['moto', '摩托罗拉'],
+  ['努比亚', '努比亚'],
+  ['nubia', '努比亚'],
+  ['荣耀', '荣耀'],
+  ['honor', '荣耀'],
+  ['三星', '三星'],
+  ['samsung', '三星'],
+  ['小米', '小米'],
+  ['xiaomi', '小米'],
+  ['一加', '一加'],
+  ['oneplus', '一加'],
+  ['真我', '真我'],
+  ['realme', '真我']
+]);
+
+const normalizeBrandAlias = (value: unknown) => {
+  const brand = String(value || '').trim();
+  return BRAND_ALIASES.get(brand.toLocaleLowerCase()) || '';
+};
+
+const rawBrandOf = (product: CalculatedProduct) => {
+  const entry = Object.entries(product.rawFields || {}).find(([key]) => {
+    const fieldName = key.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLocaleLowerCase();
+    return ['品牌名称', '品牌', 'brandname', 'brand'].includes(fieldName);
+  });
+  const explicitBrand = String(entry?.[1] || '').trim();
+  return explicitBrand ? normalizeBrandAlias(explicitBrand) || explicitBrand : '';
+};
+
+const brandOf = (product: CalculatedProduct) => (
+  rawBrandOf(product) || normalizeBrandAlias(product.brand)
+);
 
 export const filterCompetitivenessProducts = (
   products: CalculatedProduct[],

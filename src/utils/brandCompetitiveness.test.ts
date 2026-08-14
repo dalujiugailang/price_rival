@@ -11,9 +11,11 @@ import {
 const product = (
   brand: string,
   quoteVolume: number,
-  win: boolean
+  win: boolean,
+  rawFields: Record<string, string> = {}
 ) => ({
   brand,
+  rawFields,
   quoteVolume,
   tmPrice: 100,
   tmHandPrice: 120,
@@ -39,7 +41,14 @@ const historyBatches = [
     date: '2026-08-02',
     competitivenessDate: '2026-08-02',
     isCompetitivenessConfirmed: true,
-    products: [product('小米', 30, true), product('小米', 70, false), product('OPPO', 100, true)]
+    products: [
+      product('小米', 30, true),
+      product('小米', 70, false),
+      product('OPPO', 100, true),
+      product('17系列', 100, true),
+      product('旧兜底值', 100, true, { 'BK_品牌名称': '华为' }),
+      product('Redmi', 100, true)
+    ]
   },
   {
     id: 'UNCONFIRMED',
@@ -49,9 +58,17 @@ const historyBatches = [
   }
 ] as TrackingBatch[];
 
-const current = [product('小米', 50, true), product('vivo', 50, false)];
+const current = [
+  product('小米', 50, true),
+  product('vivo', 50, false),
+  product('Find', 50, true),
+  product('moto', 50, true)
+];
 
-assert.deepEqual(listCompetitivenessBrands(historyBatches, current), ['OPPO', 'vivo', '小米']);
+assert.deepEqual(
+  listCompetitivenessBrands(historyBatches, current),
+  ['OPPO', 'REDMI', 'vivo', '华为', '摩托罗拉', '小米']
+);
 
 const timeline = buildBrandCompetitivenessTimeline({
   historyBatches,
@@ -93,6 +110,10 @@ assert.equal(filterCompetitivenessProducts(current, ALL_BRANDS), current);
 assert.deepEqual(
   filterCompetitivenessProducts(current, '小米').map(item => item.brand),
   ['小米']
+);
+assert.equal(
+  filterCompetitivenessProducts(historyBatches[1].products, '华为')[0].brand,
+  '旧兜底值'
 );
 
 console.log('brand competitiveness checks passed');
