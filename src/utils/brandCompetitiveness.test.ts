@@ -67,7 +67,7 @@ const current = [
 
 assert.deepEqual(
   listCompetitivenessBrands(historyBatches, current),
-  ['OPPO', 'REDMI', 'vivo', '华为', '摩托罗拉', '小米']
+  ['vivo', '摩托罗拉', '小米']
 );
 
 const timeline = buildBrandCompetitivenessTimeline({

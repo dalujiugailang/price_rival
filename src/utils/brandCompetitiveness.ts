@@ -72,14 +72,11 @@ const compareBrands = (left: string, right: string) => {
 };
 
 export const listCompetitivenessBrands = (
-  historyBatches: TrackingBatch[],
+  _historyBatches: TrackingBatch[],
   currentCalculatedItems: CalculatedProduct[]
-) => Array.from(new Set([
-  ...historyBatches
-    .filter(batch => batch.isCompetitivenessConfirmed && !batch.isSummaryOnly && batch.products.length > 0)
-    .flatMap(batch => batch.products.map(brandOf)),
-  ...currentCalculatedItems.map(brandOf)
-].filter(Boolean))).sort(compareBrands);
+) => Array.from(new Set(
+  currentCalculatedItems.map(brandOf).filter(Boolean)
+)).sort(compareBrands);
 
 export const buildBrandCompetitivenessTimeline = ({
   historyBatches,
