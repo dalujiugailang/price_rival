@@ -3,10 +3,11 @@ import { enrichDailyPricePayload, resolveBrandName } from './brand.mjs';
 
 assert.equal(resolveBrandName({ '品牌名称': 'API品牌', ppv: 'A+小米 15' }), 'API品牌');
 assert.equal(resolveBrandName({ brandName: '接口品牌', ppv: 'A+vivo X200' }), '接口品牌');
+assert.equal(resolveBrandName({ '品牌名称': 'REDMI', ppv: 'A+Redmi K70' }), '小米');
 
 const inferredCases = [
   ['A+OPPO Find X8 Ultra 大陆国行', 'OPPO'],
-  ['A+Redmi K70 大陆国行', 'REDMI'],
+  ['A+Redmi K70 大陆国行', '小米'],
   ['A+iQOO 13 大陆国行', 'iQOO'],
   ['A+vivo X200 Ultra 大陆国行', 'vivo'],
   ['A1vivo X200 Pro mini 大陆国行', 'vivo'],
@@ -33,5 +34,17 @@ const enriched = enrichDailyPricePayload({
 });
 assert.equal(enriched.rows[0]['品牌名称'], '小米');
 assert.equal(enriched.rows[1]['品牌名称'], '欧珀');
+
+const merged = enrichDailyPricePayload(
+  { rows: [{ ppv: 'A+未知型号', matched: true }] },
+  { rows: [{ ppv: 'A+未知型号', matched: true, '品牌名称': '小米' }] }
+);
+assert.equal(merged.rows[0]['品牌名称'], '小米');
+
+const unmatchedBrand = enrichDailyPricePayload(
+  { rows: [{ ppv: 'A+Redmi K70', matched: true }] },
+  { rows: [{ ppv: 'A+Redmi K70', matched: false, '品牌名称': null }] }
+);
+assert.equal(unmatchedBrand.rows[0]['品牌名称'], '');
 
 console.log('daily price brand checks passed');

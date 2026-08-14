@@ -18,7 +18,7 @@ export const selectCompetitivenessTimeline = <T>(
 const BRAND_ALIASES = new Map([
   ['iqoo', 'iQOO'],
   ['oppo', 'OPPO'],
-  ['redmi', 'REDMI'],
+  ['redmi', '小米'],
   ['vivo', 'vivo'],
   ['华为', '华为'],
   ['huawei', '华为'],

@@ -2,9 +2,19 @@ const textValue = value => String(value ?? '').trim();
 
 const BRAND_FIELDS = ['品牌名称', '品牌', 'brandName', 'brand'];
 
+const canonicalBrandName = value => /^redmi$/i.test(value) ? '小米' : value;
+
+const explicitBrandName = row => {
+  for (const field of BRAND_FIELDS) {
+    const brand = textValue(row?.[field]);
+    if (brand) return canonicalBrandName(brand);
+  }
+  return '';
+};
+
 const INFERRED_BRANDS = [
   { name: 'OPPO', pattern: /OPPO/i },
-  { name: 'REDMI', pattern: /REDMI/i },
+  { name: '小米', pattern: /REDMI/i },
   { name: 'iQOO', pattern: /iQOO/i },
   { name: 'vivo', pattern: /vivo/i },
   { name: '摩托罗拉', pattern: /摩托罗拉|Motorola/i },
@@ -18,21 +28,30 @@ const INFERRED_BRANDS = [
 ];
 
 export const resolveBrandName = row => {
-  for (const field of BRAND_FIELDS) {
-    const brand = textValue(row?.[field]);
-    if (brand) return brand;
-  }
+  const explicitBrand = explicitBrandName(row);
+  if (explicitBrand) return explicitBrand;
 
   const sourceText = [row?.['sku名称'], row?.ppv].map(textValue).filter(Boolean).join(' ');
   return INFERRED_BRANDS.find(item => item.pattern.test(sourceText))?.name || '';
 };
 
-export const enrichDailyPricePayload = payload => ({
-  ...(payload && typeof payload === 'object' ? payload : {}),
-  rows: Array.isArray(payload?.rows)
-    ? payload.rows.map(row => ({
-      ...row,
-      '品牌名称': resolveBrandName(row)
-    }))
-    : []
-});
+export const enrichDailyPricePayload = (payload, brandPayload = undefined) => {
+  const requireExplicitBrand = brandPayload !== undefined;
+  const brandsByPpv = new Map(
+    (Array.isArray(brandPayload?.rows) ? brandPayload.rows : [])
+      .map(row => [textValue(row?.ppv), explicitBrandName(row)])
+      .filter(([ppv, brand]) => ppv && brand)
+  );
+
+  return {
+    ...(payload && typeof payload === 'object' ? payload : {}),
+    rows: Array.isArray(payload?.rows)
+      ? payload.rows.map(row => ({
+        ...row,
+        '品牌名称': brandsByPpv.get(textValue(row?.ppv))
+          || explicitBrandName(row)
+          || (requireExplicitBrand ? '' : resolveBrandName(row))
+      }))
+      : []
+  };
+};

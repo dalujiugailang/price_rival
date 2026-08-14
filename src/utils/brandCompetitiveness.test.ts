@@ -79,10 +79,10 @@ const timeline = buildBrandCompetitivenessTimeline({
 
 assert.equal(timeline.length, 2);
 assert.equal(timeline[0].date, '08-02');
-assert.equal(timeline[0].tmItemScore, 30);
-assert.equal(timeline[0].tmDirectScore, 30);
-assert.equal(timeline[0].zzItemScore, 30);
-assert.equal(timeline[0].ahsVsZzDirectScore, 30);
+assert.equal(timeline[0].tmItemScore, 65);
+assert.equal(timeline[0].tmDirectScore, 65);
+assert.equal(timeline[0].zzItemScore, 65);
+assert.equal(timeline[0].ahsVsZzDirectScore, 65);
 assert.equal(timeline[1].date, '今日(工作台)');
 assert.equal(timeline[1].tmItemScore, 100);
 assert.equal(timeline[1].isDraft, true);

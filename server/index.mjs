@@ -41,6 +41,8 @@ const APP_URL = process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL'
   ? process.env.APP_URL.replace(/\/$/, '')
   : `http://localhost:${process.env.NODE_ENV === 'development' && PORT !== 3000 ? 3000 : PORT}`;
 const DAILY_PRICE_LOOKUP_URL = process.env.DAILY_PRICE_LOOKUP_URL || DEFAULT_DAILY_PRICE_LOOKUP_URL;
+const DAILY_PRICE_BRAND_LOOKUP_URL = process.env.DAILY_PRICE_BRAND_LOOKUP_URL
+  || new URL('/api/zz-competitiveness/lookup', DAILY_PRICE_LOOKUP_URL).toString();
 const DAILY_PRICE_TOKEN = process.env.DAILY_PRICE_TOKEN || process.env.DAILY_PRICE_API_TOKEN || '';
 const DATABASE_PATH = path.resolve(appRoot, process.env.DATABASE_PATH || 'data/price-rival.sqlite');
 
@@ -177,14 +179,27 @@ app.post('/api/daily-price/lookup', async (req, res) => {
   }
   if (DAILY_PRICE_TOKEN) headers.authorization = `Bearer ${DAILY_PRICE_TOKEN}`;
   try {
-    const upstream = await fetch(DAILY_PRICE_LOOKUP_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ppv })
-    });
+    const body = JSON.stringify({ ppv });
+    const [upstream, brandUpstream] = await Promise.all([
+      fetch(DAILY_PRICE_LOOKUP_URL, {
+        method: 'POST',
+        headers,
+        body
+      }),
+      fetch(DAILY_PRICE_BRAND_LOOKUP_URL, {
+        method: 'POST',
+        headers,
+        body
+      }).catch(() => null)
+    ]);
     const text = await upstream.text();
     const payload = text ? JSON.parse(text) : {};
-    res.status(upstream.status).json(enrichDailyPricePayload(payload));
+    let brandPayload = {};
+    if (brandUpstream?.ok) {
+      const brandText = await brandUpstream.text();
+      brandPayload = brandText ? JSON.parse(brandText) : {};
+    }
+    res.status(upstream.status).json(enrichDailyPricePayload(payload, brandPayload));
   } catch (error) {
     res.status(503).json({
       success: false,

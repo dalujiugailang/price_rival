@@ -11,6 +11,7 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       DAILY_PRICE_LOOKUP_URL: ${DAILY_PRICE_LOOKUP_URL:-https://daily-price.gtmdudu.xyz/api/lookup}
+      DAILY_PRICE_BRAND_LOOKUP_URL: ${DAILY_PRICE_BRAND_LOOKUP_URL:-https://daily-price.gtmdudu.xyz/api/zz-competitiveness/lookup}
       DAILY_PRICE_TOKEN: ${DAILY_PRICE_TOKEN:-}
       APP_URL: ${APP_URL:-http://localhost:3000}
       DATABASE_PATH: /app/data/price-rival.sqlite

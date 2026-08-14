@@ -259,6 +259,7 @@ npm start
 
 ```bash
 DAILY_PRICE_LOOKUP_URL=https://daily-price.gtmdudu.xyz/api/lookup
+DAILY_PRICE_BRAND_LOOKUP_URL=https://daily-price.gtmdudu.xyz/api/zz-competitiveness/lookup
 DAILY_PRICE_TOKEN=你的 daily price token
 APP_PORT=3000
 APP_URL=https://你的域名
@@ -288,6 +289,7 @@ Express server 支持以下变量：
 - `PORT`: 服务端端口，默认 `3000`。
 - `HOST`: 监听地址，默认 `0.0.0.0`。
 - `DAILY_PRICE_LOOKUP_URL`: daily price 上游接口，默认 `https://daily-price.gtmdudu.xyz/api/lookup`。
+- `DAILY_PRICE_BRAND_LOOKUP_URL`: daily price 品牌明细接口，默认 `https://daily-price.gtmdudu.xyz/api/zz-competitiveness/lookup`。
 - `DAILY_PRICE_TOKEN` / `DAILY_PRICE_API_TOKEN`: daily price API token。
 - `DATABASE_PATH`: SQLite 数据库路径，Docker 内默认为 `/app/data/price-rival.sqlite`。
 - `APP_URL`: 系统对外地址，用于 OAuth 回调和 Cookie 安全策略。
