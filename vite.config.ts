@@ -4,6 +4,8 @@ import path from 'path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Business spreadsheets are not public assets; authorized pages load data through the API.
+  publicDir: false,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

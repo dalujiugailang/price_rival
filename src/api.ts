@@ -8,6 +8,10 @@ export interface AuthUser {
   avatarUrl: string;
   tenantKey: string;
   departmentIds: string[];
+  role: 'admin' | 'editor' | 'viewer';
+  scopes: string[];
+  enabled: boolean;
+  accessVersion: number;
   loginType: 'feishu' | 'development';
 }
 
@@ -39,7 +43,8 @@ const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> =
     if (response.status === 401 && !url.includes('/api/auth/')) {
       window.location.reload();
     }
-    throw new Error(payload.error || `请求失败 (${response.status})`);
+    if (response.status === 403) window.dispatchEvent(new Event('auth:refresh'));
+    throw Object.assign(new Error(payload.error || `请求失败 (${response.status})`), { status: response.status });
   }
   return payload as T;
 };
@@ -109,8 +114,22 @@ export const backfillTrackingBatchBrands = (
   body: JSON.stringify({ channelId, brandsByPpv })
 });
 
-export const listAuditLogs = (limit = 300) => requestJson<{ success: true; logs: AuditLog[] }>(
-  `/api/audit-logs?limit=${limit}`
+export const listAuditLogs = (limit = 300, channelId = 'tradeIn') => requestJson<{ success: true; logs: AuditLog[] }>(
+  `/api/audit-logs?limit=${limit}&channelId=${encodeURIComponent(channelId)}`
+);
+
+export interface DirectoryMember { openId: string; name: string; department: string }
+export interface AccessMember extends DirectoryMember {
+  role: 'admin' | 'editor' | 'viewer'; scopes: string[]; enabled: boolean;
+  version: number; source: string; createdAt: string; updatedAt: string; lastLoginAt: string | null;
+}
+export const listAccessMembers = () => requestJson<{ members: AccessMember[] }>('/api/access-members');
+export const searchAccessDirectory = (query: string) => requestJson<{
+  users: DirectoryMember[]; requiresLogin: boolean; message?: string;
+}>(`/api/access-directory?q=${encodeURIComponent(query)}`);
+export const updateAccessMember = (member: Pick<AccessMember, 'openId' | 'role' | 'scopes' | 'enabled'> & { version?: number }, create = false) => requestJson<{ member: AccessMember }>(
+  create ? '/api/access-members' : `/api/access-members/${encodeURIComponent(member.openId)}`,
+  { method: create ? 'POST' : 'PUT', body: JSON.stringify(member) }
 );
 
 export const exportCompetitivenessTrends = async (payload: CompetitivenessTrendExportPayload) => {

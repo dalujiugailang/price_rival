@@ -4,10 +4,13 @@
  */
 
 import { Product, CalculatedProduct, SubsidyRule, PricingMode, ChannelConfig, SelfOperatedSubsidyRule } from '../types';
-import { SOURCE_0518_PRODUCTS } from '../data/source0518';
 import { CHANNELS } from '../config/channels';
+import {
+  TM_RECYCLER_SUBSIDY_RULES,
+  tmRecyclerSubsidyAtPrice
+} from '../../shared/tmRecyclerCompetitiveness.mjs';
 
-export const INITIAL_PRODUCTS: Product[] = SOURCE_0518_PRODUCTS;
+export { TM_RECYCLER_SUBSIDY_RULES, tmRecyclerSubsidyAtPrice };
 
 export const INITIAL_SUBSIDIES = [];
 
@@ -185,6 +188,8 @@ export function calculateProductPrice(
   const ahsQuotedPrice = product.jdPrice + currentSubsidy;
   const jdHandPrice = product.jdPrice + currentJdSubsidy;
   const tmHandPrice = product.tmPrice + product.tmSubsidyManual;
+  const tmRecyclerSubsidy = tmRecyclerSubsidyAtPrice(product.tmPrice);
+  const tmRecyclerQuotedPrice = product.tmPrice > 0 ? product.tmPrice + tmRecyclerSubsidy : 0;
   const zzCoupon = sourceNumber(product, ['zz券', '转转券']) ?? round2(product.zzPrice * 0.18);
   const zzHandPrice = sourceNumber(product, ['zz券后价', '转转券后价']) ?? round2(product.zzPrice + zzCoupon);
 
@@ -265,9 +270,11 @@ export function calculateProductPrice(
   const jdZzHandWin = zzHandPrice > 0 && jdVsZzHandGap > 0;
 
   const postTmItemWin = product.tmPrice > 0 && recommendJdPrice >= product.tmPrice;
+  const postAhsTmRecyclerWin = tmRecyclerQuotedPrice > 0 && postAhsPrice >= tmRecyclerQuotedPrice;
   const postTmHandWin = tmHandPrice > 0 && postJdHandPrice >= tmHandPrice;
   const postZzItemWin = product.zzPrice > 0 && recommendJdPrice >= product.zzPrice;
   const postAhsZzHandWin = zzHandPrice > 0 && postAhsPrice >= zzHandPrice;
+  const postJdZzHandWin = zzHandPrice > 0 && postJdHandPrice >= zzHandPrice;
   const hasSpace = recommendAdjustment > 0;
 
   let riskWarning: 'SAFE' | 'WARNING' | 'CRITICAL' = 'SAFE';
@@ -284,6 +291,8 @@ export function calculateProductPrice(
     ahsQuotedPrice,
     jdHandPrice,
     tmHandPrice,
+    tmRecyclerSubsidy,
+    tmRecyclerQuotedPrice,
     zzCoupon,
     zzHandPrice,
     jdVsTmItemGap,
@@ -309,9 +318,11 @@ export function calculateProductPrice(
     postMarginalProfit,
     postJdHandPrice,
     postTmItemWin,
+    postAhsTmRecyclerWin,
     postTmHandWin,
     postZzItemWin,
     postAhsZzHandWin,
+    postJdZzHandWin,
     targetCompetitorPrice,
     maxPriceByMargin: round2(maxPriceByMargin),
     riskWarning,
@@ -386,9 +397,11 @@ export function applyManualRecommendedPrice(
     postMarginalProfit,
     postJdHandPrice,
     postTmItemWin: product.tmPrice > 0 && recommendJdPrice >= product.tmPrice,
+    postAhsTmRecyclerWin: product.tmRecyclerQuotedPrice > 0 && postAhsPrice >= product.tmRecyclerQuotedPrice,
     postTmHandWin: product.tmHandPrice > 0 && postJdHandPrice >= product.tmHandPrice,
     postZzItemWin: product.zzPrice > 0 && recommendJdPrice >= product.zzPrice,
     postAhsZzHandWin: product.zzHandPrice > 0 && postAhsPrice >= product.zzHandPrice,
+    postJdZzHandWin: product.zzHandPrice > 0 && postJdHandPrice >= product.zzHandPrice,
     riskWarning,
     hasSpace: recommendAdjustment > 0,
     pricingRemark,

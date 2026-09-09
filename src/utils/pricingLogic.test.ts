@@ -3,7 +3,8 @@ import { Product } from '../types';
 import {
   applyManualRecommendedPrice,
   calculateProductPrice,
-  getRoundedCompetitivePrice
+  getRoundedCompetitivePrice,
+  tmRecyclerSubsidyAtPrice
 } from './formulas';
 
 const equalPriceProduct: Product = {
@@ -34,6 +35,11 @@ const equalPriceProduct: Product = {
 
 assert.equal(getRoundedCompetitivePrice(1060, 1060), 1060);
 assert.equal(getRoundedCompetitivePrice(1068, 1068), 1100);
+assert.deepEqual(
+  [199, 200, 299, 300, 399, 400, 799, 800, 1199, 1200, 3499, 3500, 4999, 5000, 9999]
+    .map(tmRecyclerSubsidyAtPrice),
+  [0, 45, 45, 45, 45, 90, 90, 180, 180, 280, 350, 480, 480, 630, 630]
+);
 
 const calculated = calculateProductPrice(equalPriceProduct, 0.03);
 assert.equal(calculated.tmItemWin, true);
@@ -41,14 +47,20 @@ assert.equal(calculated.tmHandWin, true);
 assert.equal(calculated.zzItemWin, true);
 assert.equal(calculated.ahsZzHandWin, true);
 assert.equal(calculated.postTmItemWin, true);
+assert.equal(calculated.tmRecyclerSubsidy, 180);
+assert.equal(calculated.tmRecyclerQuotedPrice, 1180);
+assert.equal(calculated.postAhsTmRecyclerWin, false);
 assert.equal(calculated.postTmHandWin, true);
 assert.equal(calculated.postZzItemWin, true);
 assert.equal(calculated.postAhsZzHandWin, true);
+assert.equal(calculated.postJdZzHandWin, false);
 
 const manuallyApplied = applyManualRecommendedPrice(calculated, 1000, 0.03);
 assert.equal(manuallyApplied.postTmItemWin, true);
+assert.equal(manuallyApplied.postAhsTmRecyclerWin, false);
 assert.equal(manuallyApplied.postTmHandWin, true);
 assert.equal(manuallyApplied.postZzItemWin, true);
 assert.equal(manuallyApplied.postAhsZzHandWin, true);
+assert.equal(manuallyApplied.postJdZzHandWin, false);
 
 console.log('pricing logic checks passed');

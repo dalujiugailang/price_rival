@@ -91,6 +91,8 @@ export interface CompetitivenessMetrics {
   tmDirectScore: number;
   zzItemScore: number;
   ahsVsZzDirectScore: number;
+  ahsVsTmRecyclerScore?: number | null;
+  jdVsZzDirectScore?: number | null;
 }
 
 export interface InvestmentRateInputs {
@@ -128,6 +130,8 @@ export interface CalculatedProduct extends Product {
   ahsQuotedPrice: number;       // L = J + K
   jdHandPrice: number;          // N = J + M
   tmHandPrice: number;          // S = O + P
+  tmRecyclerSubsidy: number;    // Fixed subsidy matched by tm裸机价
+  tmRecyclerQuotedPrice: number;// tm裸机价 + tm回收商投入
   zzCoupon: number;             // AH zz券
   zzHandPrice: number;          // AI zz券后价
 
@@ -158,9 +162,11 @@ export interface CalculatedProduct extends Product {
   postJdHandPrice: number;      // AS
 
   postTmItemWin: boolean;       // AT
+  postAhsTmRecyclerWin: boolean;// 追后AHS报价 vs TM回收商补贴后报价
   postTmHandWin: boolean;       // AU
   postZzItemWin: boolean;       // BI
   postAhsZzHandWin: boolean;    // BJ
+  postJdZzHandWin: boolean;     // 追后JD总到手价 vs ZZ券后价
 
   targetCompetitorPrice: number;
   maxPriceByMargin: number;
@@ -206,6 +212,7 @@ export interface TrackingBatch {
   remarks?: string;
   subsidyFileName?: string;
   subsidyUploadTime?: string;
+  sourceUploadRecords?: SourceUploadRecord[];
   isCompetitivenessConfirmed?: boolean;
   competitivenessDate?: string;
   pricingTimestamp?: string;

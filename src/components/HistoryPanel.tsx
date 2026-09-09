@@ -3,584 +3,245 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { TrackingBatch, CalculatedProduct } from '../types';
-import { 
-  History, 
-  Eye, 
-  ArrowLeftRight, 
-  Download, 
-  Search, 
-  Trash2, 
-  Calendar, 
-  CheckCircle, 
-  Activity, 
-  AlertTriangle,
-  ArrowUpRight,
-  ArrowDownRight,
-  Equal
-} from 'lucide-react';
-import { formatRMB, formatPercent } from '../utils/formulas';
-import * as XLSX from 'xlsx';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeftRight, ChevronLeft, ChevronRight, History, List, Search, Trash2, X } from 'lucide-react';
+import { TrackingBatch } from '../types';
+import { formatPercent, formatRMB } from '../utils/formulas';
+import {
+  compareSnapshotProducts, hasSnapshotDetails, isImportedSnapshot, selectSnapshot, snapshotRemark,
+  snapshotStatus, snapshotTimeLabel, sortSnapshots
+} from '../utils/snapshotHistory';
+import { SnapshotTable } from './MainTable';
 
 interface Props {
   historyBatches: TrackingBatch[];
+  selectedBatchId?: string;
+  onSelectBatch: (id: string) => void;
   onDeleteBatch?: (id: string) => void;
   channelName?: string;
 }
 
-type SnapshotExportRow = Record<string, string | number | boolean | null>;
-
-const displaySnapshotValue = (value: string | number | boolean | null | undefined) => {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  return String(value);
-};
-
-const statusText = (p: CalculatedProduct) => (
-  p.riskWarning === 'CRITICAL' ? '利润击穿' : p.riskWarning === 'WARNING' ? '逼近底线' : '可执行'
+const buttonClass = 'inline-flex items-center justify-center gap-1.5 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold hover:bg-[#E4E3E0] disabled:cursor-not-allowed disabled:opacity-40';
+const scoreText = (value: number | null | undefined) => (
+  value == null || !Number.isFinite(value) ? '—' : `${value.toFixed(2)}%`
 );
+const moneyText = (value: number | null) => value === null ? '—' : formatRMB(value);
+const marginText = (value: number | null) => value === null ? '—' : formatPercent(value);
+const listTimeLabel = (batch: TrackingBatch) => isImportedSnapshot(batch) ? batch.date : snapshotTimeLabel(batch);
 
-const pricingModeText = (batch: TrackingBatch) => (
-  batch.pricingMode === 'fullCompetition' ? '100%竞争力' : `边际底线${formatPercent(batch.marginBottomLine)}`
-);
+export default function HistoryPanel({
+  historyBatches, selectedBatchId, onSelectBatch, onDeleteBatch, channelName = '京东换新'
+}: Props) {
+  const batches = useMemo(() => sortSnapshots(historyBatches), [historyBatches]);
+  const inspectedBatch = selectSnapshot(batches, selectedBatchId);
+  const inspectedId = inspectedBatch?.id;
+  const [showAllSnapshots, setShowAllSnapshots] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showComparison, setShowComparison] = useState(false);
+  const [comparisonBatchId, setComparisonBatchId] = useState('');
+  const stripRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const detailBatches = batches.filter(hasSnapshotDetails);
+  const comparisonBatch = detailBatches.find(batch => batch.id === comparisonBatchId && batch.id !== inspectedId)
+    || detailBatches.find(batch => batch.id !== inspectedId);
+  const canCompare = Boolean(inspectedBatch && hasSnapshotDetails(inspectedBatch) && comparisonBatch);
+  const comparisonRows = useMemo(() => (
+    showComparison && canCompare && inspectedBatch && comparisonBatch
+      ? compareSnapshotProducts(comparisonBatch, inspectedBatch)
+      : []
+  ), [showComparison, canCompare, inspectedBatch, comparisonBatch]);
+  const filteredBatches = batches.filter(batch => (
+    [batch.id, batch.date, snapshotTimeLabel(batch), batch.operator, batch.remarks, snapshotStatus(batch)]
+      .some(value => value?.toLowerCase().includes(search.trim().toLowerCase()))
+  ));
 
-const estimatedAdjustmentInvestment = (p: CalculatedProduct) => (
-  p.recommendAdjustment > 0 ? p.recommendAdjustment * (p.soldVolume || 0) : 0
-);
-
-const buildRawSourceRows = (batch: TrackingBatch): SnapshotExportRow[] => {
-  return batch.products.map((p, idx) => ({
-    '批次编号': batch.id,
-    '渠道': batch.channelName || '京东换新',
-    '操作日期': batch.date,
-    '操作主管': batch.operator,
-    '设定边际底线': formatPercent(batch.marginBottomLine),
-    '测算模式': pricingModeText(batch),
-    '快照备注': batch.remarks || '',
-    '线上行号': idx + 1,
-    '源工作表': p.sourceSheet,
-    '源行号': p.sourceRowNumber,
-    '源字段数': p.sourceFieldCount,
-    ...p.rawFields
-  }));
-};
-
-const buildOnlineSnapshotRows = (batch: TrackingBatch): SnapshotExportRow[] => {
-  return batch.products.map((p, idx) => ({
-    '行号': idx + 1,
-    '渠道': batch.channelName || '京东换新',
-    '新机系列': p.newSeries,
-    '旧机型号': p.oldModel,
-    'PPV': p.ppv,
-    '品牌名称': p.brand,
-    '测算模式': pricingModeText(batch),
-    'ppv近30天成交量': p.soldVolume || 0,
-    'jd裸机价': p.jdPrice,
-    'AHS投入': p.ahsInput,
-    'jd到手价': p.jdHandPrice,
-    'tm裸机价': p.tmPrice,
-    'tm到手价': p.tmHandPrice,
-    'zz裸机价': p.zzPrice,
-    'zz券后价': p.zzHandPrice,
-    '基准价': p.basePrice,
-    '追前边际': formatPercent(p.preMarginalProfit),
-    '推荐追价后': p.recommendJdPrice,
-    '调整金额': p.recommendAdjustment,
-    '本次竞争调整预估投入金额': estimatedAdjustmentInvestment(p),
-    '追后边际': formatPercent(p.postMarginalProfit),
-    '状态': statusText(p),
-    '备注': p.pricingRemark
-  }));
-};
-
-const buildFullSnapshotRows = (batch: TrackingBatch): SnapshotExportRow[] => {
-  return batch.products.map((p, idx) => ({
-    '批次编号': batch.id,
-    '渠道': batch.channelName || '京东换新',
-    '操作日期': batch.date,
-    '操作主管': batch.operator,
-    '设定边际底线': formatPercent(batch.marginBottomLine),
-    '测算模式': pricingModeText(batch),
-    '快照备注': batch.remarks || '',
-    '本次竞争调整预估投入总额': batch.investmentRateMetrics?.estimatedInvestmentAmount ?? null,
-    '手机安卓近30天回收预估销售总额': batch.investmentRateInputs?.androidSalesAmount30d ?? null,
-    '手机安卓大盘竞争投入费率': batch.investmentRateMetrics ? formatPercent(batch.investmentRateMetrics.androidOverallRate) : '',
-    '手机安卓近30天京东换新渠道销售额': batch.investmentRateInputs?.androidJdTradeInSalesAmount30d ?? null,
-    '手机安卓换新渠道竞争投入费率': batch.investmentRateMetrics ? formatPercent(batch.investmentRateMetrics.androidJdTradeInRate) : '',
-    '线上行号': idx + 1,
-    '源工作表': p.sourceSheet,
-    '源行号': p.sourceRowNumber,
-    '源字段数': p.sourceFieldCount,
-    ...p.rawFields,
-    '线上_含AHS补贴后报价(L)': p.ahsQuotedPrice,
-    '线上_京东到手价(N)': p.jdHandPrice,
-    '线上_天猫到手价(S)': p.tmHandPrice,
-    '线上_转转券(U)': p.zzCoupon,
-    '线上_转转券后价(V)': p.zzHandPrice,
-    '线上_追前边际利润率(AJ)': formatPercent(p.preMarginalProfit),
-    '线上_推荐追价后京东物品价(AL)': p.recommendJdPrice,
-    '线上_调整金额(AM)': p.recommendAdjustment,
-    '线上_本次竞争调整预估投入金额': estimatedAdjustmentInvestment(p),
-    '线上_追价备注': p.pricingRemark,
-    '线上_追后AHS投入(BA)': p.ahsSubsidyAfter,
-    '线上_追后含AHS补贴后报价(BB)': p.postAhsPrice,
-    '线上_追后线性费用(BC)': p.postLinearCost,
-    '线上_追后边际利润率(BE)': formatPercent(p.postMarginalProfit),
-    '线上_追后京东到手价(BF)': p.postJdHandPrice,
-    '线上_追后天猫物品价竞争力(AT)': p.postTmItemWin ? 1 : 0,
-    '线上_追后天猫到手价竞争力(AU)': p.postTmHandWin ? 1 : 0,
-    '线上_追后转转物品价竞争力(BI)': p.postZzItemWin ? 1 : 0,
-    '线上_追后AHS对转转到手竞争力(BJ)': p.postAhsZzHandWin ? 1 : 0,
-    '线上_品牌名称(BK)': p.brand,
-    '线上_状态': statusText(p)
-  }));
-};
-
-const downloadWorkbook = (workbook: XLSX.WorkBook, fileName: string) => {
-  const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-};
-
-export default function HistoryPanel({ historyBatches, onDeleteBatch, channelName = '京东换新' }: Props) {
-  // Selection for comparison
-  const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
-  // Individual batch inspection
-  const [inspectedBatch, setInspectedBatch] = useState<TrackingBatch | null>(null);
-  // Compare State flag
-  const [isComparing, setIsComparing] = useState<boolean>(false);
-
-  // Filters
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // Handle batch inspection click
-  const handleInspect = (batch: TrackingBatch) => {
-    setInspectedBatch(batch);
-    setIsComparing(false);
-  };
-
-  // Toggle selection for comparison
-  const handleToggleSelectCompare = (id: string) => {
-    setSelectedBatchIds(prev => {
-      if (prev.includes(id)) {
-        return prev.filter(item => item !== id);
-      }
-      if (prev.length >= 2) {
-        // limit to 2
-        return [prev[1], id];
-      }
-      return [...prev, id];
-    });
-  };
-
-  // Clear selections
-  const clearCompare = () => {
-    setSelectedBatchIds([]);
-    setIsComparing(false);
-  };
-
-  // Get selected batches actual structures
-  const batchA = historyBatches.find(b => b.id === selectedBatchIds[0]);
-  const batchB = historyBatches.find(b => b.id === selectedBatchIds[1]);
-
-  // Export any individual batch
-  const exportBatchExcel = (batch: TrackingBatch) => {
-    try {
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildRawSourceRows(batch)), "原始字段");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildOnlineSnapshotRows(batch)), "线上测算");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildFullSnapshotRows(batch)), "全字段快照");
-      downloadWorkbook(wb, `${batch.channelName || channelName}_竞争追价全字段快照_${batch.id}.xlsx`);
-    } catch (err: any) {
-      alert('导出历史快照失败: ' + err.message);
+  useEffect(() => {
+    if (!inspectedId || !stripRef.current) return;
+    const tab = tabRefs.current.get(inspectedId);
+    if (!tab) return;
+    const strip = stripRef.current;
+    const left = tab.offsetLeft;
+    if (left < strip.scrollLeft) strip.scrollLeft = left;
+    else if (left + tab.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollLeft = left + tab.offsetWidth - strip.clientWidth;
     }
+  }, [inspectedId]);
+
+  const inspect = (id: string) => {
+    onSelectBatch(id);
+    setShowAllSnapshots(false);
+    setShowComparison(false);
   };
 
-  // Build a map of items for side-by-side delta calculation
-  const getComparisonRows = () => {
-    if (!batchA || !batchB) return [];
-
-    const productsAMap = new Map<string, CalculatedProduct>();
-    batchA.products.forEach(p => productsAMap.set(p.ppv, p));
-    const productsBMap = new Map<string, CalculatedProduct>();
-    batchB.products.forEach(p => productsBMap.set(p.ppv, p));
-    const allPpvs = Array.from(new Set([...productsAMap.keys(), ...productsBMap.keys()]));
-
-    return allPpvs.map(ppv => {
-      const pB = productsBMap.get(ppv);
-      const pA = productsAMap.get(ppv);
-      const product = pB || pA;
-      const priceDiff = pA && pB ? pB.recommendPrice - pA.recommendPrice : null;
-      const marginDiff = pA && pB ? pB.estMarginRate - pA.estMarginRate : null;
-
-      return {
-        ppv,
-        model: product?.model || '',
-        brand: product?.brand || '',
-        // Batch A
-        priceA: pA ? pA.recommendPrice : null,
-        marginA: pA ? pA.estMarginRate : null,
-        // Batch B
-        priceB: pB ? pB.recommendPrice : null,
-        marginB: pB ? pB.estMarginRate : null,
-        // Deltas
-        priceDiff,
-        marginDiff,
-      };
-    });
+  const moveTab = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex: number;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % batches.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + batches.length) % batches.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = batches.length - 1;
+    else return;
+    event.preventDefault();
+    const batch = batches[nextIndex];
+    inspect(batch.id);
+    tabRefs.current.get(batch.id)?.focus();
   };
-
-  const comparisonRows = getComparisonRows();
-  const inspectedSnapshotRows = inspectedBatch ? buildOnlineSnapshotRows(inspectedBatch) : [];
-  const inspectedSnapshotColumns = inspectedSnapshotRows[0] ? Object.keys(inspectedSnapshotRows[0]) : [];
 
   return (
-    <div className="bg-white rounded-none border border-[#141414] p-6 space-y-6" id="history-panel-area">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-[#141414] pb-4 bg-[#F0EFEC] -mx-6 -mt-6 p-5">
-        <div>
-          <h3 className="font-bold text-[#141414] text-base flex items-center gap-2">
-            <History className="w-5 h-5" />
-            历史报价测算快照库
-          </h3>
-          <p className="text-xs text-[#141414]/70 mt-1">
-            查看快照，或勾选两期对比价格和利润。
-          </p>
-        </div>
-
-        {selectedBatchIds.length > 0 && (
-          <div className="flex items-center gap-2 bg-[#D8D7D2] border border-[#141414] px-3 py-1.5 rounded-none text-xs">
-            <span className="text-black font-bold">
-              已选对比版本: <strong>{selectedBatchIds.length} / 2</strong>
-            </span>
-            {selectedBatchIds.length === 2 && (
-              <button
-                onClick={() => setIsComparing(true)}
-                className="px-3 py-1 bg-[#141414] hover:bg-neutral-800 text-white rounded-none font-bold text-[11px]"
-              >
-                对比
-              </button>
-            )}
-            <button onClick={clearCompare} className="text-slate-600 hover:text-black underline ml-1">
-              重置
+    <section className="min-w-0 space-y-4" id="history-panel-area" aria-label={`${channelName}历史快照`}>
+      <div className="min-w-0 border border-[#141414] bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] px-4 py-3">
+          <h2 className="flex items-center gap-2 text-sm font-bold">
+            <History className="h-4 w-4" /> {channelName}已保存快照
+            <span className="border border-[#141414] bg-white px-1.5 text-xs">{batches.length}</span>
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={buttonClass} aria-expanded={showAllSnapshots} aria-controls="snapshot-library" onClick={() => setShowAllSnapshots(value => !value)}>
+              <List className="h-3.5 w-3.5" /> 全部快照
+            </button>
+            <button type="button" className={buttonClass} disabled={!canCompare} aria-pressed={showComparison && canCompare} onClick={() => setShowComparison(value => !value)}>
+              <ArrowLeftRight className="h-3.5 w-3.5" /> 两期对比
             </button>
           </div>
+        </div>
+
+        {showAllSnapshots && (
+          <div className="border-b border-[#141414] p-4" id="snapshot-library">
+            <div className="mb-3 flex items-center gap-2">
+              <label className="relative min-w-0 flex-1">
+                <span className="sr-only">搜索已保存快照</span>
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[#555]" />
+                <input autoFocus type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索日期、备注、操作人或批次编号" className="w-full border border-[#141414] bg-white py-2 pl-8 pr-3 text-xs" />
+              </label>
+              <button type="button" className={buttonClass} onClick={() => setShowAllSnapshots(false)} aria-label="关闭全部快照"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="max-h-64 overflow-y-auto border border-[#141414]/30">
+              {filteredBatches.map(batch => (
+                <button key={batch.id} type="button" aria-pressed={batch.id === inspectedId} onClick={() => inspect(batch.id)} className={`flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-[#141414]/15 px-3 py-2.5 text-left text-xs hover:bg-[#F0EFEC] ${batch.id === inspectedId ? 'bg-[#E4E3E0]' : 'bg-white'}`}>
+                  <span><strong>{listTimeLabel(batch)}</strong><span className="ml-3">{snapshotRemark(batch) || '未填写备注'}</span></span>
+                  <span className="text-[#555]">{batch.operator} · {snapshotStatus(batch)} · {batch.products.length} 行</span>
+                </button>
+              ))}
+              {filteredBatches.length === 0 && <div className="p-6 text-center text-xs text-[#555]">没有找到匹配的快照。</div>}
+            </div>
+          </div>
+        )}
+
+        {batches.length > 0 ? (
+          <div className="flex min-w-0 items-stretch bg-[#F0EFEC] px-2 pt-3">
+            <button type="button" className="mb-2 shrink-0 px-1 text-[#555] hover:text-black" aria-label="向左滚动快照" onClick={() => stripRef.current?.scrollBy({ left: -(stripRef.current?.clientWidth || 400) * 0.7, behavior: 'smooth' })}><ChevronLeft className="h-4 w-4" /></button>
+            <div ref={stripRef} role="tablist" aria-label={`${channelName}快照 Sheet`} className="relative flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto">
+              {batches.map((batch, index) => {
+                const selected = batch.id === inspectedId;
+                const title = snapshotRemark(batch) || '未填写备注';
+                return (
+                  <button
+                    key={batch.id}
+                    ref={element => { if (element) tabRefs.current.set(batch.id, element); else tabRefs.current.delete(batch.id); }}
+                    type="button" role="tab" id={`snapshot-tab-${batch.id}`} aria-controls="snapshot-detail" aria-selected={selected} tabIndex={selected ? 0 : -1}
+                    title={`${snapshotTimeLabel(batch)} · ${title}\n${batch.id}`}
+                    onClick={() => inspect(batch.id)} onKeyDown={event => moveTab(event, index)}
+                    className={`flex w-[212px] shrink-0 flex-col gap-1 border border-b-0 border-[#141414] px-3 py-2.5 text-left ${selected ? 'bg-[#141414] text-white' : 'bg-white text-[#141414] hover:bg-[#E4E3E0]'}`}
+                  >
+                    <span className="flex w-full items-center justify-between gap-3 text-xs"><strong className="font-mono">{snapshotTimeLabel(batch, true)}</strong><span className={selected ? 'text-white/80' : 'text-[#555]'}>{snapshotStatus(batch)}</span></span>
+                    <span className={`w-full truncate text-[11px] ${selected ? 'text-white/80' : 'text-[#555]'}`}>{title}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" className="mb-2 shrink-0 px-1 text-[#555] hover:text-black" aria-label="向右滚动快照" onClick={() => stripRef.current?.scrollBy({ left: (stripRef.current?.clientWidth || 400) * 0.7, behavior: 'smooth' })}><ChevronRight className="h-4 w-4" /></button>
+          </div>
+        ) : (
+          <div className="p-12 text-center text-sm text-[#555]">暂无快照。保存测算快照后，明细会显示在这里。</div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Archives List */}
-        <div className="lg:col-span-4 border border-[#141414] rounded-none overflow-hidden flex flex-col">
-          <div className="bg-[#F0EFEC] p-3 border-b border-[#141414] flex items-center justify-between">
-            <span className="font-bold text-[#141414] text-xs">{channelName}已保存快照</span>
-            <span className="px-2 py-0.5 border border-[#141414] bg-white text-black text-[10px]">
-              {historyBatches.length}
-            </span>
-          </div>
-
-          <div className="divide-y divide-[#141414]/10 max-h-[460px] overflow-y-auto bg-white">
-            {historyBatches.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                暂无快照
+      {inspectedBatch && (
+        <div role="tabpanel" id="snapshot-detail" aria-labelledby={`snapshot-tab-${inspectedBatch.id}`} className="min-w-0 space-y-4">
+          <div className="border border-[#141414] bg-white px-4 py-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1.5">
+                <h3 className="break-words text-sm font-bold">{snapshotRemark(inspectedBatch) || '历史测算快照'}</h3>
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#555]" aria-live="polite">
+                  {isImportedSnapshot(inspectedBatch) && <span>历史日期：{inspectedBatch.date}</span>}
+                  <span>{isImportedSnapshot(inspectedBatch) ? '入库于' : '保存于'} {snapshotTimeLabel(inspectedBatch)}</span><span>操作人：{inspectedBatch.operator}</span>
+                  <span>{snapshotStatus(inspectedBatch)} · {inspectedBatch.products.length} 行</span>
+                  {inspectedBatch.isCompetitivenessConfirmed && <span>落数日期：{inspectedBatch.competitivenessDate || inspectedBatch.date}</span>}
+                </div>
+                <div className="break-all font-mono text-[11px] text-[#777]">{inspectedBatch.id}</div>
               </div>
-            ) : (
-              historyBatches.map(batch => {
-                const isSelected = selectedBatchIds.includes(batch.id);
-                const isInspected = inspectedBatch?.id === batch.id;
-                return (
-                  <div 
-                    key={batch.id} 
-                    className={`p-3.5 hover:bg-[#F0EFEC] cursor-pointer transition-colors space-y-2 border-b border-[#141414]/10 ${
-                      isInspected ? 'bg-[#EAE8E4] border-l-4 border-[#141414]' : ''
-                    } ${isSelected ? 'bg-amber-500/10' : ''}`}
-                    onClick={() => handleInspect(batch)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-xs text-[#141414] bg-[#D8D7D2] px-1">{batch.id}</span>
-                      <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleSelectCompare(batch.id)}
-                          className="w-4 h-4 text-[#141414] border-[#141414] rounded-none cursor-pointer focus:ring-0 accent-neutral-900"
-                          title="加入对比"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 text-[10px] text-slate-600 font-mono">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-[#141414]" /> {batch.date}
-                      </span>
-                      <span className="text-right">操作员: <strong className="font-extrabold">{batch.operator}</strong></span>
-                    </div>
-
-	                    <div className="text-[11px] bg-white border border-[#141414]/30 p-2 rounded-none text-[#141414] flex justify-between font-mono">
-	                      <span>模式: <strong>{batch.isSummaryOnly ? '竞争力纯落数' : pricingModeText(batch)}</strong></span>
-	                      <span className="text-right font-extrabold">
-                          {batch.isCompetitivenessConfirmed ? '正式落数' : `${batch.products.length} 款商品`}
-                        </span>
-	                    </div>
-
-                    {batch.remarks && (
-                      <p className="text-[10px] text-slate-500 italic font-sans overflow-hidden text-ellipsis whitespace-nowrap bg-[#F0EFEC]/40 p-1">
-                        备注: {batch.remarks}
-                      </p>
-                    )}
-
-                    <div className="flex justify-between items-center pt-1" onClick={e => e.stopPropagation()}>
-	                      {batch.isSummaryOnly ? (
-                          <span className="text-[10px] text-slate-500 font-mono font-bold">纯落数无明细下载</span>
-                        ) : (
-                          <button
-                            onClick={() => exportBatchExcel(batch)}
-                            className="text-[10px] text-slate-700 hover:text-black hover:underline flex items-center gap-1 font-mono font-bold"
-                            title="下载Excel"
-                          >
-                            <Download className="w-3 h-3" /> 下载
-                          </button>
-                        )}
-                      
-                      {onDeleteBatch && batch.id !== 'TRACK-20260524-INIT' && (
-                        <button
-                          onClick={() => onDeleteBatch(batch.id)}
-                          className="text-[10px] text-red-700 hover:text-red-900 font-mono"
-                        >
-                          删除快照
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+              {onDeleteBatch && inspectedBatch.id !== 'TRACK-20260524-INIT' && (
+                <button type="button" onClick={() => onDeleteBatch(inspectedBatch.id)} className="flex items-center gap-1 py-1 text-xs text-[#777] hover:text-red-700"><Trash2 className="h-3.5 w-3.5" /> 删除快照</button>
+              )}
+            </div>
+            {(inspectedBatch.investmentRateMetrics || inspectedBatch.subsidyFileName) && (
+              <details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs">
+                <summary className="w-fit cursor-pointer text-[#555]">保存时投入测算与来源</summary>
+                <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+                  {inspectedBatch.investmentRateMetrics && <>
+                    <span>预估投入 <strong>{formatRMB(inspectedBatch.investmentRateMetrics.estimatedInvestmentAmount)}</strong></span>
+                    <span>安卓大盘投入费率 <strong>{formatPercent(inspectedBatch.investmentRateMetrics.androidOverallRate)}</strong></span>
+                    <span>换新渠道投入费率 <strong>{formatPercent(inspectedBatch.investmentRateMetrics.androidJdTradeInRate)}</strong></span>
+                  </>}
+                  {inspectedBatch.subsidyFileName && <span className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</span>}
+                </div>
+              </details>
             )}
           </div>
-        </div>
 
-        {/* Right Column: Dynamic Panel (Inspection details OR Comparative Deltas) */}
-        <div className="lg:col-span-8 border border-[#141414] rounded-none p-5 flex flex-col justify-between min-h-[400px] bg-white">
-          {isComparing && batchA && batchB ? (
-            /* Comparing Mode */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-[#141414] pb-3">
-                <div>
-                  <h4 className="font-bold text-[#141414] text-sm uppercase tracking-wider flex items-center gap-2 font-mono">
-                    <ArrowLeftRight className="w-4 h-4" />
-                    版本对比
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1 font-mono">
-                    <strong className="text-black bg-[#EAE8E4] px-1">{batchA.id}</strong> → <strong className="text-black bg-[#EAE8E4] px-1">{batchB.id}</strong>
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsComparing(false)}
-                  className="px-3 py-1.5 border border-[#141414] bg-white text-black hover:bg-[#F0EFEC] text-xs font-mono uppercase"
-                >
-                  返回
-                </button>
+          {showComparison && canCompare && comparisonBatch ? (
+            <div className="min-w-0 border border-[#141414] bg-white">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] p-3">
+                <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">对比基准
+                  <select value={comparisonBatch.id} onChange={event => setComparisonBatchId(event.target.value)} className="max-w-full border border-[#141414] bg-white px-2 py-1.5 text-xs">
+                    {detailBatches.filter(batch => batch.id !== inspectedId).map(batch => <option key={batch.id} value={batch.id}>{listTimeLabel(batch)} · {snapshotRemark(batch) || batch.id}</option>)}
+                  </select>
+                </label>
+                <button type="button" className={buttonClass} onClick={() => setShowComparison(false)}>返回快照明细</button>
               </div>
-
-              {/* Side-by-Side comparison Grid */}
-              <div className="overflow-x-auto border border-[#141414]">
-                <table className="min-w-full divide-y divide-[#141414] text-xs">
-                  <thead className="bg-[#F0EFEC] text-[#141414] font-mono font-bold">
-                    <tr>
-                      <th className="px-3 py-2.5 text-left border-r border-[#141414]/30">商品 / PPV</th>
-                      <th className="px-3 py-2.5 text-right font-mono border-r border-[#141414]/30 bg-neutral-100">{batchA.id}</th>
-                      <th className="px-3 py-2.5 text-right font-mono border-r border-[#141414]/30 bg-amber-500/10">{batchB.id}</th>
-                      <th className="px-3 py-2.5 text-center border-r border-[#141414]/30">价格差</th>
-                      <th className="px-3 py-2.5 text-right">边际</th>
+              <div className="p-3 text-xs text-[#555]">差额 = 当前快照 − 对比基准；按 PPV、商品SKUID 和等级匹配。</div>
+              <div className="max-h-[560px] overflow-auto">
+                <table className="w-full min-w-[1050px] border-collapse text-xs">
+                  <thead className="sticky top-0 bg-[#F0EFEC] text-left"><tr>{['旧机型号 / PPV', 'SKU / 等级', '匹配情况', '基准追后价', '当前追后价', '价格差额', '基准边际', '当前边际', '边际差(pp)'].map(label => <th key={label} className="border-y border-[#141414]/30 px-3 py-2">{label}</th>)}</tr></thead>
+                  <tbody>{comparisonRows.map(row => (
+                    <tr key={row.key} className="border-b border-[#141414]/15 hover:bg-[#F0EFEC]/60">
+                      <td className="max-w-[300px] px-3 py-2"><strong>{row.product.oldModel || row.product.model}</strong><div className="mt-1 break-all font-mono text-[11px] text-[#555]">{row.product.ppv}</div></td>
+                      <td className="px-3 py-2 font-mono">{row.product.skuId || '—'} / {row.product.levelId || '—'}</td>
+                      <td className="px-3 py-2">{row.presence}</td>
+                      <td className="px-3 py-2 text-right font-mono">{moneyText(row.priceA)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold">{moneyText(row.priceB)}</td>
+                      <td className={`px-3 py-2 text-right font-mono ${(row.priceDiff || 0) > 0 ? 'text-green-700' : (row.priceDiff || 0) < 0 ? 'text-red-700' : ''}`}>{row.priceDiff !== null && row.priceDiff > 0 ? '+' : ''}{moneyText(row.priceDiff)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{marginText(row.marginA)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{marginText(row.marginB)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{row.marginDiff === null ? '—' : `${row.marginDiff > 0 ? '+' : ''}${(row.marginDiff * 100).toFixed(2)}`}</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#141414]/20 bg-white">
-                    {comparisonRows.map(row => {
-                      const isUp = row.priceDiff !== null && row.priceDiff > 0;
-                      const isDown = row.priceDiff !== null && row.priceDiff < 0;
-
-                      return (
-                        <tr key={row.ppv} className="hover:bg-[#F0EFEC]/40">
-                          <td className="px-3 py-3 border-r border-[#141414]/20">
-                            <span className="font-bold text-[#141414] block text-[11px] uppercase">{row.model}</span>
-                            <span className="text-[9px] text-[#141414]/60 font-mono">{row.ppv}</span>
-                          </td>
-                          <td className="px-3 py-3 text-right font-mono border-r border-[#141414]/20 bg-neutral-100/50 text-[#141414]">
-                            {row.priceA ? formatRMB(row.priceA) : 'N/A'}
-                          </td>
-                          <td className="px-3 py-3 text-right font-mono border-r border-[#141414]/20 bg-amber-500/5 text-[#141414] font-extrabold">
-                            {row.priceB ? formatRMB(row.priceB) : 'N/A'}
-                          </td>
-                          {/* Price Delta column with coloring */}
-                          <td className="px-3 py-3 text-center font-mono border-r border-[#141414]/20">
-                            {isUp && (
-                              <span className="inline-block bg-green-100 text-green-900 border border-green-500 text-[10px] uppercase px-1.5 py-0.5 font-bold">
-                                +¥{row.priceDiff!.toFixed(2)}
-                              </span>
-                            )}
-                            {isDown && (
-                              <span className="inline-block bg-rose-100 text-rose-900 border border-red-500 text-[10px] uppercase px-1.5 py-0.5 font-bold animate-pulse">
-                                -¥{Math.abs(row.priceDiff!).toFixed(2)}
-                              </span>
-                            )}
-                            {row.priceDiff === 0 && (
-                              <span className="text-slate-400 font-mono">-</span>
-                            )}
-                            {row.priceDiff === null && (
-                              <span className="text-slate-400 font-mono">N/A</span>
-                            )}
-                          </td>
-                          {/* Profit margin shift */}
-                          <td className="px-3 py-3 text-right font-mono text-slate-800">
-                            <div className="font-bold">
-                              {row.marginB ? formatPercent(row.marginB) : 'N/A'}
-                            </div>
-                            {row.marginDiff !== null && row.marginDiff !== 0 && (
-                              <span className={`text-[10px] font-bold ${row.marginDiff > 0 ? 'text-green-600' : 'text-rose-600'}`}>
-                                {row.marginDiff > 0 ? '▲' : '▼'} {Math.abs(row.marginDiff * 100).toFixed(2)}%
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
+                  ))}</tbody>
                 </table>
               </div>
             </div>
-	          ) : inspectedBatch ? (
-	            /* Selected Batch details */
-	            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#141414] pb-3 gap-2">
-                <div>
-                  <h4 className="font-bold text-[#141414] text-xs uppercase tracking-wider font-mono">
-                    快照: <span className="font-bold bg-[#141414] text-white px-1 leading-tight">{inspectedBatch.id}</span>
-                  </h4>
-                  <p className="text-[10px] text-slate-600 mt-1 font-mono uppercase">
-                    模式 <strong>{pricingModeText(inspectedBatch)}</strong> |
-                    操作 <strong>{inspectedBatch.operator}</strong> |
-                    日期 <strong>{inspectedBatch.date}</strong>
-                  </p>
-                </div>
-	                {!inspectedBatch.isSummaryOnly && (
-                    <button
-                      onClick={() => exportBatchExcel(inspectedBatch)}
-                      className="px-3 py-1.5 border border-[#141414] bg-white text-black hover:bg-[#F0EFEC] text-xs font-mono uppercase flex items-center gap-1 font-bold"
-                    >
-                      <Download className="w-3.5 h-3.5" /> 下载全字段
-                    </button>
-                  )}
-	              </div>
-
-                {inspectedBatch.investmentRateMetrics && (
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">本次竞争调整预估投入</div>
-                      <div className="font-mono font-black text-lg">{formatRMB(inspectedBatch.investmentRateMetrics.estimatedInvestmentAmount)}</div>
-                    </div>
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">手机安卓大盘竞争投入费率</div>
-                      <div className="font-mono font-black text-lg">{formatPercent(inspectedBatch.investmentRateMetrics.androidOverallRate)}</div>
-                    </div>
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">手机安卓换新渠道竞争投入费率</div>
-                      <div className="font-mono font-black text-lg">{formatPercent(inspectedBatch.investmentRateMetrics.androidJdTradeInRate)}</div>
-                    </div>
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">调整PPV / 成交量</div>
-                      <div className="font-mono font-black text-lg">
-                        {inspectedBatch.investmentRateMetrics.adjustedPpvCount} / {inspectedBatch.investmentRateMetrics.adjustedDealVolume30d}
-                      </div>
-                    </div>
-                  </div>
-                )}
-	
-	              {inspectedBatch.isSummaryOnly && inspectedBatch.competitivenessMetrics ? (
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">天猫物品价竞争力</div>
-                      <div className="font-mono font-black text-lg">{inspectedBatch.competitivenessMetrics.tmItemScore.toFixed(2)}%</div>
-                    </div>
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">天猫到手价竞争力</div>
-                      <div className="font-mono font-black text-lg">{inspectedBatch.competitivenessMetrics.tmDirectScore.toFixed(2)}%</div>
-                    </div>
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">转转物品价竞争力</div>
-                      <div className="font-mono font-black text-lg">{inspectedBatch.competitivenessMetrics.zzItemScore.toFixed(2)}%</div>
-                    </div>
-                    <div className="border border-[#141414] bg-[#F0EFEC] p-3">
-                      <div className="text-[10px] text-[#141414]/60">物品价+AHS补贴 vs 转转到手价</div>
-                      <div className="font-mono font-black text-lg">{inspectedBatch.competitivenessMetrics.ahsVsZzDirectScore.toFixed(2)}%</div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="text-[11px] text-[#141414]/70 font-mono">
-                      页面仅展示关键字段；下载文件保留完整原始字段。
-                    </div>
-                    <div className="overflow-auto max-h-[420px] border border-[#141414] rounded-none">
-                      <table className="min-w-[1800px] divide-y divide-[#141414] text-[10px]">
-                        <thead className="bg-[#F0EFEC] text-[#141414] font-bold font-mono sticky top-0 border-b border-[#141414]">
-                          <tr>
-                            {inspectedSnapshotColumns.map(column => (
-                              <th key={column} className="px-2 py-2 text-left border-r border-[#141414]/30 min-w-[120px] max-w-[240px]">
-                                <div className="w-[120px] truncate" title={column}>{column}</div>
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#141414]/10 bg-white text-[#141414] font-mono">
-                          {inspectedSnapshotRows.map((row, rowIndex) => (
-                            <tr key={`${inspectedBatch.id}-${rowIndex}`} className="hover:bg-[#F0EFEC]/40">
-                              {inspectedSnapshotColumns.map(column => {
-                                const value = displaySnapshotValue(row[column]);
-                                return (
-                                  <td key={column} className="px-2 py-1.5 border-r border-[#141414]/10 align-top">
-                                    <div className="max-w-[220px] whitespace-nowrap truncate" title={value}>
-                                      {value}
-                                    </div>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              
-              {inspectedBatch.remarks && (
-                <div className="p-3 bg-white border border-[#141414] rounded-none text-xs">
-                  <span className="font-bold text-[#141414] block">备注</span>
-                  <p className="text-[#141414] mt-1 leading-relaxed italic">
-                    "{inspectedBatch.remarks}"
-                  </p>
+          ) : hasSnapshotDetails(inspectedBatch) ? (
+            <div key={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} /></div>
+          ) : (
+            <div className="border border-[#141414] bg-white p-6">
+              <div className="mb-5 text-center">
+                <h3 className="text-sm font-bold">{inspectedBatch.isSummaryOnly ? '本期仅保存了竞争力汇总' : '这份快照没有商品明细'}</h3>
+                <p className="mt-2 text-xs text-[#555]">没有 PPV 明细，无法还原工作台表格。</p>
+              </div>
+              {inspectedBatch.competitivenessMetrics && (
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                  {[
+                    ['天猫物品价竞争力', inspectedBatch.competitivenessMetrics.tmItemScore],
+                    ['天猫到手价竞争力', inspectedBatch.competitivenessMetrics.tmDirectScore],
+                    ['转转物品价竞争力', inspectedBatch.competitivenessMetrics.zzItemScore],
+                    ['AHS补贴后 vs 转转到手价', inspectedBatch.competitivenessMetrics.ahsVsZzDirectScore],
+                    ['AHS补贴后 vs TM回收商补贴后', inspectedBatch.competitivenessMetrics.ahsVsTmRecyclerScore],
+                    ['京东到手价 vs 转转到手价', inspectedBatch.competitivenessMetrics.jdVsZzDirectScore]
+                  ].map(([label, value]) => <div key={String(label)} className="border border-[#141414]/30 bg-[#F0EFEC] p-3"><div className="text-xs text-[#555]">{label}</div><div className="mt-1 font-mono text-lg font-bold">{scoreText(value as number | null | undefined)}</div></div>)}
                 </div>
               )}
             </div>
-          ) : (
-            /* Idle Screen */
-            <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-              <div className="bg-[#141414] text-[#E4E3E0] p-4 rounded-none">
-                <History className="w-8 h-8" />
-              </div>
-              <h4 className="font-extrabold text-[#141414] text-xs">未选择快照</h4>
-              <p className="text-[11px] text-slate-500 max-w-sm leading-relaxed">
-                左侧选择快照，或勾选两期对比。
-              </p>
-            </div>
           )}
         </div>
-      </div>
-    </div>
+      )}
+    </section>
   );
 }

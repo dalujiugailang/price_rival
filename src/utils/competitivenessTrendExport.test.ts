@@ -10,9 +10,12 @@ const product = (brand: string, win: boolean) => ({
   zzPrice: 90,
   zzHandPrice: 110,
   postTmItemWin: win,
+  postAhsTmRecyclerWin: win,
   postTmHandWin: win,
   postZzItemWin: win,
-  postAhsZzHandWin: win
+  postAhsZzHandWin: win,
+  postJdZzHandWin: win,
+  tmRecyclerQuotedPrice: 145
 } as CalculatedProduct);
 
 const historyBatches = [{
@@ -29,7 +32,9 @@ const overallTimeline = Array.from({ length: 16 }, (_, index) => ({
   tmDirectScore: index,
   tmItemScore: index + 1,
   ahsVsZzDirectScore: index + 2,
-  zzItemScore: index + 3
+  zzItemScore: index + 3,
+  ahsVsTmRecyclerScore: index + 4,
+  jdVsZzDirectScore: index + 5
 }));
 
 const current = [product('小米', false), product('vivo', true)];

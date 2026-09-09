@@ -10,6 +10,8 @@ const labels = [
   '对应新品型号ahs投入',
   '对应新品型号jd总投入',
   'tm裸机价',
+  '对应新品型号tm回收商投入',
+  '含tm回收商补贴后报价',
   'tm总到手价',
   'zz裸机价',
   'zz券后价',
@@ -27,9 +29,11 @@ const labels = [
   '追后tm物品价差',
   '追后tm到手价差',
   '京东物品价-追价后 vs 天猫',
+  '京东物品价+ahs补贴-追价后 vs天猫',
   '京东到手价-追价后 vs 天猫',
   '京东物品价-追价后 vs 转转',
   '京东物品价+ahs补贴-追价后 vs 转转',
+  '京东到手价-追价后vs转转',
   '原始字段'
 ];
 
@@ -40,6 +44,8 @@ const product = {
   ahsInput: 100,
   jdSubsidy: 50,
   tmPrice: 1100,
+  tmRecyclerSubsidy: 180,
+  tmRecyclerQuotedPrice: 1280,
   tmHandPrice: 1180,
   zzPrice: 1080,
   zzHandPrice: 1200,
@@ -51,9 +57,11 @@ const product = {
   postJdHandPrice: 1210,
   postMarginalProfit: 0.1,
   postTmItemWin: true,
+  postAhsTmRecyclerWin: false,
   postTmHandWin: true,
   postZzItemWin: true,
   postAhsZzHandWin: true,
+  postJdZzHandWin: true,
   totalSubsidy: 60
 } as CalculatedProduct;
 
@@ -85,6 +93,8 @@ const makeWorkbook = (pricingSheetName = '询价表_京东换新追价') => {
       product.ahsInput,
       product.jdSubsidy,
       product.tmPrice,
+      product.tmRecyclerSubsidy,
+      product.tmRecyclerQuotedPrice,
       product.tmHandPrice,
       product.zzPrice,
       product.zzHandPrice,
@@ -101,6 +111,8 @@ const makeWorkbook = (pricingSheetName = '询价表_京东换新追价') => {
       product.postMarginalProfit,
       product.recommendJdPrice - product.tmPrice,
       product.postJdHandPrice - product.tmHandPrice,
+      1,
+      0,
       1,
       1,
       1,
@@ -139,6 +151,8 @@ const testTradeInFormulas = () => {
   const preHandGapCell = cellFor(pricingSheet, '追前tm到手价差');
   const postItemGapCell = cellFor(pricingSheet, '追后tm物品价差');
   const postHandGapCell = cellFor(pricingSheet, '追后tm到手价差');
+  const tmRecyclerSubsidyCell = cellFor(pricingSheet, '对应新品型号tm回收商投入');
+  const tmRecyclerQuotedPriceCell = cellFor(pricingSheet, '含tm回收商补贴后报价');
 
   assert.match(postAhsCell.f || '', /_xlfn\.XLOOKUP/);
   assert.match(postAhsCell.f || '', /,-1\)/);
@@ -149,11 +163,16 @@ const testTradeInFormulas = () => {
   });
   assert.equal(preItemGapCell.v, product.jdPrice - product.tmPrice);
   assert.equal(postHandGapCell.v, product.postJdHandPrice - product.tmHandPrice);
+  assert.match(tmRecyclerSubsidyCell.f || '', /LOOKUP/);
+  assert.equal(tmRecyclerSubsidyCell.v, product.tmRecyclerSubsidy);
+  assert.match(tmRecyclerQuotedPriceCell.f || '', /\+/);
   [
     '京东物品价-追价后 vs 天猫',
+    '京东物品价+ahs补贴-追价后 vs天猫',
     '京东到手价-追价后 vs 天猫',
     '京东物品价-追价后 vs 转转',
-    '京东物品价+ahs补贴-追价后 vs 转转'
+    '京东物品价+ahs补贴-追价后 vs 转转',
+    '京东到手价-追价后vs转转'
   ].forEach(label => {
     const formula = cellFor(pricingSheet, label).f || '';
     assert.match(formula, />0,/);

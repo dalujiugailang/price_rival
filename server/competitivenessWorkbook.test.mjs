@@ -16,8 +16,16 @@ const point = {
   nodeType: '历史正式',
   tmDirectScore: 58.6,
   tmItemScore: 61.2,
+  ahsVsTmRecyclerScore: 48.8,
   ahsVsZzDirectScore: 42.3,
-  zzItemScore: 55.4
+  zzItemScore: 55.4,
+  jdVsZzDirectScore: 46.9
+};
+const legacyPoint = {
+  ...point,
+  date: '05-27',
+  ahsVsTmRecyclerScore: null,
+  jdVsZzDirectScore: null
 };
 
 assert.deepEqual(
@@ -38,7 +46,7 @@ await assert.rejects(
 const buffer = await createCompetitivenessTrendWorkbook({
   rangeLabel: '近15次追价',
   sheets: [
-    { sheetName: '总盘走势', chartTitle: '总盘竞争力波动走势', points: [point] },
+    { sheetName: '总盘走势', chartTitle: '总盘竞争力波动走势', points: [legacyPoint, point] },
     { sheetName: '小米', chartTitle: '小米 竞争力波动走势', points: [point] }
   ]
 });
@@ -51,14 +59,29 @@ for (const sheetName of sheetNames(workbook)) {
   const worksheet = getSheet(workbook, sheetName);
   assert.ok(worksheet);
   assert.equal(getCell(worksheet, 23, 1)?.value, '日期');
-  assert.equal(getCell(worksheet, 24, 4)?.value, 0.586);
+  assert.deepEqual(
+    Array.from({ length: 6 }, (_, index) => getCell(worksheet, 23, index + 4)?.value),
+    [
+      'Benchmark 1 · 天猫物品价竞争力',
+      'Benchmark 2 · AHS补贴后 vs TM回收商补贴后',
+      'Benchmark 3 · 天猫到手价竞争力',
+      'Benchmark 4 · 转转物品价竞争力',
+      'Benchmark 5 · 物品价+AHS补贴 vs 转转到手价',
+      'Benchmark 6 · 京东到手价 vs 转转到手价'
+    ]
+  );
+  assert.equal(getCell(worksheet, 24, 4)?.value, 0.612);
+  if (sheetName === '总盘走势') {
+    assert.equal(getCell(worksheet, 24, 5)?.value, '');
+    assert.equal(getCell(worksheet, 24, 9)?.value, '');
+  }
   const charts = listChartsOnSheet(worksheet);
   assert.equal(charts.length, 1);
   const chartItem = charts[0];
   assert.equal(chartItem.content.kind, 'chart');
   if (chartItem.content.kind === 'chart') {
     assert.equal(chartItem.content.chart.space?.plotArea.chart.kind, 'line');
-    assert.equal(chartItem.content.chart.space?.plotArea.chart.series.length, 4);
+    assert.equal(chartItem.content.chart.space?.plotArea.chart.series.length, 6);
   }
 }
 

@@ -29,10 +29,12 @@ const mapPoints = (points: TimelinePoint[]): CompetitivenessTrendExportPoint[] =
   date: point.date,
   batchName: point.batchName,
   nodeType: point.isDraft ? '实时草稿' : '历史正式',
-  tmDirectScore: point.tmDirectScore,
   tmItemScore: point.tmItemScore,
+  ahsVsTmRecyclerScore: point.ahsVsTmRecyclerScore,
+  tmDirectScore: point.tmDirectScore,
+  zzItemScore: point.zzItemScore,
   ahsVsZzDirectScore: point.ahsVsZzDirectScore,
-  zzItemScore: point.zzItemScore
+  jdVsZzDirectScore: point.jdVsZzDirectScore
 }));
 
 export const buildCompetitivenessTrendExportPayload = ({

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createAccessStore } from './accessStore.mjs';
 
 const nowText = () => new Date().toISOString();
 const jsonText = value => JSON.stringify(value ?? null);
@@ -197,6 +198,7 @@ export const createDatabase = databasePath => {
   };
 
   return {
+    ...createAccessStore(db, writeAudit),
     close: () => db.close(),
 
     listBatches(channelId = null) {
@@ -338,7 +340,7 @@ export const createDatabase = databasePath => {
           action: 'BATCH_DELETE',
           resourceType: 'tracking_batch',
           resourceId: id,
-          details: { softDelete: true }
+          details: { softDelete: true, channelId: existing.channel_id }
         });
         return rowToBatch(existing);
       });
@@ -372,9 +374,14 @@ export const createDatabase = databasePath => {
 
     writeAudit,
 
-    listAuditLogs(limit = 200) {
+    listAuditLogs(limit = 200, channelId = null) {
       const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
-      return db.prepare('SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?').all(safeLimit).map(row => ({
+      const rows = channelId ? db.prepare(`SELECT a.* FROM audit_logs a WHERE a.action LIKE 'BATCH_%' AND
+        (json_extract(a.details_json, '$.channelId') = ? OR EXISTS (
+          SELECT 1 FROM tracking_batches b WHERE a.resource_type='tracking_batch' AND b.id=a.resource_id AND b.channel_id=?))
+        ORDER BY a.id DESC LIMIT ?`).all(channelId, channelId, safeLimit)
+        : db.prepare('SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?').all(safeLimit);
+      return rows.map(row => ({
         id: row.id,
         action: row.action,
         outcome: row.outcome,
@@ -383,8 +390,8 @@ export const createDatabase = databasePath => {
         resourceType: row.resource_type,
         resourceId: row.resource_id,
         requestId: row.request_id,
-        ip: row.ip,
-        userAgent: row.user_agent,
+        ip: channelId ? undefined : row.ip,
+        userAgent: channelId ? undefined : row.user_agent,
         details: parseJson(row.details_json, {}),
         createdAt: row.created_at
       }));

@@ -12,10 +12,13 @@ const ACTION_LABELS: Record<string, string> = {
   BATCH_DELETE: '删除快照',
   BATCH_WRITE_FAILED: '保存失败',
   BATCH_IMPORT_FAILED: '迁移失败',
-  BATCH_DELETE_FAILED: '删除失败'
+  BATCH_DELETE_FAILED: '删除失败',
+  ACCESS_MIGRATE: '导入现有权限',
+  ACCESS_CREATE: '开通成员',
+  ACCESS_UPDATE: '修改成员权限'
 };
 
-export default function AuditLogPanel() {
+export default function AuditLogPanel({ channelId = 'tradeIn', isAdmin = false }: { channelId?: string; isAdmin?: boolean }) {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,7 +27,7 @@ export default function AuditLogPanel() {
     setLoading(true);
     setError('');
     try {
-      const result = await listAuditLogs();
+      const result = await listAuditLogs(300, channelId);
       setLogs(result.logs);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -33,14 +36,14 @@ export default function AuditLogPanel() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [channelId]);
 
   return (
     <div className="border border-[#141414] bg-white">
       <div className="flex items-center justify-between border-b border-[#141414] bg-[#F0EFEC] p-4">
         <div>
-          <h3 className="font-black">完整操作日志</h3>
-          <p className="mt-1 text-xs text-[#141414]/60">登录、历史迁移、快照保存、正式落数及删除均有服务端留痕。</p>
+          <h3 className="font-black">{isAdmin ? '完整操作日志' : '当前渠道操作日志'}</h3>
+          <p className="mt-1 text-xs text-[#141414]/60">{isAdmin ? '人员权限、登录与业务操作均有服务端留痕。' : '当前渠道的快照、导入和删除记录。'}</p>
         </div>
         <button onClick={load} className="border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold">刷新</button>
       </div>

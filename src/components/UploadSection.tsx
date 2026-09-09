@@ -37,7 +37,6 @@ type PpvAggregationResult = {
 
 type PpvAggregationZzPriceResult = {
   rows: PpvAggregationRow[];
-  crawledMatchedRows: number;
   apiMatchedRows: number;
 };
 
@@ -220,6 +219,8 @@ const parseCompetitivenessHistory = async (file: File): Promise<TrackingBatch[]>
   const tmItemAliases = ['天猫物品价竞争力', '天猫裸机价竞争力', 'tmItemScore'];
   const zzItemAliases = ['转转物品价竞争力', '转转裸机价竞争力', 'zzItemScore'];
   const ahsAliases = ['物品价+ahs补贴 vs 转转到手价', 'AHS补贴后 vs 转转到手价', 'AHS对转转到手竞争力', '追后AHS对转转到手竞争力', 'ahsVsZzDirectScore'];
+  const tmRecyclerAliases = ['AHS补贴后 vs TM回收商补贴后', '京东物品价+ahs补贴-追价后 vs天猫', 'ahsVsTmRecyclerScore'];
+  const jdZzDirectAliases = ['京东到手价 vs 转转到手价', '京东到手价-追价后vs转转', 'jdVsZzDirectScore'];
 
   return parsed.records
     .map((record, index): TrackingBatch | null => {
@@ -230,7 +231,13 @@ const parseCompetitivenessHistory = async (file: File): Promise<TrackingBatch[]>
         tmDirectScore: toMetricPercent(getField(record, tmDirectAliases)),
         tmItemScore: toMetricPercent(getField(record, tmItemAliases)),
         zzItemScore: toMetricPercent(getField(record, zzItemAliases)),
-        ahsVsZzDirectScore: toMetricPercent(getField(record, ahsAliases))
+        ahsVsZzDirectScore: toMetricPercent(getField(record, ahsAliases)),
+        ahsVsTmRecyclerScore: getField(record, tmRecyclerAliases) === null
+          ? null
+          : toMetricPercent(getField(record, tmRecyclerAliases)),
+        jdVsZzDirectScore: getField(record, jdZzDirectAliases) === null
+          ? null
+          : toMetricPercent(getField(record, jdZzDirectAliases))
       };
       const hasAnyMetric = Object.values(metrics).some(value => value > 0);
       if (!hasAnyMetric) return null;
@@ -329,101 +336,99 @@ const sortPivotLabelRows = (left: PpvAggregationRow, right: PpvAggregationRow) =
     || left.level.localeCompare(right.level, 'zh-Hans-u-kn-true');
 };
 
-const PPV_INQUIRY_DESCRIPTIONS = new Map([
-  ['a+', '全完好'],
-  ['a1', '边框背板-轻微划痕，其他全完好'],
-  ['a4', '边框背板-明显划痕'],
-  ['a3', '屏幕外观-细微划痕+边框背板-细微划痕'],
-  ['b1', '边框背板-小磕碰'],
-  ['a2', '屏幕外观-细微划痕+边框背板-细微划痕'],
-  ['c+2', '边框背板-外壳破损，其他全完好'],
-  ['b', '边框背板-明显磕碰+屏幕显示-显示发黄'],
-  ['d+1', '屏幕外观-碎裂'],
-  ['c+', '边框背板-磕碰+屏幕外观-明显划痕'],
-  ['b2', '边框背板-磕碰+屏幕显示-轻微偏色'],
-  ['c1', '摄像头功能-拍照异常'],
-  ['99-a', '全完好'],
-  ['99-s', '电池85-94'],
-  ['95-a', '边框背板轻微划痕+电池85-94'],
-  ['99-a1', '边框背板细微划痕+电池85-94']
-]);
+export const selectTopPpvRows = (rows: PpvAggregationRow[]): PpvAggregationRow[] => {
+  const eligibleRows = rows.filter(row => normalize(row.level) !== 's');
+  const totalQuoteVolume = eligibleRows.reduce((sum, row) => sum + row.quoteVolume, 0);
+  const totalSoldVolume = eligibleRows.reduce((sum, row) => sum + row.soldVolume, 0);
+  const scoredRows = eligibleRows
+    .filter(row => row.quoteVolume !== 0 || row.soldVolume !== 0)
+    .map(row => {
+      const quoteVolumeShare = totalQuoteVolume === 0 ? 0 : row.quoteVolume / totalQuoteVolume;
+      const soldVolumeShare = totalSoldVolume === 0 ? 0 : row.soldVolume / totalSoldVolume;
+      return {
+        row,
+        score: quoteVolumeShare * 0.75 + soldVolumeShare * 0.25
+      };
+    })
+    .sort((left, right) => right.score - left.score || sortAggregationRows(left.row, right.row));
 
-const ZZ_CRAWLED_PPV_ASSET = '/zz有爬价的ppv.xlsx';
-const ZZ_CRAWLED_TEXT = '无需爬价';
+  if (scoredRows.length <= 2) {
+    return scoredRows.map(item => item.row).sort(sortPivotLabelRows);
+  }
+
+  const secondPlaceScore = scoredRows[1].score;
+  return scoredRows
+    .filter(item => item.score >= secondPlaceScore)
+    .map(item => item.row)
+    .sort(sortPivotLabelRows);
+};
+
+const PPV_INQUIRY_DESCRIPTION_RULES: ReadonlyArray<readonly [string, string]> = [
+  ['S', '全新机'],
+  ['99-S', '全完好，电池原装且健康度95%-100%（如有）'],
+  ['99-S1', '屏幕细微划痕'],
+  ['99-A', '拍照有斑'],
+  ['99-A1', '屏幕细微划痕+电池85-94'],
+  ['99-B', '功能3选1-轻微显示/电池80-84'],
+  ['95-S', '外壳有划痕，小磕碰'],
+  ['95-A', '外壳有划痕，小磕碰+电池85-94/拍照有斑'],
+  ['95-B', '外观轻微+屏幕显示-轻微偏色'],
+  ['95-C', '8项功能/维修项任一：电池<80/彩点/小修/小功能异常'],
+  ['90-A', '外壳有明显磨损/磕碰/掉漆'],
+  ['90-B', '外壳有明显磨损/磕碰/掉漆+屏幕显示-轻微偏色'],
+  ['90-C', '外壳有明显磨损/磕碰/掉漆+光线/距离感应不正常'],
+  ['A+', '全完好'],
+  ['A1', '边框背板-轻微划痕，其他全完好'],
+  ['A', '屏幕有划痕'],
+  ['A2', '屏幕外观-细微划痕+边框背板-细微划痕'],
+  ['B+1', '色差/案例/ROOT/无膜/彩点/拆机'],
+  ['B+2', '色差案例ROOT+屏幕划痕，或有两个'],
+  ['B1', '边框背板-小磕碰'],
+  ['B', '边框背板-明显磕碰+屏幕显示-显示发黄'],
+  ['B2', '边框背板-磕碰+屏幕显示-轻微偏色']
+];
+
+const PPV_INQUIRY_DESCRIPTIONS = new Map(
+  PPV_INQUIRY_DESCRIPTION_RULES.map(([level, description]) => [normalize(level), description])
+);
+
+const NO_CRAWL_REQUIRED_TEXT = '无需爬价';
 
 const normalizePpvKey = (value: unknown) => normalize(value);
 
-const loadZzCrawledPpvSet = async (): Promise<Set<string>> => {
-  const response = await fetch(ZZ_CRAWLED_PPV_ASSET);
-  if (!response.ok) {
-    throw new Error('ZZ已爬价PPV名单加载失败');
-  }
-
-  const workbook = XLSX.read(await response.arrayBuffer(), { type: 'array', cellDates: false });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<CellValue[]>(sheet, { header: 1, defval: null, raw: true });
-  const header = rows[0]?.map(cell => toText(cell)) || [];
-  const ppvIndex = header.findIndex(cell => normalize(cell) === 'ppv' || normalize(cell).includes('ppv'));
-  const targetIndex = ppvIndex >= 0 ? ppvIndex : 0;
-
-  return new Set(
-    rows
-      .slice(1)
-      .map(row => normalizePpvKey(row[targetIndex]))
-      .filter(Boolean)
-  );
-};
-
-const fetchZzPrePriceMap = async (ppvs: string[]): Promise<Map<string, string | number>> => {
+const fetchPpvsWithZzPrePrice = async (ppvs: string[], channelId: ChannelId): Promise<Set<string>> => {
   const uniquePpvs = Array.from(new Set(ppvs.map(ppv => ppv.trim()).filter(Boolean)));
-  if (uniquePpvs.length === 0) return new Map();
+  if (uniquePpvs.length === 0) return new Set();
 
   const response = await fetch('/api/daily-price/lookup', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ppv: uniquePpvs })
+    body: JSON.stringify({ ppv: uniquePpvs, channelId })
   });
   const payload = await response.json();
   if (!response.ok) {
     throw new Error(payload?.error || 'daily price API 查询ZZ券前价失败');
   }
 
-  const priceMap = new Map<string, string | number>();
+  const matchedPpvs = new Set<string>();
   (payload.rows || []).forEach((row: Record<string, CellValue>) => {
     const ppv = toText(row.ppv);
     const value = getField(row, ['ZZ券前价', 'zz券前价', '转转券前价']);
     if (!ppv || value === null || value === '') return;
-    if (typeof value === 'number') {
-      priceMap.set(normalizePpvKey(ppv), value);
-      return;
-    }
-    if (typeof value === 'string') {
-      priceMap.set(normalizePpvKey(ppv), value);
-    }
+    matchedPpvs.add(normalizePpvKey(ppv));
   });
-  return priceMap;
+  return matchedPpvs;
 };
 
-const applyZzPriceValues = async (rows: PpvAggregationRow[]): Promise<PpvAggregationZzPriceResult> => {
-  const [crawledPpvs, zzPrePriceMap] = await Promise.all([
-    loadZzCrawledPpvSet(),
-    fetchZzPrePriceMap(rows.map(row => row.ppv))
-  ]);
+const applyZzPriceValues = async (rows: PpvAggregationRow[], channelId: ChannelId): Promise<PpvAggregationZzPriceResult> => {
+  const ppvsWithZzPrePrice = await fetchPpvsWithZzPrePrice(rows.map(row => row.ppv), channelId);
 
-  let crawledMatchedRows = 0;
   let apiMatchedRows = 0;
   const nextRows = rows.map(row => {
     const key = normalizePpvKey(row.ppv);
-    if (crawledPpvs.has(key)) {
-      crawledMatchedRows += 1;
-      return { ...row, zzPriceValue: ZZ_CRAWLED_TEXT };
-    }
-
-    const apiValue = zzPrePriceMap.get(key);
-    if (apiValue !== undefined) {
+    if (ppvsWithZzPrePrice.has(key)) {
       apiMatchedRows += 1;
-      return { ...row, zzPriceValue: apiValue };
+      return { ...row, zzPriceValue: NO_CRAWL_REQUIRED_TEXT };
     }
 
     return { ...row, zzPriceValue: '' };
@@ -431,7 +436,6 @@ const applyZzPriceValues = async (rows: PpvAggregationRow[]): Promise<PpvAggrega
 
   return {
     rows: nextRows,
-    crawledMatchedRows,
     apiMatchedRows
   };
 };
@@ -498,13 +502,7 @@ const buildPpvAggregation = async (
 
   const outputRows = Array.from(byModel.entries())
     .sort(([left], [right]) => left.localeCompare(right, 'zh-Hans-u-kn-true'))
-    .flatMap(([, rows]) => {
-      const sortedRows = [...rows].sort(sortAggregationRows);
-      const threshold = sortedRows[Math.min(1, sortedRows.length - 1)]?.quoteVolume ?? 0;
-      return sortedRows
-        .filter(row => row.quoteVolume >= threshold)
-        .sort(sortPivotLabelRows);
-    });
+    .flatMap(([, rows]) => selectTopPpvRows(rows));
 
   return {
     sourceRows: parsed.records.length,
@@ -656,7 +654,7 @@ export default function UploadSection({
       const response = await fetch('/api/daily-price/lookup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ppv: ppvs })
+        body: JSON.stringify({ ppv: ppvs, channelId })
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -708,9 +706,9 @@ export default function UploadSection({
       if (result.outputRows.length === 0) {
         throw new Error(`没有生成可导出的聚合结果，请检查商品型号、商品SKU、商品LEVEL、${isSelfOperated ? '报价访客数' : '报价量'}、成交量字段。`);
       }
-      const zzPriceResult = await applyZzPriceValues(result.outputRows);
+      const zzPriceResult = await applyZzPriceValues(result.outputRows, channelId);
       exportPpvAggregationWorkbook(zzPriceResult.rows, channelId);
-      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，按${isSelfOperated ? '报价访客数' : '报价量'}Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果；匹配询价说明 ${result.descriptionMatchedRows} 行，ZZ已爬价 ${zzPriceResult.crawledMatchedRows} 行，API写入ZZ券前价 ${zzPriceResult.apiMatchedRows} 行。`);
+      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，剔除商品LEVEL为S的PPV后，按${isSelfOperated ? '报价访客数' : '报价量'}占比75%+成交量占比25%的综合得分Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果；匹配询价说明 ${result.descriptionMatchedRows} 行，API拉取到ZZ券前价并标记“无需爬价” ${zzPriceResult.apiMatchedRows} 行。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ppv聚合导出失败');
     } finally {
@@ -825,11 +823,44 @@ export default function UploadSection({
           />
           <div className={statClass}>当前基础行数：{currentProducts.length}</div>
           <div className="border-t border-[#141414]/20 pt-3">
-            <div className="text-xs font-bold">竞争型号ppv{isSelfOperated ? '报价访客数' : '报价量'}Top2筛选工具</div>
+            <div className="flex items-center gap-1.5">
+              <div className="text-xs font-bold">竞争型号ppv{isSelfOperated ? '报价访客数' : '报价量'}Top2筛选工具</div>
+              <details className="relative">
+                <summary
+                  className="flex size-4 cursor-pointer list-none items-center justify-center border border-[#141414] bg-[#F0EFEC] text-[10px] font-black leading-none hover:bg-[#141414] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#141414]/30 [&::-webkit-details-marker]:hidden"
+                  aria-label="查看询价说明匹配规则"
+                  title="查看询价说明匹配规则"
+                >
+                  ?
+                </summary>
+                <div className="absolute left-0 top-6 z-30 w-[520px] max-w-[calc(100vw-3rem)] border border-[#141414] bg-white shadow-[4px_4px_0_#141414]">
+                  <div className="border-b border-[#141414] bg-[#F0EFEC] px-3 py-2 text-xs font-black">询价说明匹配规则</div>
+                  <div className="max-h-[420px] overflow-y-auto">
+                    <table className="w-full border-collapse text-[11px]">
+                      <thead className="sticky top-0 bg-white">
+                        <tr className="border-b border-[#141414] text-left">
+                          <th className="w-20 border-r border-[#141414]/30 px-3 py-2 font-black">商品LEVEL</th>
+                          <th className="px-3 py-2 font-black">询价说明</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {PPV_INQUIRY_DESCRIPTION_RULES.map(([level, description]) => (
+                          <tr key={level} className="border-b border-[#141414]/15 last:border-b-0">
+                            <td className="border-r border-[#141414]/20 px-3 py-1.5 font-mono font-bold">{level}</td>
+                            <td className="px-3 py-1.5">{description}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="border-t border-[#141414] bg-[#F0EFEC] px-3 py-2 text-[10px] text-[#141414]/70">按商品LEVEL精确匹配，忽略大小写和空格；未配置等级的询价说明留空。</div>
+                </div>
+              </details>
+            </div>
             <div className="mt-1 text-[11px] text-[#141414]/70">
               {isSelfOperated
-                ? '上传底表后按商品LEVEL+商品SKU生成ppv，按商品型号取ppv报价访客数前2名，并导出仅含Sheet1的自营模板；只保留zz裸机价列用于对标转转。'
-                : '上传底表后按商品LEVEL+商品SKU生成ppv，按商品型号取ppv报价量前2名，并导出仅含Sheet1的结果；新机系列和竞品价格列留空。'}
+                ? '上传底表后按商品LEVEL+商品SKU生成ppv，先剔除商品LEVEL为S的PPV，再按商品型号以报价访客数占比75%+成交量占比25%的综合得分取前2名（第二名同分全部保留）；API能拉取到ZZ券前价时，zz裸机价标记为“无需爬价”。'
+                : '上传底表后按商品LEVEL+商品SKU生成ppv，先剔除商品LEVEL为S的PPV，再按商品型号以报价量占比75%+成交量占比25%的综合得分取前2名（第二名同分全部保留）；API能拉取到ZZ券前价时，zz裸机价标记为“无需爬价”，新机系列和天猫价格列留空。'}
             </div>
           </div>
           <input

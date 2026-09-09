@@ -13,13 +13,15 @@ interface Props {
   investmentRateInputs: InvestmentRateInputs;
   onInvestmentRateInputsChange: (inputs: InvestmentRateInputs) => void;
   channelSalesLabel?: string;
+  readOnly?: boolean;
 }
 
 export default function InvestmentRatePanel({
   products,
   investmentRateInputs,
   onInvestmentRateInputsChange,
-  channelSalesLabel = '手机安卓近30天京东换新渠道销售额'
+  channelSalesLabel = '手机安卓近30天京东换新渠道销售额',
+  readOnly = false
 }: Props) {
   const [draftInputs, setDraftInputs] = useState(investmentRateInputs);
   const investmentMetrics = calculateCompetitionInvestmentMetrics(products, investmentRateInputs);
@@ -87,11 +89,12 @@ export default function InvestmentRatePanel({
               type="number"
               min="0"
               value={draftInputs.androidSalesAmount30d || ''}
+              disabled={readOnly}
               onChange={(event) => setDraftInputs({
                 ...draftInputs,
                 androidSalesAmount30d: Number(event.target.value) || 0
               })}
-              className="w-full h-8 border border-[#141414] bg-white px-2 text-xs font-mono focus:outline-none focus:ring-0 focus:border-[#141414]"
+              className="w-full h-8 border border-[#141414] bg-white px-2 text-xs font-mono focus:outline-none focus:ring-0 focus:border-[#141414] disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:text-[#555]"
               placeholder="输入销售额"
             />
           </label>
@@ -101,16 +104,18 @@ export default function InvestmentRatePanel({
               type="number"
               min="0"
               value={draftInputs.androidJdTradeInSalesAmount30d || ''}
+              disabled={readOnly}
               onChange={(event) => setDraftInputs({
                 ...draftInputs,
                 androidJdTradeInSalesAmount30d: Number(event.target.value) || 0
               })}
-              className="w-full h-8 border border-[#141414] bg-white px-2 text-xs font-mono focus:outline-none focus:ring-0 focus:border-[#141414]"
+              className="w-full h-8 border border-[#141414] bg-white px-2 text-xs font-mono focus:outline-none focus:ring-0 focus:border-[#141414] disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:text-[#555]"
               placeholder="输入销售额"
             />
           </label>
           <button
             type="button"
+            disabled={readOnly}
             onClick={() => onInvestmentRateInputsChange(draftInputs)}
             className={`h-7 border border-[#141414] text-xs font-black transition-colors ${
               isDraftChanged
@@ -118,7 +123,7 @@ export default function InvestmentRatePanel({
                 : 'bg-white text-[#141414] hover:bg-[#141414] hover:text-white'
             } focus:outline-none focus:ring-0 focus:border-[#141414]`}
           >
-            计算费率
+            {readOnly ? '只读' : '计算费率'}
           </button>
         </div>
       </div>

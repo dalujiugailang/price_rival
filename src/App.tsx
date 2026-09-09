@@ -18,9 +18,7 @@ import {
   TrackingBatch 
 } from './types';
 import { 
-  INITIAL_PRODUCTS, 
   applyManualRecommendedPrice,
-  calculateProductPrice, 
   runBatchCalculations,
   formatPercent
 } from './utils/formulas';
@@ -49,6 +47,9 @@ import CompetitivenessSummary from './components/CompetitivenessSummary';
 import TmHandPriceGapPanel from './components/TmHandPriceGapPanel';
 import OnboardingTour, { TourStep } from './components/OnboardingTour';
 import AuditLogPanel from './components/AuditLogPanel';
+import PermissionPanel from './components/PermissionPanel';
+import SharedSourcesPanel from './components/SharedSourcesPanel';
+import { ACCESS_PAGES, accessibleChannels, canAccess, canEdit, isEditor } from '../shared/accessPolicy.mjs';
 import { useAuth } from './components/AuthGate';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
 import {
@@ -109,121 +110,7 @@ type SaveBatchOptions = {
   pricingTimestamp: string;
 };
 
-const INITIAL_COMPETITIVENESS_HISTORY: TrackingBatch[] = [
-  {
-    id: 'COMP-20260331-001',
-    date: '2026-03-31',
-    operator: '历史导入',
-    dataDate: '2026-03-31',
-    marginBottomLine: 0,
-    products: [],
-    remarks: '历史竞争力纯落数',
-    isCompetitivenessConfirmed: true,
-    competitivenessDate: '2026-03-31',
-    pricingTimestamp: '2026-03-31',
-    competitivenessMetrics: { tmItemScore: 41.04, tmDirectScore: 47.07, zzItemScore: 31.18, ahsVsZzDirectScore: 16.88 },
-    isSummaryOnly: true
-  },
-  {
-    id: 'COMP-20260404-001',
-    date: '2026-04-04',
-    operator: '历史导入',
-    dataDate: '2026-04-04',
-    marginBottomLine: 0,
-    products: [],
-    remarks: '历史竞争力纯落数',
-    isCompetitivenessConfirmed: true,
-    competitivenessDate: '2026-04-04',
-    pricingTimestamp: '2026-04-04',
-    competitivenessMetrics: { tmItemScore: 35.34, tmDirectScore: 32.56, zzItemScore: 35.49, ahsVsZzDirectScore: 20.67 },
-    isSummaryOnly: true
-  },
-  {
-    id: 'COMP-20260407-001',
-    date: '2026-04-07',
-    operator: '历史导入',
-    dataDate: '2026-04-07',
-    marginBottomLine: 0,
-    products: [],
-    remarks: '历史竞争力纯落数',
-    isCompetitivenessConfirmed: true,
-    competitivenessDate: '2026-04-07',
-    pricingTimestamp: '2026-04-07',
-    competitivenessMetrics: { tmItemScore: 40.91, tmDirectScore: 30.83, zzItemScore: 33.41, ahsVsZzDirectScore: 17.15 },
-    isSummaryOnly: true
-  },
-  {
-    id: 'COMP-20260414-001',
-    date: '2026-04-14',
-    operator: '历史导入',
-    dataDate: '2026-04-14',
-    marginBottomLine: 0,
-    products: [],
-    remarks: '历史竞争力纯落数',
-    isCompetitivenessConfirmed: true,
-    competitivenessDate: '2026-04-14',
-    pricingTimestamp: '2026-04-14',
-    competitivenessMetrics: { tmItemScore: 54.07, tmDirectScore: 40.14, zzItemScore: 40.16, ahsVsZzDirectScore: 28.06 },
-    isSummaryOnly: true
-  },
-  {
-    id: 'COMP-20260518-001',
-    date: '2026-05-18',
-    operator: '历史导入',
-    dataDate: '2026-05-18',
-    marginBottomLine: 0,
-    products: [],
-    remarks: '历史竞争力纯落数',
-    isCompetitivenessConfirmed: true,
-    competitivenessDate: '2026-05-18',
-    pricingTimestamp: '2026-05-18',
-    competitivenessMetrics: { tmItemScore: 54.30, tmDirectScore: 30.00, zzItemScore: 50.92, ahsVsZzDirectScore: 18.04 },
-    isSummaryOnly: true
-  },
-  {
-    id: 'COMP-20260522-001',
-    date: '2026-05-22',
-    operator: '历史导入',
-    dataDate: '2026-05-22',
-    marginBottomLine: 0,
-    products: [],
-    remarks: '历史竞争力纯落数',
-    isCompetitivenessConfirmed: true,
-    competitivenessDate: '2026-05-22',
-    pricingTimestamp: '2026-05-22',
-    competitivenessMetrics: { tmItemScore: 47.81, tmDirectScore: 38.39, zzItemScore: 25.52, ahsVsZzDirectScore: 25.48 },
-    isSummaryOnly: true
-  },
-  {
-    id: 'COMP-20260527-001',
-    date: '2026-05-27',
-    operator: '历史导入',
-    dataDate: '2026-05-27',
-    marginBottomLine: 0,
-    products: [],
-    remarks: '历史竞争力纯落数',
-    isCompetitivenessConfirmed: true,
-    competitivenessDate: '2026-05-27',
-    pricingTimestamp: '2026-05-27',
-    competitivenessMetrics: { tmItemScore: 77.06, tmDirectScore: 43.39, zzItemScore: 33.43, ahsVsZzDirectScore: 16.92 },
-    isSummaryOnly: true
-  }
-];
-
-const mergeInitialCompetitivenessHistory = (batches: TrackingBatch[]) => {
-  const confirmedDates = new Set(
-    batches
-      .filter(batch => batch.isCompetitivenessConfirmed)
-      .map(batch => batch.competitivenessDate || batch.date)
-  );
-  const existingIds = new Set(batches.map(batch => batch.id));
-  const missingInitialRows = INITIAL_COMPETITIVENESS_HISTORY.filter(batch => (
-    !existingIds.has(batch.id) && !confirmedDates.has(batch.competitivenessDate || batch.date)
-  ));
-  return [...missingInitialRows, ...batches];
-};
-
-type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit';
+type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions';
 
 type ChannelWorkspaceState = {
   productsMaster: Product[];
@@ -282,46 +169,6 @@ const persistChannelStates = (states: ChannelStates) => {
   }
 };
 
-const defaultUploadRecords = (): SourceUploadRecord[] => [
-  {
-    id: 'SRC-20260518-BASE',
-    type: 'base',
-    fileName: '手机安卓换新比价 (1).xlsx / 询价表0518',
-    uploadedAt: '2026-05-18 00:00:00',
-    rowCount: INITIAL_PRODUCTS.length,
-    matchedCount: INITIAL_PRODUCTS.length,
-    remarks: '内置初始化数据，保留询价表0518全部62个源字段。'
-  }
-];
-
-const buildInitialHistoryBatches = () => {
-  const baselineProducts = INITIAL_PRODUCTS.map(p => {
-    const yestP: Product = {
-      ...p,
-      jdPrice: Math.round(p.jdPrice * 0.98),
-      tmPrice: p.tmPrice > 0 ? Math.round(p.tmPrice * 1.01) : 0,
-      zzPrice: p.zzPrice > 0 ? Math.round(p.zzPrice * 1.008) : 0
-    };
-    return calculateProductPrice(yestP, 0.09);
-  });
-
-  return [
-    ...INITIAL_COMPETITIVENESS_HISTORY,
-    {
-      id: 'TRACK-20260518-INIT',
-      channelId: 'tradeIn' as ChannelId,
-      channelName: CHANNELS.tradeIn.name,
-      date: '2026-05-18',
-      operator: '定价运营',
-      dataDate: '2026-05-18',
-      marginBottomLine: 0.09,
-      products: baselineProducts,
-      remarks: '询价表0518线上化基准快照。保留全部源字段，采用9%追后边际利润率底线。',
-      subsidyFileName: '手机安卓换新比价 (1).xlsx'
-    }
-  ];
-};
-
 const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts: Product[], channelId: ChannelId): ChannelWorkspaceState => ({
   productsMaster: (state.productsMaster || fallbackProducts).map(product => hydrateThirtyDayVolumes(product, channelId)),
   dailyPriceRows: state.dailyPriceRows || [],
@@ -338,60 +185,29 @@ const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts:
     ? state.smallGapToleranceMargin
     : -0.02,
   pricingMode: state.pricingMode || 'margin',
-  lastApiSyncTime: state.lastApiSyncTime || '2026-05-18 询价表0518 已载入',
+  lastApiSyncTime: state.lastApiSyncTime || '等待上传数据',
   competitionVersionIndex: state.competitionVersionIndex || 1
 });
 
-const createInitialChannelStates = (): ChannelStates => {
-  const saved = parseStoredChannelStates(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY));
-  if (saved.tradeIn || saved.selfOperated) {
-    return {
-      tradeIn: normalizeState(saved.tradeIn || {}, INITIAL_PRODUCTS, 'tradeIn'),
-      selfOperated: normalizeState(saved.selfOperated || {}, INITIAL_PRODUCTS, 'selfOperated')
-    };
-  }
-
-  const legacyProducts = safeParse<Product[] | null>(localStorage.getItem('products_master_rows'), null);
-  const tradeInProducts = (legacyProducts || INITIAL_PRODUCTS).map(product => hydrateThirtyDayVolumes(product, 'tradeIn'));
-  const legacyHistory = safeParse<TrackingBatch[] | null>(localStorage.getItem('history_batches_list'), null);
-  const historyBatches = legacyHistory
-    ? mergeInitialCompetitivenessHistory(legacyHistory).map(batch => ({
-      ...batch,
-      channelId: batch.channelId || 'tradeIn',
-      channelName: batch.channelName || CHANNELS.tradeIn.name
-    }))
-    : buildInitialHistoryBatches();
-
-  return {
-    tradeIn: normalizeState({
-      productsMaster: tradeInProducts,
-      dailyPriceRows: safeParse<DailyPriceRow[]>(localStorage.getItem('daily_price_rows'), []),
-      subsidyRules: safeParse<SubsidyRule[]>(localStorage.getItem('subsidy_rules'), []),
-      sourceUploadRecords: safeParse<SourceUploadRecord[]>(localStorage.getItem('source_upload_records'), defaultUploadRecords()),
-      manualRecommendPrices: safeParse<Record<string, number>>(localStorage.getItem('manual_recommend_prices'), {}),
-      investmentRateInputs: safeParse<InvestmentRateInputs>(localStorage.getItem('investment_rate_inputs'), DEFAULT_INVESTMENT_RATE_INPUTS),
-      selectedCompetitionPpvs: safeParse<string[]>(localStorage.getItem('selected_competition_ppvs'), tradeInProducts.map(product => product.ppv)),
-      historyBatches,
-      activeSubsidyFileName: localStorage.getItem('current_subsidies_filename') || '未上传补贴表，沿用基础表字段'
-    }, INITIAL_PRODUCTS, 'tradeIn'),
-    selfOperated: normalizeState({
-      productsMaster: tradeInProducts,
-      sourceUploadRecords: defaultUploadRecords().map(record => ({
-        ...record,
-        id: 'SRC-SELF-20260518-BASE',
-        remarks: '自营渠道初始化沿用基础竞争表，补贴按自营普发券单独维护。'
-      })),
-      historyBatches: [],
-      activeSubsidyFileName: '未粘贴自营普发券'
-    }, INITIAL_PRODUCTS, 'selfOperated')
-  };
-};
-
 export default function App() {
   const { user, logout } = useAuth();
-  const [activeChannelId, setActiveChannelId] = useState<ChannelId>(DEFAULT_CHANNEL_ID);
-  const [activeTab, setActiveTab] = useState<ViewTab>('workspace');
-  const [channelStates, setChannelStates] = useState<ChannelStates>(createInitialChannelStates);
+  const isReadOnly = !isEditor(user);
+  const isAdmin = user.role === 'admin';
+  const channelOrder = accessibleChannels(user).map(channel => channel.id) as ChannelId[];
+  const firstPage = (channel: ChannelId) => ACCESS_PAGES.find(page => canAccess(user, channel, page.id))?.id as ViewTab || 'workspace';
+  const [activeChannelId, setActiveChannelId] = useState<ChannelId>(channelOrder[0] || DEFAULT_CHANNEL_ID);
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => firstPage(channelOrder[0] || DEFAULT_CHANNEL_ID));
+  const [selectedHistoryBatchIds, setSelectedHistoryBatchIds] = useState<Partial<Record<ChannelId, string>>>({});
+  const [channelStates, setChannelStates] = useState<ChannelStates>(() => {
+    const saved = parseStoredChannelStates(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY));
+    const stateFor = (channel: ChannelId) => {
+      const editable = canEdit(user, channel, 'workspace') || canEdit(user, channel, 'upload');
+      const source: Partial<ChannelWorkspaceState> = editable ? saved[channel] || {} : {};
+      // Restricted accounts start empty; their data is supplied by the authorized server response.
+      return normalizeState({ ...source, historyBatches: canEdit(user, channel, 'upload') ? source.historyBatches || [] : [] }, [], channel);
+    };
+    return { tradeIn: stateFor('tradeIn'), selfOperated: stateFor('selfOperated') };
+  });
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourStepIndex, setTourStepIndex] = useState(0);
@@ -399,6 +215,15 @@ export default function App() {
   const historySyncStartedRef = useRef(false);
   const activeChannel = CHANNELS[activeChannelId];
   const activeState = channelStates[activeChannelId];
+  const canEditWorkspace = canEdit(user, activeChannelId, 'workspace');
+  const canEditUpload = canEdit(user, activeChannelId, 'upload');
+  const canViewWorkspace = canAccess(user, activeChannelId, 'workspace');
+  const useSharedSnapshot = !canEditWorkspace;
+  const latestSnapshot = activeState.historyBatches.find(batch => !batch.isSummaryOnly && batch.products.length > 0);
+  const readOnlySnapshot = useSharedSnapshot ? latestSnapshot : undefined;
+  const effectiveMarginBottomLine = readOnlySnapshot?.marginBottomLine ?? activeState.marginBottomLine;
+  const effectivePricingMode = readOnlySnapshot?.pricingMode ?? activeState.pricingMode;
+  const effectiveInvestmentRateInputs = readOnlySnapshot?.investmentRateInputs ?? activeState.investmentRateInputs;
   const isSelfOperated = activeChannelId === 'selfOperated';
   const tourSteps = useMemo<TourStep[]>(() => [
     {
@@ -467,6 +292,7 @@ export default function App() {
   ], [activeChannel.name, activeChannelId, isSelfOperated]);
 
   const updateActiveState = (updater: (state: ChannelWorkspaceState) => ChannelWorkspaceState) => {
+    if (!canEdit(user, activeChannelId, activeTab)) return;
     setChannelStates(prev => ({
       ...prev,
       [activeChannelId]: updater(prev[activeChannelId])
@@ -498,7 +324,8 @@ export default function App() {
   useEffect(() => {
     if (historySyncStartedRef.current) return;
     historySyncStartedRef.current = true;
-    const localBatches = [...channelStates.tradeIn.historyBatches, ...channelStates.selfOperated.historyBatches];
+    const localBatches = [...channelStates.tradeIn.historyBatches, ...channelStates.selfOperated.historyBatches]
+      .filter(batch => canEdit(user, batch.channelId || 'tradeIn', 'upload'));
     let initialSyncComplete = false;
     let syncInFlight = false;
 
@@ -507,7 +334,7 @@ export default function App() {
       syncInFlight = true;
       try {
         let migrationText = '';
-        if (localBatches.length > 0) {
+        if (!isReadOnly && localBatches.length > 0) {
           const migration = await importTrackingBatches(localBatches);
           migrationText = `；本机迁移 ${migration.imported} 期，跳过 ${migration.skipped} 期`;
         }
@@ -546,6 +373,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (useSharedSnapshot) {
+      setActiveCalculatedItems(readOnlySnapshot?.products || []);
+      return;
+    }
     const dailyPriceByPpv = new Map<string, DailyPriceRow>(activeState.dailyPriceRows.map(row => [row.ppv, row]));
     const subsidyRulesBySeries = activeState.subsidyRules.reduce((acc, rule) => {
       const list = acc.get(rule.newSeries) || [];
@@ -629,11 +460,18 @@ export default function App() {
         selfSubsidyRules: activeState.selfSubsidyRules
       })
       : withManualPrices);
-  }, [activeChannel, activeChannelId, activeState]);
+  }, [activeChannel, activeChannelId, activeState, useSharedSnapshot, readOnlySnapshot]);
 
   useEffect(() => {
-    persistChannelStates(channelStates);
-  }, [channelStates]);
+    if (isReadOnly) return;
+    const saved = parseStoredChannelStates(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY));
+    for (const channel of channelOrder) {
+      if (canEdit(user, channel, 'workspace') || canEdit(user, channel, 'upload')) {
+        saved[channel] = { ...channelStates[channel], historyBatches: [] };
+      }
+    }
+    persistChannelStates(saved as ChannelStates);
+  }, [channelStates, isReadOnly, user]);
 
   useEffect(() => {
     if (!tourOpen) return;
@@ -770,6 +608,7 @@ export default function App() {
   };
 
   const handleSaveBatch = async (remarks: string, operator: string, options?: SaveBatchOptions) => {
+    if (!canEditWorkspace) return { success: false, error: '当前账号没有工作台编辑权限' };
     const todayStr = new Date().toISOString().slice(0, 10);
     const timeCode = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
     const randomSuffix = createBatchRandomSuffix();
@@ -790,6 +629,7 @@ export default function App() {
       marginBottomLine: activeState.marginBottomLine,
       pricingMode: activeState.pricingMode,
       products: JSON.parse(JSON.stringify(activeCalculatedItems)),
+      sourceUploadRecords: activeState.sourceUploadRecords,
       remarks: `${remarks || ''}${remarks ? '；' : ''}${activeState.pricingMode === 'fullCompetition' ? '100%竞争力模式' : `边际底线${formatPercent(activeState.marginBottomLine)}`}；${activeChannel.name}；测算行 ${activeCalculatedItems.length} 条`,
       subsidyFileName: activeState.activeSubsidyFileName,
       subsidyUploadTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
@@ -797,7 +637,7 @@ export default function App() {
       competitivenessDate: confirmCompetitiveness ? competitivenessDate : undefined,
       pricingTimestamp: confirmCompetitiveness ? pricingTimestamp : undefined,
       confirmedAt: confirmCompetitiveness ? new Date().toISOString().replace('T', ' ').slice(0, 19) : undefined,
-      competitivenessMetrics: confirmCompetitiveness ? competitivenessMetrics : undefined,
+      competitivenessMetrics,
       investmentRateInputs: activeState.investmentRateInputs,
       investmentRateMetrics
     };
@@ -816,6 +656,10 @@ export default function App() {
         ]
       }));
       setHistorySyncStatus(`已写入共享历史：${result.batch.id}`);
+      if (canAccess(user, activeChannelId, 'history')) {
+        setSelectedHistoryBatchIds(previous => ({ ...previous, [activeChannelId]: result.batch.id }));
+        setActiveTab('history');
+      }
       return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -823,6 +667,7 @@ export default function App() {
   };
 
   const handleCompetitivenessHistoryLoaded = (batches: TrackingBatch[], fileName: string) => {
+    if (!canEditUpload) return;
     const normalizedBatches = batches.map(batch => ({
       ...batch,
       channelId: activeChannelId,
@@ -865,6 +710,7 @@ export default function App() {
   };
 
   const handleDeleteBatch = async (id: string) => {
+    if (!canEdit(user, activeChannelId, 'history')) return;
     if (!window.confirm(`确认删除快照 ${id} 吗？服务端将软删除并保留完整操作日志。`)) return;
     try {
       await deleteTrackingBatch(id);
@@ -958,15 +804,19 @@ export default function App() {
     setTourStepIndex(boundedIndex);
   };
 
-  const viewButtons: { id: ViewTab; label: string }[] = [
-    { id: 'workspace', label: '追价工作台' },
-    { id: 'upload', label: `数据源 (${activeState.sourceUploadRecords.length})` },
-    { id: 'history', label: `历史 (${activeState.historyBatches.length})` },
-    { id: 'competitiveness', label: '竞争力走势' },
-    { id: 'tmHandGap', label: activeChannelId === 'selfOperated' ? '追后AHS高出ZZ' : '追后到手高出TM' },
-    { id: 'audit', label: '操作日志' }
-  ];
-  const channelOrder: ChannelId[] = ['tradeIn', 'selfOperated'];
+  useEffect(() => {
+    if (!channelOrder.includes(activeChannelId) && channelOrder[0]) setActiveChannelId(channelOrder[0]);
+    if (activeTab === 'permissions' ? !(isAdmin && activeChannelId === 'tradeIn') : !canAccess(user, activeChannelId, activeTab)) {
+      setActiveTab(firstPage(activeChannelId));
+    }
+  }, [activeChannelId, activeTab, user]);
+
+  const viewButtons: { id: ViewTab; label: string }[] = ACCESS_PAGES
+    .filter(page => canAccess(user, activeChannelId, page.id))
+    .map(page => ({ id: page.id as ViewTab, label: page.id === 'history' ? `历史 (${activeState.historyBatches.length})`
+      : isSelfOperated && page.selfName ? page.selfName : page.name }));
+  if (isAdmin && activeChannelId === 'tradeIn') viewButtons.push({ id: 'permissions', label: '权限管理' });
+  const showWorkspaceControls = canViewWorkspace && !['permissions', 'history'].includes(activeTab);
   const hasPausedTour = !tourOpen && tourStepIndex > 0;
   const channelTargetLabel = (channelId: ChannelId) => (
     CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价×103%' : '天猫裸机价×103%'
@@ -991,7 +841,7 @@ export default function App() {
                     data-tour={`channel-${channelId}`}
                     onClick={() => {
                       setActiveChannelId(channelId);
-                      if (!selected) setActiveTab('workspace');
+                      if (!selected) setActiveTab(firstPage(channelId));
                     }}
                     className={`relative w-full border-2 px-5 py-4 text-left text-xs font-black transition-colors ${
                       selected
@@ -1036,8 +886,8 @@ export default function App() {
             })}
           </div>
 
-          <div className="p-4 border-t border-[#141414] space-y-2">
-            <button
+          {activeTab !== 'permissions' && (canEditWorkspace || canEditUpload) && <div className="p-4 border-t border-[#141414] space-y-2">
+            {canEditUpload && <button
               type="button"
               data-tour="open-upload"
               onClick={() => {
@@ -1046,8 +896,8 @@ export default function App() {
               className="w-full border border-[#141414] bg-white px-3 py-2 text-xs font-bold hover:bg-[#141414] hover:text-white"
             >
               上传数据源
-            </button>
-            <button
+            </button>}
+            {canEditWorkspace && <button
               type="button"
               data-tour="save-snapshot"
               onClick={() => {
@@ -1065,8 +915,8 @@ export default function App() {
               className="w-full border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white hover:bg-[#2A2A2B]"
             >
               保存测算快照
-            </button>
-          </div>
+            </button>}
+          </div>}
         </aside>
 
         <div className="min-w-0 flex-1">
@@ -1074,24 +924,28 @@ export default function App() {
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-xs font-black text-white">{activeChannel.name}</span>
-                <h2 className="text-xl font-bold tracking-tight uppercase">竞争追价控制台</h2>
+                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
               </div>
-              <div className="flex flex-wrap gap-4 mt-1">
-                <div className="flex items-center gap-2 text-xs text-[#141414]/70">
-                  <span>数据版本：{activeState.lastApiSyncTime}</span>
-                </div>
+              {activeTab !== 'permissions' && <div className="flex flex-wrap gap-4 mt-1">
+                {activeTab !== 'history' && <div className="flex items-center gap-2 text-xs text-[#141414]/70">
+                  <span>
+                    数据版本：{useSharedSnapshot
+                      ? (readOnlySnapshot ? `共享快照 ${readOnlySnapshot.id}` : '暂无可查看的共享快照')
+                      : activeState.lastApiSyncTime}
+                  </span>
+                </div>}
                 <div className="flex items-center gap-2 text-xs text-[#141414]/70">
                   <span>{historySyncStatus}</span>
                 </div>
-              </div>
+              </div>}
             </div>
 
             <div className="flex items-center gap-3">
               <div className="border border-[#141414] bg-white px-3 py-1 text-xs font-bold">
-                {user.name}
+                {user.name} · {isAdmin ? '管理员' : isReadOnly ? '只读' : '可编辑'}
                 <button type="button" onClick={logout} className="ml-2 underline">退出</button>
               </div>
-              <button
+              {canEditWorkspace && canEditUpload && canAccess(user, activeChannelId, 'competitiveness') && activeTab !== 'permissions' && <button
                 type="button"
                 data-tour="tutorial-button"
                 onClick={startTour}
@@ -1099,50 +953,55 @@ export default function App() {
               >
                 <Info className="h-3.5 w-3.5" />
                 {hasPausedTour ? '继续教程' : '新手教程'}
-              </button>
-              <span className="text-xs font-bold opacity-70">追价策略：</span>
+              </button>}
+              {showWorkspaceControls && <><span className="text-xs font-bold opacity-70">追价策略：</span>
               <div data-tour="top-strategy" className="flex gap-1 bg-white p-0.5 border border-[#141414]">
                 {[-0.03, 0, 0.03].map(val => (
                   <button
                     key={val}
+                    disabled={!canEditWorkspace}
                     onClick={() => handleMarginChange(val)}
-                    className={`px-2.5 py-0.5 text-xs font-bold transition-all ${activeState.pricingMode === 'margin' && activeState.marginBottomLine === val ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10'}`}
+                    className={`px-2.5 py-0.5 text-xs font-bold transition-all disabled:cursor-not-allowed ${effectivePricingMode === 'margin' && effectiveMarginBottomLine === val ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10 disabled:text-[#777]'}`}
                   >
                     {formatPercent(val)}
                   </button>
                 ))}
                 <button
                   type="button"
+                  disabled={!canEditWorkspace}
                   onClick={() => handlePricingModeChange('fullCompetition')}
-                  className={`px-2.5 py-0.5 text-xs font-bold transition-all ${activeState.pricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10'}`}
+                  className={`px-2.5 py-0.5 text-xs font-bold transition-all disabled:cursor-not-allowed ${effectivePricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'text-[#141414] hover:bg-black/10 disabled:text-[#777]'}`}
                 >
                   100%竞争力
                 </button>
-              </div>
+              </div></>}
             </div>
           </header>
 
-          <main className="px-6 py-6 space-y-6 max-w-[1440px] mx-auto">
-            <DashboardStats
+          <main className={`px-6 py-6 space-y-6 mx-auto ${activeTab === 'history' ? 'max-w-none' : 'max-w-[1440px]'}`}>
+            {showWorkspaceControls && <DashboardStats
               products={activeCalculatedItems}
-              marginBottomLine={activeState.marginBottomLine}
-              pricingMode={activeState.pricingMode}
+              marginBottomLine={effectiveMarginBottomLine}
+              pricingMode={effectivePricingMode}
               channelId={activeChannelId}
-            />
+            />}
 
-            <div className="border border-[#141414] bg-white p-1">
-              {activeTab === 'workspace' && (
+            <div className={activeTab === 'history' ? 'min-w-0' : 'border border-[#141414] bg-white p-1'}>
+              {activeTab === 'permissions' && isAdmin && <PermissionPanel />}
+              {activeTab === 'workspace' && canViewWorkspace && (
                 <>
                   <InvestmentRatePanel
                     products={activeCalculatedItems}
-                    investmentRateInputs={activeState.investmentRateInputs}
+                    investmentRateInputs={effectiveInvestmentRateInputs}
                     onInvestmentRateInputsChange={setInvestmentRateInputs}
                     channelSalesLabel={activeChannel.channelSalesLabel}
+                    readOnly={!canEditWorkspace}
                   />
                   <MainTable
+                    readOnly={!canEditWorkspace}
                     products={activeCalculatedItems}
-                    marginBottomLine={activeState.marginBottomLine}
-                    pricingMode={activeState.pricingMode}
+                    marginBottomLine={effectiveMarginBottomLine}
+                    pricingMode={effectivePricingMode}
                     channelId={activeChannelId}
                     subsidyRules={activeState.subsidyRules}
                     selfSubsidyRules={activeState.selfSubsidyRules}
@@ -1162,7 +1021,7 @@ export default function App() {
                 </>
               )}
 
-              {activeTab === 'upload' && (
+              {activeTab === 'upload' && canAccess(user, activeChannelId, 'upload') && (canEditUpload ? (
                 <UploadSection
                   channelId={activeChannelId}
                   currentProducts={activeState.productsMaster}
@@ -1176,27 +1035,31 @@ export default function App() {
                   onSelfSubsidyRulesLoaded={handleSelfSubsidyRulesLoaded}
                   onCompetitivenessHistoryLoaded={handleCompetitivenessHistoryLoaded}
                 />
-              )}
+              ) : <SharedSourcesPanel batch={latestSnapshot} />)}
 
-              {activeTab === 'history' && (
+              {activeTab === 'history' && canAccess(user, activeChannelId, 'history') && (
+                <div key={activeChannelId}>
                 <HistoryPanel
                   historyBatches={activeState.historyBatches}
-                  onDeleteBatch={handleDeleteBatch}
+                  selectedBatchId={selectedHistoryBatchIds[activeChannelId]}
+                  onSelectBatch={id => setSelectedHistoryBatchIds(previous => ({ ...previous, [activeChannelId]: id }))}
+                  onDeleteBatch={canEdit(user, activeChannelId, 'history') ? handleDeleteBatch : undefined}
                   channelName={activeChannel.name}
                 />
+                </div>
               )}
 
-              {activeTab === 'competitiveness' && (
+              {activeTab === 'competitiveness' && canAccess(user, activeChannelId, 'competitiveness') && (
                 <CompetitivenessSummary
                   historyBatches={activeState.historyBatches}
-                  currentCalculatedItems={activeCalculatedItems}
+                  currentCalculatedItems={useSharedSnapshot ? [] : activeCalculatedItems}
                   activeSubsidyFileName={activeState.activeSubsidyFileName}
                   channelId={activeChannelId}
                   channelName={activeChannel.name}
                 />
               )}
 
-              {activeTab === 'tmHandGap' && (
+              {activeTab === 'tmHandGap' && canAccess(user, activeChannelId, 'tmHandGap') && (
                 <TmHandPriceGapPanel
                   products={activeCalculatedItems}
                   channelName={activeChannel.name}
@@ -1204,7 +1067,7 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'audit' && <AuditLogPanel />}
+              {activeTab === 'audit' && canAccess(user, activeChannelId, 'audit') && <AuditLogPanel channelId={activeChannelId} isAdmin={isAdmin} />}
             </div>
           </main>
 

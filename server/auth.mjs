@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import tls from 'node:tls';
+import { ALL_ACCESS_SCOPES, DEFAULT_VIEWER_SCOPES, isEditor } from '../shared/accessPolicy.mjs';
+import { ACCESS_PROFILES, DEFAULT_ADMIN_OPEN_IDS } from './accessBootstrap.mjs';
 
 if (typeof tls.setDefaultCACertificates === 'function') {
   tls.setDefaultCACertificates(tls.rootCertificates);
@@ -8,6 +10,32 @@ if (typeof tls.setDefaultCACertificates === 'function') {
 const SESSION_COOKIE = 'price_rival_session';
 const OAUTH_STATE_COOKIE = 'price_rival_oauth_state';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+export const AUTH_ROLES = Object.freeze({
+  ADMIN: 'admin',
+  VIEWER: 'viewer',
+  EDITOR: 'editor',
+  TRADE_IN_VIEWER: 'tradeInViewer'
+});
+
+export const resolveAuthRole = (user, {
+  allowedDepartments,
+  allowedOpenIds,
+  readOnlyDepartments,
+  readOnlyOpenIds
+}) => {
+  const openId = String(user?.openId || '');
+  const departmentIds = Array.isArray(user?.departmentIds) ? user.departmentIds : [];
+  if (allowedOpenIds.has(openId)) {
+    return AUTH_ROLES.EDITOR;
+  }
+  if (readOnlyOpenIds.has(openId)) {
+    return AUTH_ROLES.TRADE_IN_VIEWER;
+  }
+  if (departmentIds.some(id => allowedDepartments.has(id))) return AUTH_ROLES.EDITOR;
+  if (departmentIds.some(id => readOnlyDepartments.has(id))) return AUTH_ROLES.TRADE_IN_VIEWER;
+  return null;
+};
 
 const splitCsv = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean);
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -46,10 +74,41 @@ export const createAuth = ({ db, env, appUrl }) => {
   const allowedDepartments = new Set(splitCsv(env.FEISHU_ALLOWED_DEPARTMENT_IDS));
   const allowedOpenIds = new Set(splitCsv(env.FEISHU_ALLOWED_OPEN_IDS));
   const allowedTenantKeys = new Set(splitCsv(env.FEISHU_ALLOWED_TENANT_KEYS));
+  const readOnlyDepartments = new Set(splitCsv(env.FEISHU_READ_ONLY_DEPARTMENT_IDS));
+  const readOnlyOpenIds = new Set(splitCsv(env.FEISHU_READ_ONLY_OPEN_IDS));
+  db.initializeAccess?.({ editors: [...allowedOpenIds], viewers: [...readOnlyOpenIds],
+    admins: env.FEISHU_ADMIN_OPEN_IDS ? splitCsv(env.FEISHU_ADMIN_OPEN_IDS) : DEFAULT_ADMIN_OPEN_IDS,
+    profiles: ACCESS_PROFILES });
+  // Search tokens stay in server memory only, never in cookies, JSON responses or logs.
+  const directoryTokens = new Map();
+  const developmentAccess = () => {
+    const role = env.AUTH_DEV_ROLE === 'admin' ? 'admin' : ['viewer', 'tradeInViewer'].includes(env.AUTH_DEV_ROLE) ? 'viewer' : 'editor';
+    const scopes = env.AUTH_DEV_SCOPES ? splitCsv(env.AUTH_DEV_SCOPES).filter(scope => ALL_ACCESS_SCOPES.includes(scope))
+      : role === 'viewer' ? [...DEFAULT_VIEWER_SCOPES] : [...ALL_ACCESS_SCOPES];
+    return { role, scopes, enabled: true, accessVersion: 0 };
+  };
   const devLoginEnabled = env.NODE_ENV !== 'production' && env.AUTH_DEV_BYPASS === 'true';
   const secureCookie = appUrl.startsWith('https://');
   const callbackUrl = env.FEISHU_REDIRECT_URI || `${appUrl}/api/auth/feishu/callback`;
-  const authConfigured = Boolean(appId && appSecret && (allowedDepartments.size || allowedOpenIds.size));
+  const authConfigured = Boolean(appId && appSecret && db.hasMembers?.());
+
+  const resolveRole = user => resolveAuthRole(user, {
+    allowedDepartments,
+    allowedOpenIds,
+    readOnlyDepartments,
+    readOnlyOpenIds
+  });
+
+  const applyCurrentAccess = user => {
+    if (!user) return null;
+    if (user.loginType === 'development' && devLoginEnabled) {
+      return { ...user, ...developmentAccess() };
+    }
+    const tenantAllowed = allowedTenantKeys.size === 0 || allowedTenantKeys.has(user.tenantKey);
+    const member = tenantAllowed ? db.getMember(user.openId) : null;
+    return member?.enabled ? { ...user, name: member.name, role: member.role, scopes: member.scopes,
+      enabled: true, accessVersion: member.version } : null;
+  };
 
   const createSession = (res, user) => {
     const token = randomToken();
@@ -67,7 +126,7 @@ export const createAuth = ({ db, env, appUrl }) => {
 
   const getUser = req => {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-    return token ? db.getSession(sha256(token)) : null;
+    return token ? applyCurrentAccess(db.getSession(sha256(token))) : null;
   };
 
   const requestContext = req => ({
@@ -93,7 +152,7 @@ export const createAuth = ({ db, env, appUrl }) => {
       },
       '飞书授权码换 token'
     );
-    return tokenPayload.access_token || tokenPayload.data?.access_token;
+    return tokenPayload.data || tokenPayload;
   };
 
   const getFeishuUser = async accessToken => {
@@ -130,6 +189,43 @@ export const createAuth = ({ db, env, appUrl }) => {
       '飞书部门信息查询'
     );
     return payload.data?.items?.[0]?.department_ids || [];
+  };
+
+  const lookupDirectoryUser = async openId => {
+    if (!/^ou_[a-zA-Z0-9]+$/.test(openId)) throw new Error('飞书账号 ID 无效');
+    const token = await getTenantToken();
+    const payload = await fetchJson(`https://open.feishu.cn/open-apis/contact/v3/users/${encodeURIComponent(openId)}?user_id_type=open_id`,
+      { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }, '飞书成员查询');
+    const contact = payload.data?.user;
+    if (!contact?.open_id || !contact?.name || contact.open_id !== openId) throw new Error('未找到该飞书成员');
+    if (contact.status?.is_resigned) throw new Error('该成员已离职');
+    const profile = { openId, name: contact.name, department: contact.department_name || db.getProfile(openId)?.department || '' };
+    db.rememberProfile(profile);
+    return profile;
+  };
+
+  const searchDirectory = async (user, query) => {
+    const local = db.searchProfiles(query);
+    if (/^ou_[a-zA-Z0-9]+$/.test(query)) return { users: [await lookupDirectoryUser(query)], requiresLogin: false };
+    const credential = directoryTokens.get(user.openId);
+    if (!credential || credential.expiresAt <= Date.now()) {
+      directoryTokens.delete(user.openId);
+      return { users: local, requiresLogin: user.loginType !== 'development' };
+    }
+    const url = new URL('https://open.feishu.cn/open-apis/search/v1/user');
+    url.searchParams.set('query', query); url.searchParams.set('page_size', '20');
+    try {
+      const payload = await fetchJson(url, { headers: { authorization: `Bearer ${credential.token}` }, signal: AbortSignal.timeout(8000) }, '飞书姓名搜索');
+      const contacts = payload.data?.users || [];
+      const verified = contacts.filter(contact => contact.open_id && contact.name && !contact.is_external).map(contact => ({
+        openId: contact.open_id, name: contact.name, department: contact.department_name || db.getProfile(contact.open_id)?.department || ''
+      }));
+      verified.forEach(profile => db.rememberProfile(profile));
+      return { users: [...new Map([...local, ...verified].map(profile => [profile.openId, profile])).values()], requiresLogin: false };
+    } catch {
+      directoryTokens.delete(user.openId);
+      return { users: local, requiresLogin: true, message: '飞书姓名搜索暂不可用，可重新登录后重试，或输入飞书账号 ID 查询。' };
+    }
   };
 
   const registerRoutes = app => {
@@ -172,19 +268,18 @@ export const createAuth = ({ db, env, appUrl }) => {
         if (!code || !state || state !== cookies[OAUTH_STATE_COOKIE]) {
           throw new Error('飞书登录 state 校验失败');
         }
-        const accessToken = await exchangeCode(code);
+        const tokenPayload = await exchangeCode(code);
+        const accessToken = tokenPayload.access_token;
         if (!accessToken) throw new Error('飞书未返回 user_access_token');
         const feishuUser = await getFeishuUser(accessToken);
         const openId = feishuUser.open_id;
         if (!openId) throw new Error('飞书未返回 open_id');
 
         const tenantAllowed = allowedTenantKeys.size === 0 || allowedTenantKeys.has(feishuUser.tenant_key);
-        let departmentIds = [];
-        if (!allowedOpenIds.has(openId) && allowedDepartments.size > 0) {
-          departmentIds = await getDepartmentIds(openId);
-        }
-        const departmentAllowed = departmentIds.some(id => allowedDepartments.has(id));
-        if (!tenantAllowed || (!allowedOpenIds.has(openId) && !departmentAllowed)) {
+        const departmentIds = [];
+        if (tenantAllowed) db.rememberProfile({ openId, name: feishuUser.name || '飞书用户' });
+        const member = tenantAllowed ? db.getMember(openId) : null;
+        if (!member?.enabled) {
           db.writeAudit({
             ...requestContext(req),
             actor: { openId, name: feishuUser.name || '' },
@@ -193,7 +288,7 @@ export const createAuth = ({ db, env, appUrl }) => {
             resourceType: 'auth_session',
             details: { tenantKey: feishuUser.tenant_key || '', departmentIds }
           });
-          res.status(403).send('当前飞书账号不在竞争追价系统白名单内。');
+          res.status(403).send('当前飞书账号尚未开通或已停用，请联系管理员在权限管理中搜索你的姓名并开通。');
           return;
         }
 
@@ -205,8 +300,15 @@ export const createAuth = ({ db, env, appUrl }) => {
           avatarUrl: feishuUser.avatar_url || feishuUser.avatar_big || '',
           tenantKey: feishuUser.tenant_key || '',
           departmentIds,
+          role: member.role,
+          scopes: member.scopes,
+          enabled: true,
+          accessVersion: member.version,
           loginType: 'feishu'
         };
+        if (member.role === 'admin') directoryTokens.set(openId, {
+          token: accessToken, expiresAt: Date.now() + Math.min(Number(tokenPayload.expires_in) || 7200, 7200) * 1000
+        });
         createSession(res, user);
         db.writeAudit({
           ...requestContext(req),
@@ -242,6 +344,7 @@ export const createAuth = ({ db, env, appUrl }) => {
         avatarUrl: '',
         tenantKey: 'local',
         departmentIds: ['local-development'],
+        ...developmentAccess(),
         loginType: 'development'
       };
       createSession(res, user);
@@ -258,6 +361,7 @@ export const createAuth = ({ db, env, appUrl }) => {
     app.post('/api/auth/logout', (req, res) => {
       const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
       const user = token ? db.getSession(sha256(token)) : null;
+      if (user) directoryTokens.delete(user.openId);
       if (token) db.deleteSession(sha256(token));
       clearSession(res);
       db.writeAudit({
@@ -280,6 +384,21 @@ export const createAuth = ({ db, env, appUrl }) => {
     next();
   };
 
+  const requireEditor = (req, res, next) => {
+    if (!isEditor(req.authUser)) {
+      db.writeAudit({
+        ...requestContext(req),
+        action: 'AUTHORIZATION_DENIED',
+        outcome: 'DENIED',
+        resourceType: 'api_write',
+        details: { method: req.method, path: req.originalUrl || req.url || '' }
+      });
+      res.status(403).json({ success: false, error: '当前账号为换新只读权限，无法修改或保存数据' });
+      return;
+    }
+    next();
+  };
+
   const logoutCurrentSession = (req, res) => {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     if (token) db.deleteSession(sha256(token));
@@ -292,6 +411,9 @@ export const createAuth = ({ db, env, appUrl }) => {
     getUser,
     registerRoutes,
     requireAuth,
+    requireEditor,
+    searchDirectory,
+    lookupDirectoryUser,
     requestContext,
     logoutCurrentSession
   };

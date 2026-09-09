@@ -11,6 +11,9 @@ import {
   getCompetitivenessExportFileName
 } from './competitivenessWorkbook.mjs';
 import { createDatabase } from './database.mjs';
+import { canAccess, accessibleChannels } from '../shared/accessPolicy.mjs';
+import { listAuthorizedBatches } from './accessProjection.mjs';
+import { registerAccessRoutes } from './accessRoutes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, '..');
@@ -60,6 +63,7 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use('/api', (_req, res, next) => { res.setHeader('cache-control', 'private, no-store'); next(); });
 auth.registerRoutes(app);
 
 const requireSameOrigin = (req, res, next) => {
@@ -81,6 +85,12 @@ const requireSameOrigin = (req, res, next) => {
 };
 
 app.use('/api', auth.requireAuth, requireSameOrigin);
+registerAccessRoutes(app, { db, auth });
+const requestChannel = req => req.body?.channelId || 'tradeIn';
+const requirePage = (channel, page) => (req, res, next) => {
+  if (canAccess(req.authUser, typeof channel === 'function' ? channel(req) : channel, page)) return next();
+  res.status(403).json({ success: false, error: '当前账号未开通该渠道或页面' });
+};
 
 const auditFailure = (req, action, error, resourceId = null) => {
   db.writeAudit({
@@ -95,7 +105,14 @@ const auditFailure = (req, action, error, resourceId = null) => {
 
 app.get('/api/tracking-batches', (req, res) => {
   const channelId = req.query.channelId ? String(req.query.channelId) : null;
-  res.json({ success: true, batches: db.listBatches(channelId) });
+  if (channelId && !accessibleChannels(req.authUser).some(channel => channel.id === channelId)) {
+    res.status(403).json({ success: false, error: '当前账号未开通该渠道' });
+    return;
+  }
+  res.json({
+    success: true,
+    batches: listAuthorizedBatches(db, req.authUser, channelId)
+  });
 });
 
 app.get('/api/tracking-batches/:id', (req, res) => {
@@ -104,10 +121,15 @@ app.get('/api/tracking-batches/:id', (req, res) => {
     res.status(404).json({ success: false, error: '历史批次不存在' });
     return;
   }
-  res.json({ success: true, batch });
+  const authorized = listAuthorizedBatches(db, req.authUser, batch.channelId || 'tradeIn').find(item => item.id === batch.id);
+  if (!authorized) {
+    res.status(403).json({ success: false, error: '当前账号未开通该批次的查看范围' });
+    return;
+  }
+  res.json({ success: true, batch: authorized });
 });
 
-app.post('/api/tracking-batches', (req, res) => {
+app.post('/api/tracking-batches', auth.requireEditor, requirePage(req => req.body?.batch?.channelId || 'tradeIn', 'workspace'), (req, res) => {
   try {
     const batch = db.createBatch(req.body?.batch, auth.requestContext(req));
     res.status(201).json({ success: true, batch });
@@ -117,7 +139,10 @@ app.post('/api/tracking-batches', (req, res) => {
   }
 });
 
-app.post('/api/tracking-batches/import', (req, res) => {
+app.post('/api/tracking-batches/import', auth.requireEditor, (req, res) => {
+  if (!Array.isArray(req.body?.batches) || req.body.batches.some(batch => !canAccess(req.authUser, batch?.channelId || 'tradeIn', 'upload'))) {
+    res.status(403).json({ success: false, error: '未开通所导入渠道的数据源权限' }); return;
+  }
   try {
     const result = db.importBatches(req.body?.batches, auth.requestContext(req));
     res.json({ success: true, ...result });
@@ -127,7 +152,11 @@ app.post('/api/tracking-batches/import', (req, res) => {
   }
 });
 
-app.delete('/api/tracking-batches/:id', (req, res) => {
+app.delete('/api/tracking-batches/:id', auth.requireEditor, (req, res) => {
+  const target = db.getBatch(req.params.id);
+  if (!target || !canAccess(req.authUser, target.channelId || 'tradeIn', 'history')) {
+    res.status(403).json({ success: false, error: '未开通该渠道的历史管理权限' }); return;
+  }
   try {
     const batch = db.deleteBatch(req.params.id, auth.requestContext(req));
     res.json({ success: true, batch });
@@ -137,7 +166,7 @@ app.delete('/api/tracking-batches/:id', (req, res) => {
   }
 });
 
-app.post('/api/tracking-batches/brand-backfill', (req, res) => {
+app.post('/api/tracking-batches/brand-backfill', auth.requireEditor, requirePage(requestChannel, 'upload'), (req, res) => {
   try {
     const result = db.backfillBatchBrands(
       String(req.body?.channelId || 'tradeIn'),
@@ -152,10 +181,14 @@ app.post('/api/tracking-batches/brand-backfill', (req, res) => {
 });
 
 app.get('/api/audit-logs', (req, res) => {
-  res.json({ success: true, logs: db.listAuditLogs(req.query.limit) });
+  const channelId = String(req.query.channelId || 'tradeIn');
+  if (!canAccess(req.authUser, channelId, 'audit')) {
+    res.status(403).json({ success: false, error: '未开通该渠道的操作日志' }); return;
+  }
+  res.json({ success: true, logs: db.listAuditLogs(req.query.limit, req.authUser.role === 'admin' ? null : channelId) });
 });
 
-app.post('/api/exports/competitiveness-trends', async (req, res) => {
+app.post('/api/exports/competitiveness-trends', requirePage(requestChannel, 'competitiveness'), async (req, res) => {
   try {
     const workbook = await createCompetitivenessTrendWorkbook(req.body);
     const fileName = getCompetitivenessExportFileName();
@@ -170,7 +203,7 @@ app.post('/api/exports/competitiveness-trends', async (req, res) => {
   }
 });
 
-app.post('/api/daily-price/lookup', async (req, res) => {
+app.post('/api/daily-price/lookup', auth.requireEditor, requirePage(requestChannel, 'upload'), async (req, res) => {
   const ppv = req.body?.ppv || req.body?.ppvs || [];
   const headers = { 'content-type': 'application/json' };
   if (DAILY_PRICE_LOOKUP_URL.includes('/api/') && !DAILY_PRICE_TOKEN) {
@@ -217,7 +250,7 @@ const loginPage = () => `<!doctype html>
 .head{background:#141414;color:#fff;padding:18px 22px;font-size:18px;font-weight:900}.body{padding:28px}.tag{display:inline-block;border:1px solid #141414;background:#f0efec;padding:4px 8px;font-size:12px;font-weight:700}
 h1{font-size:24px;margin:18px 0 8px}p{font-size:13px;line-height:1.7;color:#555}.btn{display:block;width:100%;margin-top:22px;border:2px solid #141414;background:#141414;color:#fff;padding:13px;text-align:center;text-decoration:none;font-size:14px;font-weight:900;cursor:pointer}
 .dev{background:#fff;color:#141414;margin-top:10px}.foot{border-top:1px solid #141414;background:#f0efec;padding:12px 22px;font-size:11px;color:#555}
-</style></head><body><main class="wrap"><section class="card"><div class="head">线上竞争追价系统</div><div class="body"><span class="tag">公司内部系统</span><h1>使用飞书账号登录</h1><p>仅飞书部门白名单内成员可访问。确认落数、历史迁移和删除操作均会记录操作人与时间。</p><a class="btn" href="/api/auth/login">飞书授权登录</a>${auth.devLoginEnabled ? '<button class="btn dev" onclick="devLogin()">本地验收登录</button>' : ''}</div><div class="foot">未在白名单中请联系系统管理员</div></section></main><script>
+</style></head><body><main class="wrap"><section class="card"><div class="head">线上竞争追价系统</div><div class="body"><span class="tag">公司内部系统</span><h1>使用飞书账号登录</h1><p>按人员开通访问。首次登录后，可联系管理员在权限管理中搜索你的姓名并开通。</p><a class="btn" href="/api/auth/login">飞书授权登录</a>${auth.devLoginEnabled ? '<button class="btn dev" onclick="devLogin()">本地验收登录</button>' : ''}</div><div class="foot">尚未开通访问请联系系统管理员</div></section></main><script>
 async function devLogin(){const r=await fetch('/api/auth/dev-login',{method:'POST'});if(r.ok)location.reload();else alert((await r.json()).error||'登录失败')}
 </script></body></html>`;
 
@@ -239,11 +272,47 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`Feishu auth configured: ${auth.authConfigured ? 'yes' : 'no'}; dev login: ${auth.devLoginEnabled ? 'enabled' : 'disabled'}`);
 });
 
+const createLocalCallbackBridge = () => {
+  const redirectUri = process.env.FEISHU_REDIRECT_URI;
+  if (!redirectUri) return null;
+
+  let callbackUrl;
+  try {
+    callbackUrl = new URL(redirectUri);
+  } catch {
+    return null;
+  }
+
+  const isLocalCallback = callbackUrl.protocol === 'http:'
+    && ['localhost', '127.0.0.1'].includes(callbackUrl.hostname);
+  const callbackPort = Number(callbackUrl.port || 80);
+  if (!isLocalCallback || callbackPort === PORT) return null;
+
+  const bridge = express();
+  bridge.get(callbackUrl.pathname, (req, res) => {
+    const target = new URL(callbackUrl.pathname, `${APP_URL}/`);
+    target.search = new URL(req.originalUrl, callbackUrl).search;
+    res.redirect(302, target.toString());
+  });
+  bridge.use((_req, res) => res.status(404).send('Not found'));
+
+  return bridge.listen(callbackPort, '127.0.0.1', () => {
+    console.log(`Feishu callback bridge listening on 127.0.0.1:${callbackPort} -> ${APP_URL}`);
+  });
+};
+
+const callbackBridge = createLocalCallbackBridge();
+
 const shutdown = () => {
-  server.close(() => {
+  const closeDatabase = () => {
     db.close();
     process.exit(0);
-  });
+  };
+  if (callbackBridge) {
+    callbackBridge.close(() => server.close(closeDatabase));
+    return;
+  }
+  server.close(closeDatabase);
 };
 
 process.on('SIGTERM', shutdown);

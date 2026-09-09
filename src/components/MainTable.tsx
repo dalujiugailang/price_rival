@@ -5,15 +5,27 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalculatedProduct, ChannelId, PricingMode, SelfOperatedSubsidyRule, SubsidyRule } from '../types';
+import { CalculatedProduct, ChannelId, PricingMode, SelfOperatedSubsidyRule, SubsidyRule, TrackingBatch } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateCompetitivenessMetrics } from '../utils/competitiveness';
 import { addDynamicPricingWorkbookSheets } from '../utils/pricingWorkbook';
 import { getSmallGapTolerancePrices } from '../utils/smallGapTolerance';
 import { getTmPriceGaps } from '../utils/tmPriceGaps';
+import { createSnapshotWorkbook } from '../utils/snapshotHistory';
+import {
+  ColumnFilters,
+  EMPTY_COLUMN_FILTER_VALUE,
+  getColumnFilterOptions,
+  matchesColumnFilters,
+  matchesTableSearch,
+  setColumnFilter
+} from '../utils/tableColumnFilters';
+import ColumnFilterButton from './ColumnFilterButton';
 import * as XLSX from 'xlsx';
 
 interface Props {
+  readOnly?: boolean;
+  snapshot?: TrackingBatch;
   products: CalculatedProduct[];
   marginBottomLine: number;
   pricingMode: PricingMode;
@@ -61,6 +73,8 @@ const currentLocalDateTime = () => {
 const marginInputText = (margin: number) => String(Math.round(margin * 1000) / 10);
 
 export default function MainTable({
+  readOnly: requestedReadOnly = false,
+  snapshot,
   products,
   marginBottomLine,
   pricingMode,
@@ -74,6 +88,7 @@ export default function MainTable({
   onSaveBatch,
   onManualRecommendPriceChange,
 }: Props) {
+  const readOnly = requestedReadOnly || Boolean(snapshot);
   const isSelfOperated = channelId === 'selfOperated';
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [batchRemarks, setBatchRemarks] = useState('');
@@ -81,20 +96,16 @@ export default function MainTable({
   const [confirmCompetitiveness, setConfirmCompetitiveness] = useState(true);
   const [competitivenessDate, setCompetitivenessDate] = useState(currentLocalDate);
   const [pricingTimestamp, setPricingTimestamp] = useState(currentLocalDateTime);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedReasonFilters, setSelectedReasonFilters] = useState<string[]>([]);
-  const [showReasonFilter, setShowReasonFilter] = useState(false);
+  const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
+  const [tableSearch, setTableSearch] = useState('');
+  const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
   const [editingRecommendPpv, setEditingRecommendPpv] = useState<string | null>(null);
   const [editingRecommendValue, setEditingRecommendValue] = useState('');
   const [savingBatch, setSavingBatch] = useState(false);
-  const reasonFilterAnchorRef = useRef<HTMLTableCellElement>(null);
-  const [reasonFilterPosition, setReasonFilterPosition] = useState({ top: 0, left: 0 });
   const smallGapToleranceTriggerRef = useRef<HTMLButtonElement>(null);
   const smallGapTolerancePopoverRef = useRef<HTMLDivElement>(null);
   const [showSmallGapTolerancePopover, setShowSmallGapTolerancePopover] = useState(false);
   const [smallGapTolerancePopoverPosition, setSmallGapTolerancePopoverPosition] = useState({ top: 0, left: 0 });
-  const [selectedSeries, setSelectedSeries] = useState('ALL');
-  const [filterRisk, setFilterRisk] = useState<'ALL' | 'CRITICAL' | 'WARNING' | 'SAFE'>('ALL');
   const [marginInput, setMarginInput] = useState(marginInputText(marginBottomLine));
   const [smallGapToleranceInput, setSmallGapToleranceInput] = useState(marginInputText(smallGapToleranceMargin));
 
@@ -107,27 +118,10 @@ export default function MainTable({
   }, [smallGapToleranceMargin]);
 
   useEffect(() => {
-    if (!showReasonFilter) return;
-
-    const updatePosition = () => {
-      const anchor = reasonFilterAnchorRef.current;
-      if (!anchor) return;
-      const rect = anchor.getBoundingClientRect();
-      const popupWidth = 320;
-      setReasonFilterPosition({
-        top: rect.bottom + 4,
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8))
-      });
-    };
-
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-    };
-  }, [showReasonFilter]);
+    setColumnFilters({});
+    setTableSearch('');
+    setOpenColumnFilter(null);
+  }, [channelId]);
 
   useEffect(() => {
     if (!showSmallGapTolerancePopover) return;
@@ -176,7 +170,6 @@ export default function MainTable({
     return match ? { code: match[1], label: match[2] } : { code: '', label: key };
   };
 
-  const seriesList = ['ALL', ...Array.from(new Set(products.map(p => p.newSeries)))];
   const rawFieldKeys = Array.from(products.reduce((fields, product) => {
     Object.keys(product.rawFields || {}).forEach(key => fields.add(key));
     return fields;
@@ -186,27 +179,15 @@ export default function MainTable({
     return !/(新机系列|tm|天猫|jd总到手价|京东总补贴|对应新品型号ahs投入|含AHS补贴后报价)/i.test(`${key}${label}`);
   });
   const quoteWeightLabel = isSelfOperated ? 'ppv近30天报价访客数' : 'ppv近30天报价量';
-  const liveCompetitiveness = calculateCompetitivenessMetrics(products, channelId);
-  const reasonOptions = Array.from(products.reduce((options, product) => {
-    product.pricingRemark
-      .split('；')
-      .map(item => item.trim())
-      .filter(Boolean)
-      .forEach(item => options.add(item));
-    return options;
-  }, new Set<string>()));
-  const selectedReasonFilterSet = new Set(selectedReasonFilters);
-
-  const filteredProducts = products.filter(p => {
-    const query = searchTerm.toLowerCase();
-    const matchesSearch = p.ppv.toLowerCase().includes(query) || p.oldModel.toLowerCase().includes(query) || p.newSeries.toLowerCase().includes(query) || p.brand.toLowerCase().includes(query);
-    const matchesReason = selectedReasonFilters.length === 0 || selectedReasonFilters.some(reason => p.pricingRemark.includes(reason));
-    const matchesSeries = isSelfOperated || selectedSeries === 'ALL' || p.newSeries === selectedSeries;
-    const matchesRisk = filterRisk === 'ALL' || p.riskWarning === filterRisk;
-    return matchesSearch && matchesReason && matchesSeries && matchesRisk;
-  });
+  const displayedCompetitiveness = snapshot
+    ? snapshot.competitivenessMetrics
+    : calculateCompetitivenessMetrics(products, channelId);
+  const formatScore = (value: number | null | undefined) => (
+    value == null || !Number.isFinite(value) ? '—' : `${value.toFixed(1)}%`
+  );
 
   const handleConfirmSave = async () => {
+    if (readOnly) return;
     if (!operatorName.trim()) {
       alert('请填写操作人姓名。');
       return;
@@ -228,7 +209,6 @@ export default function MainTable({
       }
       setShowSaveModal(false);
       setBatchRemarks('');
-      alert(confirmCompetitiveness ? '测算快照已写入共享数据库，并已确认为竞争力落数。' : '测算快照已写入共享历史。');
     } catch (error) {
       alert(`保存失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -237,6 +217,7 @@ export default function MainTable({
   };
 
   const handleMarginInputChange = (value: string) => {
+    if (readOnly) return;
     setMarginInput(value);
     if (!/^-?\d*(\.\d*)?$/.test(value) || value === '' || value === '-' || value === '.') return;
 
@@ -245,7 +226,7 @@ export default function MainTable({
     onMarginChange(Math.max(-50, Math.min(50, nextValue)) / 100);
   };
 
-  const smallGapTolerancePrices = getSmallGapTolerancePrices(products);
+  const smallGapTolerancePrices = snapshot ? {} : getSmallGapTolerancePrices(products);
   const smallGapToleranceCount = Object.keys(smallGapTolerancePrices).length;
   const parsedSmallGapToleranceInput = /^-?\d+(\.\d*)?$/.test(smallGapToleranceInput)
     ? Number(smallGapToleranceInput)
@@ -253,7 +234,7 @@ export default function MainTable({
   const previewSmallGapToleranceMargin = Number.isFinite(parsedSmallGapToleranceInput)
     ? Math.max(-50, Math.min(50, parsedSmallGapToleranceInput)) / 100
     : null;
-  const previewSmallGapTolerancePrices = previewSmallGapToleranceMargin === null
+  const previewSmallGapTolerancePrices = snapshot || previewSmallGapToleranceMargin === null
     ? {}
     : getSmallGapTolerancePrices(products, previewSmallGapToleranceMargin);
   const previewSmallGapToleranceCount = Object.keys(previewSmallGapTolerancePrices).length;
@@ -264,6 +245,7 @@ export default function MainTable({
   };
 
   const toggleSmallGapTolerancePopover = () => {
+    if (readOnly) return;
     if (!showSmallGapTolerancePopover) {
       setSmallGapToleranceInput(marginInputText(smallGapToleranceMargin));
     }
@@ -271,6 +253,7 @@ export default function MainTable({
   };
 
   const handleApplySmallGapTolerance = () => {
+    if (readOnly) return;
     if (previewSmallGapToleranceMargin === null) return;
     const latestPrices = getSmallGapTolerancePrices(products, previewSmallGapToleranceMargin);
     const count = Object.keys(latestPrices).length;
@@ -285,30 +268,24 @@ export default function MainTable({
     setShowSmallGapTolerancePopover(false);
   };
 
-  const toggleReasonFilter = (reason: string) => {
-    setSelectedReasonFilters(prev => (
-      prev.includes(reason)
-        ? prev.filter(item => item !== reason)
-        : [...prev, reason]
-    ));
-  };
-
   const exportToExcel = () => {
+    if (snapshot) {
+      const workbook = createSnapshotWorkbook(snapshot, filteredProducts, exportColumns);
+      XLSX.writeFile(workbook, `${snapshot.channelName || '京东换新'}_历史快照_${snapshot.id}.xlsx`);
+      return;
+    }
     const inquirySheetName = getInquirySheetName();
     const channelName = isSelfOperated ? '自营' : '京东换新';
     const pricingSheetName = `${inquirySheetName}_${channelName}追价`;
     const profitFloorText = pricingMode === 'fullCompetition' ? '100%竞争力' : formatPercent(marginBottomLine);
     const dataToExport = [
-      [...exportColumns.map(column => column.code), ...rawFieldKeys.map(key => splitFieldKey(key).code)],
-      [...exportColumns.map(column => column.label), ...rawFieldKeys.map(key => splitFieldKey(key).label)],
-      ...filteredProducts.map(p => [
-        ...exportColumns.map(column => column.getValue(p)),
-        ...rawFieldKeys.map(key => displayValue(p.rawFields[key] ?? null))
-      ])
+      exportColumns.map(column => column.code),
+      exportColumns.map(column => column.label),
+      ...filteredProducts.map(p => exportColumns.map(column => column.getValue(p)))
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(dataToExport);
-    ws['!cols'] = [...exportColumns.map(column => column.width), ...rawColumnWidths].map(width => ({ wch: Math.max(10, Math.round(width / 7)) }));
+    ws['!cols'] = exportColumns.map(column => ({ wch: Math.max(10, Math.round(column.width / 7)) }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, pricingSheetName);
     addDynamicPricingWorkbookSheets({
@@ -336,6 +313,7 @@ export default function MainTable({
   };
 
   const beginRecommendEdit = (product: CalculatedProduct) => {
+    if (readOnly) return;
     setEditingRecommendPpv(product.ppv);
     setEditingRecommendValue(displayValue(product.recommendJdPrice));
   };
@@ -375,10 +353,10 @@ export default function MainTable({
   };
 
   const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 116, 104, 92, 104, 92, 100, 120, 120, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 120, 120, 132, 160, 160, 160, 220, 120
+    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 154, 168, 116, 104, 92, 104, 92, 100, 120, 120, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 120, 120, 132, 160, 220, 160, 160, 220, 190, 120
   ];
   const fixedCodes = [
-    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AW物差', 'AW到手差', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE物差', 'BE到手差', 'BE说明', 'BG', 'BH', 'BI', 'BJ', 'BK'
+    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AB-TM补', 'AB-TM补后', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AW物差', 'AW到手差', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE物差', 'BE到手差', 'BE说明', 'BG', 'BG-TM补', 'BH', 'BI', 'BJ', 'BJ-ZZ', 'BK'
   ];
   const fixedLabels = [
     '新机系列',
@@ -394,6 +372,8 @@ export default function MainTable({
     '对应新品型号jd总投入',
     'jd总到手价',
     'tm裸机价',
+    '对应新品型号tm回收商投入',
+    '含tm回收商补贴后报价',
     'tm总补贴-人工',
     'tm总到手价',
     'zz裸机价',
@@ -418,13 +398,15 @@ export default function MainTable({
     '追后tm到手价差',
     '追后边际利润率说明',
     '京东物品价-追价后 vs 天猫',
+    '京东物品价+ahs补贴-追价后 vs天猫',
     '京东到手价-追价后 vs 天猫',
     '京东物品价-追价后 vs 转转',
     '京东物品价+ahs补贴-追价后 vs 转转',
+    '京东到手价-追价后vs转转',
     '品牌名称'
   ];
-  const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 19, 20, 21, 22, 28, 31, 33, 34, 36, 37]);
-  const noteDisplayHiddenColumnIndexes = new Set([26, 35]);
+  const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 30, 33, 35, 36, 38, 39, 40, 43]);
+  const noteDisplayHiddenColumnIndexes = new Set([28, 37]);
   const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
   const isFixedColumnVisible = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
   const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index) || index === 31;
@@ -437,6 +419,9 @@ export default function MainTable({
 
   const getFixedExportValues = (p: CalculatedProduct) => {
     const gaps = getTmPriceGaps(p);
+    const booleanValue = (value: boolean | undefined) => (
+      snapshot && value == null ? null : value ? 1 : 0
+    );
     return [
     p.newSeries,
     p.oldModel,
@@ -444,13 +429,15 @@ export default function MainTable({
     p.skuId,
     p.levelId || '',
     p.quoteVolume,
-    p.soldVolume || 0,
+    snapshot ? p.soldVolume ?? null : p.soldVolume || 0,
     p.jdPrice,
     p.ahsInput,
     p.ahsQuotedPrice,
     p.jdSubsidy,
     p.jdHandPrice,
     p.tmPrice,
+    p.tmRecyclerSubsidy,
+    p.tmRecyclerQuotedPrice,
     p.tmSubsidyManual,
     p.tmHandPrice,
     p.zzPrice,
@@ -459,10 +446,10 @@ export default function MainTable({
     p.preMarginalProfit,
     gaps.preItemGap ?? '',
     gaps.preHandGap ?? '',
-    p.tmItemWin ? 1 : 0,
-    p.tmHandWin ? 1 : 0,
-    p.zzItemWin ? 1 : 0,
-    p.ahsZzHandWin ? 1 : 0,
+    booleanValue(p.tmItemWin),
+    booleanValue(p.tmHandWin),
+    booleanValue(p.zzItemWin),
+    booleanValue(p.ahsZzHandWin),
     p.recommendJdPrice,
     p.pricingRemark || '',
     p.recommendAdjustment,
@@ -473,13 +460,65 @@ export default function MainTable({
     p.postMarginalProfit,
     gaps.postItemGap ?? '',
     gaps.postHandGap ?? '',
-    `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
-    p.postTmItemWin ? 1 : 0,
-    p.postTmHandWin ? 1 : 0,
-    p.postZzItemWin ? 1 : 0,
-    p.postAhsZzHandWin ? 1 : 0,
+    snapshot && p.maxPriceByMargin == null ? null : `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
+    booleanValue(p.postTmItemWin),
+    booleanValue(p.postAhsTmRecyclerWin),
+    booleanValue(p.postTmHandWin),
+    booleanValue(p.postZzItemWin),
+    booleanValue(p.postAhsZzHandWin),
+    booleanValue(p.postJdZzHandWin),
     p.brand || ''
     ];
+  };
+
+  const fixedColumnFilterKey = (index: number) => `fixed:${index}`;
+  const getColumnFilterValue = (product: CalculatedProduct, columnKey: string) => {
+    if (columnKey.startsWith('fixed:')) {
+      const index = Number(columnKey.slice('fixed:'.length));
+      return getFixedExportValues(product)[index];
+    }
+    return '';
+  };
+  const getTableSearchValues = (product: CalculatedProduct) => [
+    ...getFixedExportValues(product),
+    ...rawFieldKeys.map(key => product.rawFields?.[key])
+  ];
+  const filteredProducts = products.filter(product => (
+    matchesColumnFilters(product, columnFilters, getColumnFilterValue)
+    && matchesTableSearch(product, tableSearch, getTableSearchValues)
+  ));
+  const activeColumnFilterCount = Object.keys(columnFilters).length;
+  const hasTableSearch = tableSearch.trim().length > 0;
+  const moneyColumnIndexes = new Set([9, 11, 13, 14, 16, 18, 19, 21, 22, 27, 29, 31, 32, 33, 35, 36]);
+  const percentColumnIndexes = new Set([20, 34]);
+  const formatColumnFilterOption = (columnKey: string, value: string) => {
+    if (value === EMPTY_COLUMN_FILTER_VALUE) return '(空白)';
+    if (!columnKey.startsWith('fixed:')) return value;
+    const index = Number(columnKey.slice('fixed:'.length));
+    const numericValue = Number(value);
+    if (percentColumnIndexes.has(index) && Number.isFinite(numericValue)) return formatPercent(numericValue);
+    if (moneyColumnIndexes.has(index) && Number.isFinite(numericValue)) return formatRMB(numericValue);
+    return value;
+  };
+  const getFilterButtonOptions = (columnKey: string) => (
+    getColumnFilterOptions(products, columnKey, columnFilters, getColumnFilterValue).map(option => ({
+      ...option,
+      label: formatColumnFilterOption(columnKey, option.value)
+    }))
+  );
+  const renderColumnFilterButton = (label: string, columnKey: string) => {
+    const isOpen = openColumnFilter === columnKey;
+    return (
+      <ColumnFilterButton
+        label={label}
+        options={isOpen ? getFilterButtonOptions(columnKey) : []}
+        activeValues={columnFilters[columnKey] || []}
+        isOpen={isOpen}
+        onToggle={() => setOpenColumnFilter(current => current === columnKey ? null : columnKey)}
+        onClose={() => setOpenColumnFilter(current => current === columnKey ? null : current)}
+        onApply={values => setColumnFilters(current => setColumnFilter(current, columnKey, values))}
+      />
+    );
   };
 
   const exportColumns = exportFixedIndexes.flatMap(index => {
@@ -487,10 +526,13 @@ export default function MainTable({
       code: fixedCodes[index],
       label: fixedLabels[index],
       width: fixedColumnWidths[index],
+      numberFormat: percentColumnIndexes.has(index) ? '0.00%' : moneyColumnIndexes.has(index) ? '#,##0.00' : undefined,
       getValue: (product: CalculatedProduct) => getFixedExportValues(product)[index]
     };
 
-    if (index === 25) {
+    if (snapshot) return [baseColumn];
+
+    if (index === 27) {
       return [
         {
           code: 'AY系统',
@@ -501,11 +543,11 @@ export default function MainTable({
         { ...baseColumn, label: '试算追后价' }
       ];
     }
-    if (index === 26) return [{ ...baseColumn, label: '系统追价理由' }];
-    if (index === 28) return [{ ...baseColumn, label: '系统小差额提醒' }];
-    if (index === 29) return [{ ...baseColumn, label: '追后AHS补贴' }];
-    if (index === 30) return [{ ...baseColumn, label: '追后含AHS补贴报价' }];
-    if (index === 31) {
+    if (index === 28) return [{ ...baseColumn, label: '系统追价理由' }];
+    if (index === 30) return [{ ...baseColumn, label: '系统小差额提醒' }];
+    if (index === 31) return [{ ...baseColumn, label: '追后AHS补贴' }];
+    if (index === 32) return [{ ...baseColumn, label: '追后含AHS补贴报价' }];
+    if (index === 33) {
       return [
         {
           code: 'BF补贴',
@@ -519,23 +561,7 @@ export default function MainTable({
     return [baseColumn];
   });
 
-  const rawFieldWidth = (key: string) => {
-    const { label } = splitFieldKey(key);
-    const text = `${key}${label}`.toLowerCase();
-    if (/ppv|sku|描述|标题|名称/.test(text)) return 300;
-    if (/型号|系列|品牌|等级/.test(text)) return 168;
-    if (/日期|时间|备注|原因|链接/.test(text)) return 180;
-    if (/补贴|价格|裸机|到手|价|毛利|边际|金额|费用|成本|基准/.test(text)) return 116;
-    if (/数量|报价量|成交|销量|占比|率|id/.test(text)) return 96;
-    return 132;
-  };
-
-  const rawColumnWidths = rawFieldKeys.map(rawFieldWidth);
-  const tableWidth = visibleFixedColumnWidths.reduce((sum, width) => sum + width, 0) + rawColumnWidths.reduce((sum, width) => sum + width, 0);
-  const rawHeaderStyle = (key: string): React.CSSProperties => {
-    const width = rawFieldWidth(key);
-    return { width, minWidth: width, maxWidth: width };
-  };
+  const tableWidth = visibleFixedColumnWidths.reduce((sum, width) => sum + width, 0);
 
   const headerClass = 'px-2 py-1 border-r border-[#141414] text-center leading-tight align-middle';
   const bodyClass = 'px-2 py-1 border-r border-[#141414]/20 align-middle';
@@ -561,8 +587,12 @@ export default function MainTable({
       {value === null ? '-' : formatRMB(value)}
     </td>
   );
-  const renderFixedCell = (p: CalculatedProduct, index: number) => {
+  const renderFixedCell = (p: CalculatedProduct, index: number, savedValues?: ReturnType<typeof getFixedExportValues>) => {
     const style = fixedColumnStyle(index);
+    const savedValue = savedValues?.[index];
+    if (savedValues && (savedValue == null || savedValue === '' || (typeof savedValue === 'number' && !Number.isFinite(savedValue)))) {
+      return <td key={index} style={style} className={`${bodyClass} text-center text-[#141414]/40`}>—</td>;
+    }
     const gaps = getTmPriceGaps(p);
     switch (index) {
       case 0:
@@ -592,38 +622,42 @@ export default function MainTable({
       case 12:
         return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.tmPrice)}</td>;
       case 13:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.tmSubsidyManual)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.tmRecyclerSubsidy)}</td>;
       case 14:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.tmHandPrice)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.tmRecyclerQuotedPrice)}</td>;
       case 15:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.zzPrice)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.tmSubsidyManual)}</td>;
       case 16:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.zzHandPrice)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.tmHandPrice)}</td>;
       case 17:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.basePrice)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{displayValue(p.zzPrice)}</td>;
       case 18:
-        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-bold ${p.preMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>{formatPercent(p.preMarginalProfit)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.zzHandPrice)}</td>;
       case 19:
-        return renderGapCell(index, gaps.preItemGap);
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.basePrice)}</td>;
       case 20:
-        return renderGapCell(index, gaps.preHandGap);
+        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-bold ${p.preMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>{formatPercent(p.preMarginalProfit)}</td>;
       case 21:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmItemWin ? 1 : 0}</td>;
+        return renderGapCell(index, gaps.preItemGap);
       case 22:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmHandWin ? 1 : 0}</td>;
+        return renderGapCell(index, gaps.preHandGap);
       case 23:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.zzItemWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmItemWin ? 1 : 0}</td>;
       case 24:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.ahsZzHandWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.tmHandWin ? 1 : 0}</td>;
       case 25:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.zzItemWin ? 1 : 0}</td>;
+      case 26:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.ahsZzHandWin ? 1 : 0}</td>;
+      case 27:
         return (
           <td
             key={index}
             data-tour="manual-price"
             style={style}
             className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-extrabold ${p.manualRecommendJdPrice !== undefined ? 'text-blue-700' : ''}`}
-            onDoubleClick={() => beginRecommendEdit(p)}
-            title="双击手动改价"
+            onDoubleClick={readOnly ? undefined : () => beginRecommendEdit(p)}
+            title={readOnly ? '只读快照' : '双击手动改价'}
           >
             {editingRecommendPpv === p.ppv ? (
               <input
@@ -645,11 +679,11 @@ export default function MainTable({
             {p.pricingRemark && <div className="truncate text-[10px] font-normal text-[#141414]/60" title={p.pricingRemark}>{p.pricingRemark}</div>}
           </td>
         );
-      case 26:
-        return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px]">{p.pricingRemark || ''}</td>;
-      case 27:
-        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>;
       case 28:
+        return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px]">{p.pricingRemark || ''}</td>;
+      case 29:
+        return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-bold ${p.recommendAdjustment > 0 ? 'text-green-700' : 'text-slate-500'}`}>{formatRMB(p.recommendAdjustment)}</td>;
+      case 30:
         return (
           <td key={index} data-tour={p.smallGapOpportunityRemark ? 'small-gap-reminder' : undefined} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
             {p.smallGapOpportunityRemark ? (
@@ -659,97 +693,44 @@ export default function MainTable({
             )}
           </td>
         );
-      case 29:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsSubsidyAfter)}</td>;
-      case 30:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postAhsPrice)}</td>;
       case 31:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postJdHandPrice)}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.ahsSubsidyAfter)}</td>;
       case 32:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postAhsPrice)}</td>;
+      case 33:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.postJdHandPrice)}</td>;
+      case 34:
         return (
           <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-extrabold ${p.postMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>
             {formatPercent(p.postMarginalProfit)}
-            <div className="text-[10px] text-slate-500">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</div>
+            {(!snapshot || p.maxPriceByMargin != null) && <div className="text-[10px] text-slate-500">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</div>}
           </td>
         );
-      case 33:
-        return renderGapCell(index, gaps.postItemGap);
-      case 34:
-        return renderGapCell(index, gaps.postHandGap);
       case 35:
-        return <td key={index} style={style} className="px-2 py-1 text-left border-r border-[#141414]/20 text-[10px]">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</td>;
+        return renderGapCell(index, gaps.postItemGap);
       case 36:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>;
+        return renderGapCell(index, gaps.postHandGap);
       case 37:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-left border-r border-[#141414]/20 text-[10px]">{pricingMode === 'fullCompetition' ? '目标' : '上限'} {formatRMB(p.maxPriceByMargin)}</td>;
       case 38:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postZzItemWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>;
       case 39:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsZzHandWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsTmRecyclerWin ? 1 : 0}</td>;
       case 40:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>;
+      case 41:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postZzItemWin ? 1 : 0}</td>;
+      case 42:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsZzHandWin ? 1 : 0}</td>;
+      case 43:
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postJdZzHandWin ? 1 : 0}</td>;
+      case 44:
         return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 font-bold">{p.brand || '-'}</td>;
       default:
         return null;
     }
   };
-  const reasonFilterPopup = showReasonFilter ? createPortal((
-    <div
-      className="fixed z-[9999] w-80 border border-[#141414] bg-white p-2 text-left shadow-[3px_3px_0_#141414]"
-      style={{ top: reasonFilterPosition.top, left: reasonFilterPosition.left }}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div className="mb-2 flex items-center justify-between text-[10px] font-bold">
-        <span>追价理由</span>
-        <span>{reasonOptions.length}项 / 已选{selectedReasonFilters.length}项</span>
-      </div>
-      <div className="max-h-80 overflow-y-auto border border-[#141414]">
-        {reasonOptions.length === 0 ? (
-          <div className="px-2 py-2 text-xs text-[#141414]/60">暂无追价理由</div>
-        ) : reasonOptions.map(option => (
-          <div key={option} className="flex items-start gap-2 border-b border-[#141414]/15 px-2 py-1.5 last:border-b-0">
-            <input
-              type="checkbox"
-              checked={selectedReasonFilterSet.has(option)}
-              onChange={() => toggleReasonFilter(option)}
-              className="mt-0.5 h-3 w-3 accent-[#141414]"
-            />
-            <button
-              type="button"
-              onClick={() => toggleReasonFilter(option)}
-              className="flex-1 text-left text-[11px] font-bold leading-snug"
-            >
-              {option}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedReasonFilters([option])}
-              className="shrink-0 border border-[#141414] px-1 py-0.5 text-[9px] font-bold"
-            >
-              单选
-            </button>
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => setSelectedReasonFilters([])}
-          className="border border-[#141414] px-2 py-1 text-[10px] font-bold"
-        >
-          清空
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowReasonFilter(false)}
-          className="border border-[#141414] bg-[#141414] px-2 py-1 text-[10px] font-bold text-white"
-        >
-          确定
-        </button>
-      </div>
-    </div>
-  ), document.body) : null;
-
-  const smallGapTolerancePopover = showSmallGapTolerancePopover ? createPortal((
+  const smallGapTolerancePopover = !readOnly && showSmallGapTolerancePopover ? createPortal((
     <div
       ref={smallGapTolerancePopoverRef}
       role="dialog"
@@ -807,42 +788,51 @@ export default function MainTable({
   ), document.body) : null;
 
   return (
-    <div className="bg-white border border-[#141414] overflow-hidden" id="main-tracking-panel">
-      {reasonFilterPopup}
+    <div className="bg-white border border-[#141414] overflow-hidden" id={snapshot ? 'snapshot-tracking-panel' : 'main-tracking-panel'}>
       {smallGapTolerancePopover}
       <div className="p-3 border-b border-[#141414] bg-[#F0EFEC] flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-base font-bold text-[#141414] flex items-center gap-2">
-            <span className="bg-[#141414] text-[#E4E3E0] px-2 py-0.5 text-xs">{getInquirySheetName()}</span>
-            竞争追价控制台
+            <span className="bg-[#141414] text-[#E4E3E0] px-2 py-0.5 text-xs">{snapshot ? '只读' : getInquirySheetName()}</span>
+            {snapshot ? '快照明细' : '竞争追价控制台'}
           </h2>
           <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
             <span className="border border-[#141414] bg-white px-2 py-1">
-              {isSelfOperated ? '转转物品价竞争力' : '天猫物品价竞争力'} {(isSelfOperated ? liveCompetitiveness.zzItemScore : liveCompetitiveness.tmItemScore).toFixed(1)}%
+              {snapshot ? '保存时 · ' : ''}{isSelfOperated ? '转转物品价竞争力' : '天猫物品价竞争力'} {formatScore(isSelfOperated ? displayedCompetitiveness?.zzItemScore : displayedCompetitiveness?.tmItemScore)}
             </span>
             <span className="border border-[#141414] bg-white px-2 py-1">
-              {isSelfOperated ? 'AHS补贴后 vs 转转到手价' : '天猫到手价竞争力'} {(isSelfOperated ? liveCompetitiveness.ahsVsZzDirectScore : liveCompetitiveness.tmDirectScore).toFixed(1)}%
+              {snapshot ? '保存时 · ' : ''}{isSelfOperated ? 'AHS补贴后 vs 转转到手价' : '天猫到手价竞争力'} {formatScore(isSelfOperated ? displayedCompetitiveness?.ahsVsZzDirectScore : displayedCompetitiveness?.tmDirectScore)}
             </span>
           </div>
         </div>
         <button onClick={exportToExcel} className="px-3 py-1.5 border border-[#141414] bg-white hover:bg-black hover:text-white text-xs font-bold">
-          导出追价表
+          {snapshot ? '导出快照' : '导出追价表'}
         </button>
-        <button onClick={() => setShowSaveModal(true)} id="save-snapshot-btn-element" className="hidden">
-          保存快照
-        </button>
+        {!readOnly && (
+          <button onClick={() => setShowSaveModal(true)} id="save-snapshot-btn-element" className="hidden">
+            保存快照
+          </button>
+        )}
       </div>
 
-      <div data-tour="pricing-strategy" className="p-3 border-b border-[#141414] bg-[#D8D7D2] grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-center">
-        <div className="flex flex-wrap items-center gap-3">
+      <div data-tour="pricing-strategy" className="grid grid-cols-1 border-b border-[#141414] bg-[#D8D7D2] lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)]">
+        <div className="flex flex-wrap items-center gap-3 p-3">
+          {snapshot ? (
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+              <span>保存模式：<strong>{pricingMode === 'fullCompetition' ? '100%竞争力' : '边际底线模式'}</strong></span>
+              <span>边际底线：<strong>{formatPercent(marginBottomLine)}</strong></span>
+              <span className="text-[#555]">价格及测算结果以保存时为准</span>
+            </div>
+          ) : (
+          <>
           <label className="text-xs font-bold">追后边际利润率底线：</label>
           <div className="flex gap-1 bg-white p-0.5 border border-[#141414]">
             {[-0.03, 0, 0.03].map(val => (
-              <button key={val} type="button" onClick={() => onMarginChange(val)} className={`px-3 py-1 text-xs font-bold ${pricingMode === 'margin' && marginBottomLine === val ? 'bg-[#141414] text-white' : 'hover:bg-black/10'}`}>
+              <button key={val} type="button" disabled={readOnly} onClick={() => onMarginChange(val)} className={`px-3 py-1 text-xs font-bold disabled:cursor-not-allowed ${pricingMode === 'margin' && marginBottomLine === val ? 'bg-[#141414] text-white' : 'hover:bg-black/10 disabled:text-[#777]'}`}>
                 {formatPercent(val)}
               </button>
             ))}
-            <button type="button" onClick={() => onPricingModeChange('fullCompetition')} className={`px-3 py-1 text-xs font-bold ${pricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'hover:bg-black/10'}`}>
+            <button type="button" disabled={readOnly} onClick={() => onPricingModeChange('fullCompetition')} className={`px-3 py-1 text-xs font-bold disabled:cursor-not-allowed ${pricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'hover:bg-black/10 disabled:text-[#777]'}`}>
               100%竞争力
             </button>
           </div>
@@ -850,46 +840,67 @@ export default function MainTable({
             type="text"
             inputMode="decimal"
             value={marginInput}
+            disabled={readOnly}
             onChange={(e) => handleMarginInputChange(e.target.value)}
             onBlur={() => setMarginInput(marginInputText(marginBottomLine))}
-            className="w-24 px-2 py-1 border border-[#141414] text-xs font-bold"
+            className="w-24 px-2 py-1 border border-[#141414] text-xs font-bold disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:text-[#555]"
           />
           <span className="text-xs">%</span>
+          </>
+          )}
         </div>
-        <div className="text-xs bg-white/70 border border-[#141414]/20 p-2">
-          {pricingMode === 'fullCompetition'
-            ? `100%竞争力：所有 jd裸机价<${isSelfOperated ? 'zz裸机价' : 'tm裸机价'} 的行追到${isSelfOperated ? 'zz裸机价×103%' : 'tm裸机价×103%'}；补贴、线性费用、追后边际仍照常重算。`
-            : isSelfOperated
-              ? '公式口径：自营普发券按门槛动态命中；追价目标=zz裸机价×103%；线性费用=基准价*2.18%+63。'
-              : '公式口径：补贴按新机系列+门槛动态命中；追价目标=tm裸机价×103%；线性费用=(追价后京东物品价+补贴)*4.66%+基准价*2.18%+81；追后边际=BE。'}
+        <div className="flex items-center border-t border-[#141414]/30 p-3 lg:border-l lg:border-t-0">
+          <label htmlFor={snapshot ? 'snapshot-table-search' : 'tracking-table-search'} className="sr-only">{snapshot ? '搜索快照明细' : '搜索工作台数据'}</label>
+          <div className="relative w-full">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#555]"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              id={snapshot ? 'snapshot-table-search' : 'tracking-table-search'}
+              type="search"
+              value={tableSearch}
+              onChange={(event) => setTableSearch(event.target.value)}
+              placeholder="搜索型号、PPV、SKU或任意字段"
+              className="h-8 w-full border border-[#141414] bg-white py-1 pl-8 pr-3 text-xs font-bold outline-none placeholder:font-normal placeholder:text-[#777] focus:ring-2 focus:ring-[#141414]/20"
+            />
+          </div>
         </div>
       </div>
 
-      <div className="bg-[#E4E3E0] p-3 border-b border-[#141414] flex flex-wrap gap-3 items-center justify-between">
-        <div className="flex flex-wrap gap-2">
-          {!isSelfOperated && (
-            <select value={selectedSeries} onChange={(e) => setSelectedSeries(e.target.value)} className="bg-white border border-[#141414] py-1.5 px-3 text-xs">
-              {seriesList.map(s => <option key={s} value={s}>{s === 'ALL' ? '全部新机系列' : s}</option>)}
-            </select>
-          )}
-          <select value={filterRisk} onChange={(e) => setFilterRisk(e.target.value as any)} className="bg-white border border-[#141414] py-1.5 px-3 text-xs">
-            <option value="ALL">全部状态</option>
-            <option value="SAFE">可执行</option>
-            <option value="WARNING">逼近底线</option>
-            <option value="CRITICAL">利润击穿</option>
-          </select>
+      {(activeColumnFilterCount > 0 || hasTableSearch) && (
+        <div className="flex items-center justify-between gap-3 border-b border-[#141414] bg-[#E4E3E0] px-3 py-2 text-[11px] font-bold">
+          <span>
+            {activeColumnFilterCount > 0 ? `已按 ${activeColumnFilterCount} 列筛选` : '未启用列筛选'}
+            {hasTableSearch ? `；搜索“${tableSearch.trim()}”` : ''}
+            {`，显示 ${filteredProducts.length} / ${products.length} 行`}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setColumnFilters({});
+              setTableSearch('');
+              setOpenColumnFilter(null);
+            }}
+            className="border border-[#141414] bg-white px-2 py-1 text-[10px] font-black hover:bg-[#141414] hover:text-white"
+          >
+            清除筛选与搜索
+          </button>
         </div>
-        <input type="text" placeholder={isSelfOperated ? '搜索品牌 / 旧机型号 / PPV' : '搜索品牌 / 新机系列 / 旧机型号 / PPV'} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full sm:w-80 bg-white border border-[#141414] px-3 py-1.5 text-xs font-bold" />
-      </div>
+      )}
 
       <div className="tracking-table-scroll">
         <table className="table-fixed text-[11px] leading-tight" style={{ width: tableWidth, minWidth: tableWidth }}>
           <colgroup>
             {fixedColumnWidths.map((width, index) => (
               <col key={`fixed-${index}`} style={isFixedColumnVisible(index) ? { width } : { display: 'none', width: 0 }} />
-            ))}
-            {rawColumnWidths.map((width, index) => (
-              <col key={`raw-${rawFieldKeys[index]}`} style={{ width }} />
             ))}
           </colgroup>
           <thead className="tracking-table-head bg-[#F0EFEC] border-b border-[#141414]">
@@ -898,35 +909,15 @@ export default function MainTable({
                 <th
                   key={code}
                   style={fixedColumnStyle(index)}
-                  className={`${headerClass} ${index === 25 || index === 26 || index === 28 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                  className={`${headerClass} ${index === 27 || index === 28 || index === 30 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
                 >
                   {code}
-                </th>
-              ))}
-              {rawFieldKeys.map(key => (
-                <th key={`code-${key}`} style={rawHeaderStyle(key)} className="px-2 py-1 text-center border-r border-[#141414]">
-                  {splitFieldKey(key).code}
                 </th>
               ))}
             </tr>
             <tr>
               {fixedLabels.map((label, index) => (
-                index === 26 ? (
-                  <th
-                    key={index}
-                    ref={reasonFilterAnchorRef}
-                    style={fixedColumnStyle(index)}
-                    className={`${headerClass} repricing-header bg-[#D8D7D2] relative cursor-pointer`}
-                    onClick={() => setShowReasonFilter(prev => !prev)}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      {headerLabel(label)}
-                      <span className="border border-[#141414] bg-white px-1 text-[9px] leading-tight">
-                        {selectedReasonFilters.length > 0 ? `已选${selectedReasonFilters.length}` : '筛'}
-                      </span>
-                    </div>
-                  </th>
-                ) : index === 28 ? (
+                index === 30 ? (
                   <th
                     key={index}
                     style={fixedColumnStyle(index)}
@@ -934,57 +925,62 @@ export default function MainTable({
                     title="小差额提醒批量容忍"
                   >
                     <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                      <span className="text-[10px] font-black">{label}</span>
-                      <button
-                        ref={smallGapToleranceTriggerRef}
-                        type="button"
-                        title="一键容忍符合条件的小差额 PPV"
-                        aria-haspopup="dialog"
-                        aria-expanded={showSmallGapTolerancePopover}
-                        onClick={toggleSmallGapTolerancePopover}
-                        className="h-4 border border-[#141414] bg-white px-1 text-[9px] font-black leading-none hover:bg-[#141414] hover:text-white"
-                      >
-                        容忍({smallGapToleranceCount})
-                      </button>
+                      <span className="min-w-0 flex-1 truncate text-[10px] font-black" title={label}>{label}</span>
+                      {!readOnly && (
+                        <button
+                          ref={smallGapToleranceTriggerRef}
+                          type="button"
+                          title="一键容忍符合条件的小差额 PPV"
+                          aria-haspopup="dialog"
+                          aria-expanded={showSmallGapTolerancePopover}
+                          onClick={toggleSmallGapTolerancePopover}
+                          className="h-4 border border-[#141414] bg-white px-1 text-[9px] font-black leading-none hover:bg-[#141414] hover:text-white"
+                        >
+                          容忍({smallGapToleranceCount})
+                        </button>
+                      )}
+                      {renderColumnFilterButton(label, fixedColumnFilterKey(index))}
                     </div>
                   </th>
                 ) : (
                   <th
                     key={index}
                     style={fixedColumnStyle(index)}
-                    className={`${headerClass} ${index === 25 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                    className={`${headerClass} ${index === 27 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
                   >
-                    {headerLabel(label)}
+                    <div className="flex min-w-0 items-center justify-center gap-1">
+                      <div className="min-w-0 flex-1">{headerLabel(label)}</div>
+                      {renderColumnFilterButton(label, fixedColumnFilterKey(index))}
+                    </div>
                   </th>
                 )
-              ))}
-              {rawFieldKeys.map(key => (
-                <th key={`label-${key}`} style={rawHeaderStyle(key)} className="px-2 py-1 text-left border-r border-[#141414]">
-                  <div className="w-full truncate" title={splitFieldKey(key).label}>
-                    {splitFieldKey(key).label}
-                  </div>
-                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {filteredProducts.map(p => (
-              <tr key={p.id} className={`border-b border-[#141414]/20 ${p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
-                {fixedCodes.map((_, index) => renderFixedCell(p, index))}
-                {rawFieldKeys.map(key => (
-                  <td key={key} style={rawHeaderStyle(key)} className="px-2 py-1 border-r border-[#141414]/10 align-top">
-                    <div className="max-h-10 overflow-hidden text-ellipsis break-words font-mono text-[10px] leading-snug" title={displayValue(p.rawFields[key])}>
-                      {displayValue(p.rawFields[key])}
-                    </div>
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {filteredProducts.map((p, rowIndex) => {
+              const savedValues = snapshot ? getFixedExportValues(p) : undefined;
+              return (
+                <tr key={`${p.id}-${rowIndex}`} className={`border-b border-[#141414]/20 ${p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
+                  {fixedCodes.map((_, index) => renderFixedCell(p, index, savedValues))}
+                </tr>
+              );
+            })}
+            {filteredProducts.length === 0 && (
+              <tr><td colSpan={fixedCodes.length} className="p-6 text-left text-xs text-[#555]">{products.length ? '没有符合筛选条件的明细。' : '暂无明细。'}</td></tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      {showSaveModal && (
+      {snapshot && (
+        <div className="flex flex-wrap justify-between gap-2 border-t border-[#141414] bg-[#F0EFEC] px-3 py-2 text-xs text-[#555]">
+          <span>显示 {filteredProducts.length} / {products.length} 行</span>
+          <span>导出当前筛选结果 · 缺失历史字段显示 —</span>
+        </div>
+      )}
+
+      {!readOnly && showSaveModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white max-w-sm w-full border border-[#141414]">
             <div className="p-4 bg-[#141414] text-white flex items-center justify-between">
@@ -1036,5 +1032,38 @@ export default function MainTable({
         </div>
       )}
     </div>
+  );
+}
+
+const ignoreSnapshotAction = () => {};
+const noSnapshotSave = async () => ({ success: false, error: '历史快照仅可查看' });
+const emptySnapshotSubsidies: SubsidyRule[] = [];
+const emptySelfSnapshotSubsidies: SelfOperatedSubsidyRule[] = [];
+const emptySnapshotSelection: string[] = [];
+
+export function SnapshotTable({ batch }: { batch: TrackingBatch }) {
+  return (
+    <MainTable
+      readOnly
+      snapshot={batch}
+      products={batch.products}
+      channelId={batch.channelId || 'tradeIn'}
+      marginBottomLine={batch.marginBottomLine}
+      pricingMode={batch.pricingMode || 'margin'}
+      subsidyRules={emptySnapshotSubsidies}
+      selfSubsidyRules={emptySelfSnapshotSubsidies}
+      smallGapToleranceMargin={0}
+      onMarginChange={ignoreSnapshotAction}
+      onApplySmallGapTolerance={ignoreSnapshotAction}
+      onPricingModeChange={ignoreSnapshotAction}
+      onSaveBatch={noSnapshotSave}
+      onTriggerApiRefresh={ignoreSnapshotAction}
+      lastApiSyncTime=""
+      competitionVersionName=""
+      selectedCompetitionPpvs={emptySnapshotSelection}
+      onToggleCompetitionPpv={ignoreSnapshotAction}
+      onCreateCompetitionVersion={ignoreSnapshotAction}
+      onManualRecommendPriceChange={ignoreSnapshotAction}
+    />
   );
 }

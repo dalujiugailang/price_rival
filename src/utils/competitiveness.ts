@@ -9,7 +9,9 @@ export const emptyCompetitivenessMetrics = (): CompetitivenessMetrics => ({
   tmItemScore: 0,
   tmDirectScore: 0,
   zzItemScore: 0,
-  ahsVsZzDirectScore: 0
+  ahsVsZzDirectScore: 0,
+  ahsVsTmRecyclerScore: 0,
+  jdVsZzDirectScore: 0
 });
 
 const weightedScore = (
@@ -39,13 +41,20 @@ export const calculateCompetitivenessMetrics = (products: CalculatedProduct[], c
     p => p.zzHandPrice > 0,
     p => p.postAhsZzHandWin
   );
+  const jdVsZzDirectScore = weightedScore(
+    products,
+    p => p.zzHandPrice > 0,
+    p => p.postJdZzHandWin
+  );
 
   if (channelId === 'selfOperated') {
     return {
       tmItemScore: 0,
       tmDirectScore: 0,
       zzItemScore,
-      ahsVsZzDirectScore
+      ahsVsZzDirectScore,
+      ahsVsTmRecyclerScore: 0,
+      jdVsZzDirectScore
     };
   }
 
@@ -60,7 +69,13 @@ export const calculateCompetitivenessMetrics = (products: CalculatedProduct[], c
       p => p.tmHandPrice > 0,
       p => p.postTmHandWin
     ),
+    ahsVsTmRecyclerScore: weightedScore(
+      products,
+      p => p.tmRecyclerQuotedPrice > 0,
+      p => p.postAhsTmRecyclerWin
+    ),
     zzItemScore,
-    ahsVsZzDirectScore
+    ahsVsZzDirectScore,
+    jdVsZzDirectScore
   };
 };

@@ -8,6 +8,7 @@ export interface BrandCompetitivenessDataPoint extends CompetitivenessMetrics {
 }
 
 export const ALL_BRANDS = 'ALL';
+export const ALL_SERIES = 'ALL_SERIES';
 
 export const selectCompetitivenessTimeline = <T>(
   overallTimeline: T[],
@@ -53,16 +54,26 @@ const rawBrandOf = (product: CalculatedProduct) => {
   return explicitBrand ? normalizeBrandAlias(explicitBrand) || explicitBrand : '';
 };
 
-const brandOf = (product: CalculatedProduct) => (
+export const resolveCompetitivenessBrand = (product: CalculatedProduct) => (
   rawBrandOf(product) || normalizeBrandAlias(product.brand)
 );
 
+export const resolveCompetitivenessSeries = (product: CalculatedProduct) => String(product.newSeries || '').trim();
+
+const brandOf = resolveCompetitivenessBrand;
+const seriesOf = resolveCompetitivenessSeries;
+
 export const filterCompetitivenessProducts = (
   products: CalculatedProduct[],
-  selectedBrand: string
-) => selectedBrand === ALL_BRANDS
-  ? products
-  : products.filter(product => brandOf(product) === selectedBrand);
+  selectedBrand: string,
+  selectedSeries: string = ALL_SERIES
+) => {
+  if (selectedBrand === ALL_BRANDS && selectedSeries === ALL_SERIES) return products;
+  return products.filter(product => (
+    (selectedBrand === ALL_BRANDS || brandOf(product) === selectedBrand)
+    && (selectedSeries === ALL_SERIES || seriesOf(product) === selectedSeries)
+  ));
+};
 
 const compareBrands = (left: string, right: string) => {
   const leftAscii = /^[\x00-\x7F]/.test(left);
@@ -72,24 +83,45 @@ const compareBrands = (left: string, right: string) => {
 };
 
 export const listCompetitivenessBrands = (
-  _historyBatches: TrackingBatch[],
+  historyBatches: TrackingBatch[],
   currentCalculatedItems: CalculatedProduct[]
 ) => Array.from(new Set(
-  currentCalculatedItems.map(brandOf).filter(Boolean)
+  [
+    ...historyBatches.filter(batch => !batch.isSummaryOnly).flatMap(batch => batch.products || []),
+    ...currentCalculatedItems
+  ].map(brandOf).filter(Boolean)
 )).sort(compareBrands);
 
-export const buildBrandCompetitivenessTimeline = ({
+export const listCompetitivenessSeries = (
+  historyBatches: TrackingBatch[],
+  currentCalculatedItems: CalculatedProduct[],
+  selectedBrand: string = ALL_BRANDS
+) => Array.from(new Set(
+  [
+    ...historyBatches
+      .filter(batch => !batch.isSummaryOnly)
+      .flatMap(batch => batch.products || []),
+    ...currentCalculatedItems
+  ]
+    .filter(product => selectedBrand === ALL_BRANDS || brandOf(product) === selectedBrand)
+    .map(seriesOf)
+    .filter(Boolean)
+)).sort(compareBrands);
+
+export const buildFilteredCompetitivenessTimeline = ({
   historyBatches,
   currentCalculatedItems,
-  brand,
+  brand = ALL_BRANDS,
+  newSeries = ALL_SERIES,
   channelId = 'tradeIn'
 }: {
   historyBatches: TrackingBatch[];
   currentCalculatedItems: CalculatedProduct[];
-  brand: string;
+  brand?: string;
+  newSeries?: string;
   channelId?: ChannelId;
 }): BrandCompetitivenessDataPoint[] => {
-  if (!brand) return [];
+  if (brand === ALL_BRANDS && newSeries === ALL_SERIES) return [];
 
   const list: BrandCompetitivenessDataPoint[] = [];
   const savedPoints = [...historyBatches]
@@ -98,7 +130,7 @@ export const buildBrandCompetitivenessTimeline = ({
       (left.competitivenessDate || left.date).localeCompare(right.competitivenessDate || right.date)
     ))
     .flatMap(batch => {
-      const products = batch.products.filter(product => brandOf(product) === brand);
+      const products = filterCompetitivenessProducts(batch.products, brand, newSeries);
       if (products.length === 0) return [];
       const sourceDate = batch.competitivenessDate || batch.date;
       return [{
@@ -113,15 +145,39 @@ export const buildBrandCompetitivenessTimeline = ({
     list.push(duplicateDate ? { ...point, date: `${point.date} (新)` } : point);
   });
 
-  const liveProducts = currentCalculatedItems.filter(product => brandOf(product) === brand);
+  const liveProducts = filterCompetitivenessProducts(currentCalculatedItems, brand, newSeries);
   if (liveProducts.length > 0) {
+    const scopeLabel = [
+      brand === ALL_BRANDS ? '' : brand,
+      newSeries === ALL_SERIES ? '' : newSeries
+    ].filter(Boolean).join(' / ');
     list.push({
       date: '今日(工作台)',
-      batchName: `当前工作台(${brand}实时计算草稿)`,
+      batchName: `当前工作台(${scopeLabel}实时计算草稿)`,
       isDraft: true,
       ...calculateCompetitivenessMetrics(liveProducts, channelId)
     });
   }
 
   return list;
+};
+
+export const buildBrandCompetitivenessTimeline = ({
+  historyBatches,
+  currentCalculatedItems,
+  brand,
+  channelId = 'tradeIn'
+}: {
+  historyBatches: TrackingBatch[];
+  currentCalculatedItems: CalculatedProduct[];
+  brand: string;
+  channelId?: ChannelId;
+}): BrandCompetitivenessDataPoint[] => {
+  if (!brand) return [];
+  return buildFilteredCompetitivenessTimeline({
+    historyBatches,
+    currentCalculatedItems,
+    brand,
+    channelId
+  });
 };

@@ -20,10 +20,12 @@ const COLUMNS = [
   { header: '日期', width: 16 },
   { header: '批次', width: 30 },
   { header: '节点类型', width: 14 },
-  { header: '天猫到手价竞争力', width: 20, key: 'tmDirectScore', color: 'C2873E', dash: true },
-  { header: '天猫物品价竞争力', width: 20, key: 'tmItemScore', color: 'B43E2B' },
-  { header: '物品价+AHS补贴 vs 转转到手价', width: 32, key: 'ahsVsZzDirectScore', color: '1E824C' },
-  { header: '转转物品价竞争力', width: 22, key: 'zzItemScore', color: '1B6D87' }
+  { header: 'Benchmark 1 · 天猫物品价竞争力', width: 30, key: 'tmItemScore', color: 'C2410C' },
+  { header: 'Benchmark 2 · AHS补贴后 vs TM回收商补贴后', width: 44, key: 'ahsVsTmRecyclerScore', color: 'DC2626' },
+  { header: 'Benchmark 3 · 天猫到手价竞争力', width: 30, key: 'tmDirectScore', color: 'D97706', dash: true },
+  { header: 'Benchmark 4 · 转转物品价竞争力', width: 32, key: 'zzItemScore', color: '134E4A' },
+  { header: 'Benchmark 5 · 物品价+AHS补贴 vs 转转到手价', width: 42, key: 'ahsVsZzDirectScore', color: '059669' },
+  { header: 'Benchmark 6 · 京东到手价 vs 转转到手价', width: 38, key: 'jdVsZzDirectScore', color: '84CC16', dash: true }
 ];
 
 const cleanWorksheetName = value => {
@@ -84,7 +86,11 @@ const addTrendChart = (worksheet, sheetName, chartTitle, points) => {
       cat: { ref: categoryRef, cacheKind: 'str', cache: points.map(point => point.date) },
       val: {
         ref: `${quotedSheetName}!$${columnLetter}$${DATA_START_ROW}:$${columnLetter}$${endRow}`,
-        cache: points.map(point => Number(point[column.key]) / 100),
+        cache: points.map(point => {
+          const rawValue = point[column.key];
+          const value = rawValue === null || rawValue === undefined || rawValue === '' ? Number.NaN : Number(rawValue);
+          return Number.isFinite(value) ? value / 100 : null;
+        }),
         formatCode: '0.0%'
       }
     });
@@ -162,16 +168,17 @@ export const createCompetitivenessTrendWorkbook = async payload => {
       setCell(worksheet, row, 2, String(point.batchName || ''));
       setCell(worksheet, row, 3, point.nodeType === '实时草稿' ? '实时草稿' : '历史正式');
       COLUMNS.slice(3).forEach((column, metricIndex) => {
-        const score = Number(point[column.key]);
-        setCell(worksheet, row, metricIndex + 4, Number.isFinite(score) ? score / 100 : 0);
+        const rawScore = point[column.key];
+        const score = rawScore === null || rawScore === undefined || rawScore === '' ? Number.NaN : Number(rawScore);
+        setCell(worksheet, row, metricIndex + 4, Number.isFinite(score) ? score / 100 : '');
       });
     });
 
     const endRow = DATA_START_ROW + sheet.points.length - 1;
-    setRangeNumberFormat(workbook, worksheet, `D${DATA_START_ROW}:G${endRow}`, '0.0%');
-    setRangeAlignment(workbook, worksheet, `A${DATA_HEADER_ROW}:G${endRow}`, { vertical: 'center' });
-    setRangeWrapText(workbook, worksheet, `A${DATA_HEADER_ROW}:G${endRow}`, true);
-    setRangeBorderBox(workbook, worksheet, `A${DATA_HEADER_ROW}:G${endRow}`, {
+    setRangeNumberFormat(workbook, worksheet, `D${DATA_START_ROW}:I${endRow}`, '0.0%');
+    setRangeAlignment(workbook, worksheet, `A${DATA_HEADER_ROW}:I${endRow}`, { vertical: 'center' });
+    setRangeWrapText(workbook, worksheet, `A${DATA_HEADER_ROW}:I${endRow}`, true);
+    setRangeBorderBox(workbook, worksheet, `A${DATA_HEADER_ROW}:I${endRow}`, {
       style: 'thin',
       color: 'FF141414',
       inner: 'hair'

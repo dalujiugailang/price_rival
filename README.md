@@ -266,6 +266,7 @@ APP_URL=https://你的域名
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=你的应用密钥
 FEISHU_ALLOWED_DEPARTMENT_IDS=od-xxx,od-yyy
+FEISHU_READ_ONLY_DEPARTMENT_IDS=od-换新部门
 ```
 
 启动：
@@ -295,9 +296,15 @@ Express server 支持以下变量：
 - `APP_URL`: 系统对外地址，用于 OAuth 回调和 Cookie 安全策略。
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`: 飞书自建应用凭证。
 - `FEISHU_REDIRECT_URI`: 飞书 OAuth 回调地址，不填时使用 `${APP_URL}/api/auth/feishu/callback`。
-- `FEISHU_ALLOWED_DEPARTMENT_IDS`: 允许登录的 `open_department_id`，多个逗号分隔。
-- `FEISHU_ALLOWED_OPEN_IDS`: 个人白名单，主要用于管理员例外。
+- `FEISHU_ALLOWED_OPEN_IDS`: 首次迁移的可编辑个人白名单，多个 `open_id` 逗号分隔。
+- `FEISHU_READ_ONLY_OPEN_IDS`: 首次迁移的只读个人白名单，多个 `open_id` 逗号分隔。
+- `FEISHU_ADMIN_OPEN_IDS`: 首次迁移时指定的管理员，必须属于上述个人白名单。实际 ID 仅保存在部署环境中。
+- `FEISHU_ALLOWED_DEPARTMENT_IDS` / `FEISHU_READ_ONLY_DEPARTMENT_IDS`: 兼容旧配置，当前人员权限管理不再按部门自动授权。
 - `FEISHU_ALLOWED_TENANT_KEYS`: 可选的租户二次校验。
+
+首次迁移保留已有个人白名单的编辑和只读范围；同一个人同时出现在两个个人白名单中时按可编辑权限处理。迁移后由管理员在「权限管理」按人配置角色、启停状态和渠道下的页面范围，数据库中的权限为准。只读成员可在授权页面查看、筛选及导出，不能上传、改价、保存或删除。详见[人员权限管理](docs/access-management.md)。
+
+可选的 `data/access-bootstrap.json` 保存首次迁移所需的管理员默认值及姓名、部门显示信息；该文件位于 Git 和 Docker 构建忽略的数据目录，不随公开源码发布。未提供该文件时，应通过 `FEISHU_ADMIN_OPEN_IDS` 配置首次迁移管理员。已完成迁移的数据库不依赖此文件。
 
 可以放在 `.env.local` 或 `.env`。
 

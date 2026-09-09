@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import { CalculatedProduct, TrackingBatch } from '../types';
 import {
   ALL_BRANDS,
+  ALL_SERIES,
   buildBrandCompetitivenessTimeline,
+  buildFilteredCompetitivenessTimeline,
   filterCompetitivenessProducts,
   listCompetitivenessBrands,
+  listCompetitivenessSeries,
   selectCompetitivenessTimeline
 } from './brandCompetitiveness';
 
@@ -12,9 +15,11 @@ const product = (
   brand: string,
   quoteVolume: number,
   win: boolean,
-  rawFields: Record<string, string> = {}
+  rawFields: Record<string, string> = {},
+  newSeries = ''
 ) => ({
   brand,
+  newSeries,
   rawFields,
   quoteVolume,
   tmPrice: 100,
@@ -42,12 +47,12 @@ const historyBatches = [
     competitivenessDate: '2026-08-02',
     isCompetitivenessConfirmed: true,
     products: [
-      product('小米', 30, true),
-      product('小米', 70, false),
-      product('OPPO', 100, true),
-      product('17系列', 100, true),
-      product('旧兜底值', 100, true, { 'BK_品牌名称': '华为' }),
-      product('Redmi', 100, true)
+      product('小米', 30, true, {}, '小米 15'),
+      product('小米', 70, false, {}, '小米 14'),
+      product('OPPO', 100, true, {}, 'Find X8'),
+      product('17系列', 100, true, {}, 'iPhone 17'),
+      product('旧兜底值', 100, true, { 'BK_品牌名称': '华为' }, 'Mate 70'),
+      product('Redmi', 100, true, {}, 'Redmi K80')
     ]
   },
   {
@@ -59,15 +64,15 @@ const historyBatches = [
 ] as TrackingBatch[];
 
 const current = [
-  product('小米', 50, true),
-  product('vivo', 50, false),
-  product('Find', 50, true),
-  product('moto', 50, true)
+  product('小米', 50, true, {}, '小米 15'),
+  product('vivo', 50, false, {}, 'vivo X200'),
+  product('Find', 50, true, {}, 'Find X8'),
+  product('moto', 50, true, {}, 'moto razr')
 ];
 
 assert.deepEqual(
   listCompetitivenessBrands(historyBatches, current),
-  ['vivo', '摩托罗拉', '小米']
+  ['OPPO', 'vivo', '华为', '摩托罗拉', '小米']
 );
 
 const timeline = buildBrandCompetitivenessTimeline({
@@ -91,6 +96,44 @@ assert.deepEqual(buildBrandCompetitivenessTimeline({
   historyBatches,
   currentCalculatedItems: current,
   brand: '不存在品牌',
+  channelId: 'tradeIn'
+}), []);
+
+assert.deepEqual(
+  listCompetitivenessSeries(historyBatches, current, '小米'),
+  ['Redmi K80', '小米 14', '小米 15']
+);
+
+const seriesTimeline = buildFilteredCompetitivenessTimeline({
+  historyBatches,
+  currentCalculatedItems: current,
+  newSeries: '小米 15',
+  channelId: 'tradeIn'
+});
+
+assert.equal(seriesTimeline.length, 2);
+assert.equal(seriesTimeline[0].tmItemScore, 100);
+assert.equal(seriesTimeline[1].batchName, '当前工作台(小米 15实时计算草稿)');
+
+const combinedTimeline = buildFilteredCompetitivenessTimeline({
+  historyBatches,
+  currentCalculatedItems: current,
+  brand: '小米',
+  newSeries: '小米 14',
+  channelId: 'tradeIn'
+});
+
+assert.equal(combinedTimeline.length, 1);
+assert.equal(combinedTimeline[0].tmItemScore, 0);
+assert.deepEqual(
+  filterCompetitivenessProducts(historyBatches[1].products, '小米', '小米 15').map(item => item.newSeries),
+  ['小米 15']
+);
+assert.deepEqual(buildFilteredCompetitivenessTimeline({
+  historyBatches,
+  currentCalculatedItems: current,
+  brand: ALL_BRANDS,
+  newSeries: ALL_SERIES,
   channelId: 'tradeIn'
 }), []);
 

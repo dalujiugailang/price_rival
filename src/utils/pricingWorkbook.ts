@@ -181,6 +181,12 @@ export const addDynamicPricingWorkbookSheets = ({
   const tmPriceColumn = channelId === 'tradeIn'
     ? requiredColumn(columns, 'tm裸机价')
     : undefined;
+  const tmRecyclerSubsidyColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, '对应新品型号tm回收商投入')
+    : undefined;
+  const tmRecyclerQuotedPriceColumn = channelId === 'tradeIn'
+    ? requiredColumn(columns, '含tm回收商补贴后报价')
+    : undefined;
   const tmHandPriceColumn = channelId === 'tradeIn'
     ? requiredColumn(columns, 'tm总到手价')
     : undefined;
@@ -265,8 +271,26 @@ export const addDynamicPricingWorkbookSheets = ({
     if (channelId === 'tradeIn') {
       const currentJdHandPriceCell = cellRef(currentJdHandPriceColumn as number, rowNumber);
       const tmPriceCell = cellRef(tmPriceColumn as number, rowNumber);
+      const tmRecyclerSubsidyCell = cellRef(tmRecyclerSubsidyColumn as number, rowNumber);
+      const tmRecyclerQuotedPriceCell = cellRef(tmRecyclerQuotedPriceColumn as number, rowNumber);
       const tmHandPriceCell = cellRef(tmHandPriceColumn as number, rowNumber);
       const gaps = getTmPriceGaps(product);
+      writeFormulaCell(
+        pricingSheet,
+        tmRecyclerSubsidyColumn as number,
+        rowNumber,
+        `IF(${tmPriceCell}>0,LOOKUP(${tmPriceCell},{0,200,300,400,500,800,1000,1200,2000,3000,3500,5000},{0,45,45,90,90,180,180,280,350,350,480,630}),0)`,
+        product.tmRecyclerSubsidy,
+        PRICE_FORMAT
+      );
+      writeFormulaCell(
+        pricingSheet,
+        tmRecyclerQuotedPriceColumn as number,
+        rowNumber,
+        `${tmPriceCell}+${tmRecyclerSubsidyCell}`,
+        product.tmRecyclerQuotedPrice,
+        PRICE_FORMAT
+      );
       writeFormulaCell(
         pricingSheet,
         preItemGapColumn as number,
@@ -315,9 +339,11 @@ export const addDynamicPricingWorkbookSheets = ({
 
     const formulaFlags: Array<[string, string, boolean]> = [
       ['京东物品价-追价后 vs 天猫', 'tm裸机价', product.postTmItemWin],
+      ['京东物品价+ahs补贴-追价后 vs天猫', '含tm回收商补贴后报价', product.postAhsTmRecyclerWin],
       ['京东到手价-追价后 vs 天猫', 'tm总到手价', product.postTmHandWin],
       ['京东物品价-追价后 vs 转转', 'zz裸机价', product.postZzItemWin],
-      ['京东物品价+ahs补贴-追价后 vs 转转', 'zz券后价', product.postAhsZzHandWin]
+      ['京东物品价+ahs补贴-追价后 vs 转转', 'zz券后价', product.postAhsZzHandWin],
+      ['京东到手价-追价后vs转转', 'zz券后价', product.postJdZzHandWin]
     ];
 
     formulaFlags.forEach(([resultLabel, competitorLabel, cachedWin]) => {
@@ -325,9 +351,9 @@ export const addDynamicPricingWorkbookSheets = ({
       const competitorColumn = optionalColumn(columns, competitorLabel);
       if (resultColumn === undefined || competitorColumn === undefined) return;
       const competitorCell = cellRef(competitorColumn, rowNumber);
-      const comparedCell = resultLabel === '京东到手价-追价后 vs 天猫'
+      const comparedCell = resultLabel === '京东到手价-追价后 vs 天猫' || resultLabel === '京东到手价-追价后vs转转'
         ? postJdHandPriceCell
-        : resultLabel === '京东物品价+ahs补贴-追价后 vs 转转'
+        : resultLabel === '京东物品价+ahs补贴-追价后 vs 转转' || resultLabel === '京东物品价+ahs补贴-追价后 vs天猫'
           ? postAhsPriceCell
           : trialPriceCell;
       writeFormulaCell(
@@ -347,6 +373,8 @@ export const addDynamicPricingWorkbookSheets = ({
     '自营普发券AHS补贴',
     '对应新品型号jd总投入',
     'tm裸机价',
+    '对应新品型号tm回收商投入',
+    '含tm回收商补贴后报价',
     'tm总补贴-人工',
     'tm总到手价',
     'zz裸机价',

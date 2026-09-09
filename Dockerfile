@@ -22,6 +22,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY server ./server
+COPY shared ./shared
 COPY --from=build /app/dist ./dist
 
 RUN mkdir -p /app/data
