@@ -24,6 +24,7 @@
     "test:daily-price-lookup": "tsx src/utils/dailyPriceLookup.test.ts",
     "test:table-filters": "tsx src/utils/tableColumnFilters.test.ts",
     "test:snapshot-history": "node --import tsx src/utils/snapshotHistory.test.tsx",
+    "test:workspace-sync": "node --import tsx src/utils/workspaceSync.test.ts",
     "test:auth": "node server/auth.test.mjs",
     "test:access": "node --test server/access.test.mjs",
     "start": "node server/index.mjs",

@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { compressToUTF16, decompressFromUTF16 } from 'lz-string';
 import { 
   CalculatedProduct, 
   DailyPriceRow,
@@ -25,6 +24,8 @@ import {
 import { calculateCompetitivenessMetrics } from './utils/competitiveness';
 import { calculateCompetitionInvestmentMetrics } from './utils/investment';
 import { evaluateSmallGapTolerance } from './utils/smallGapTolerance';
+import { createWorkspaceDraftStorage } from './utils/workspaceDraftStorage';
+import { createSnapshotSync } from './utils/snapshotSync';
 import { 
   TrendingDown, 
   Layers, 
@@ -132,43 +133,6 @@ type ChannelWorkspaceState = {
 
 type ChannelStates = Record<ChannelId, ChannelWorkspaceState>;
 
-const CHANNEL_STATE_STORAGE_KEY = 'pricing_channel_states_v1';
-const COMPRESSED_STORAGE_PREFIX = 'lz:';
-
-const safeParse = <T,>(value: string | null, fallback: T): T => {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch (err) {
-    return fallback;
-  }
-};
-
-const parseStoredChannelStates = (value: string | null): Partial<ChannelStates> => {
-  if (!value?.startsWith(COMPRESSED_STORAGE_PREFIX)) {
-    return safeParse<Partial<ChannelStates>>(value, {});
-  }
-
-  try {
-    const json = decompressFromUTF16(value.slice(COMPRESSED_STORAGE_PREFIX.length));
-    return json ? JSON.parse(json) as Partial<ChannelStates> : {};
-  } catch (error) {
-    console.error('读取竞争追价本地数据失败', error);
-    return {};
-  }
-};
-
-const persistChannelStates = (states: ChannelStates) => {
-  try {
-    const compressed = compressToUTF16(JSON.stringify(states));
-    localStorage.setItem(CHANNEL_STATE_STORAGE_KEY, `${COMPRESSED_STORAGE_PREFIX}${compressed}`);
-    return true;
-  } catch (error) {
-    console.error('保存竞争追价本地数据失败', error);
-    return false;
-  }
-};
-
 const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts: Product[], channelId: ChannelId): ChannelWorkspaceState => ({
   productsMaster: (state.productsMaster || fallbackProducts).map(product => hydrateThirtyDayVolumes(product, channelId)),
   dailyPriceRows: state.dailyPriceRows || [],
@@ -198,21 +162,29 @@ export default function App() {
   const [activeChannelId, setActiveChannelId] = useState<ChannelId>(channelOrder[0] || DEFAULT_CHANNEL_ID);
   const [activeTab, setActiveTab] = useState<ViewTab>(() => firstPage(channelOrder[0] || DEFAULT_CHANNEL_ID));
   const [selectedHistoryBatchIds, setSelectedHistoryBatchIds] = useState<Partial<Record<ChannelId, string>>>({});
+  const [draftStorage] = useState(() => createWorkspaceDraftStorage<ChannelWorkspaceState>({
+    getItem: key => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value)
+  }));
   const [channelStates, setChannelStates] = useState<ChannelStates>(() => {
-    const saved = parseStoredChannelStates(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY));
+    const saved = draftStorage.initial;
     const stateFor = (channel: ChannelId) => {
       const editable = canEdit(user, channel, 'workspace') || canEdit(user, channel, 'upload');
       const source: Partial<ChannelWorkspaceState> = editable ? saved[channel] || {} : {};
       // Restricted accounts start empty; their data is supplied by the authorized server response.
       return normalizeState({ ...source, historyBatches: canEdit(user, channel, 'upload') ? source.historyBatches || [] : [] }, [], channel);
     };
-    return { tradeIn: stateFor('tradeIn'), selfOperated: stateFor('selfOperated') };
+    const states = { tradeIn: stateFor('tradeIn'), selfOperated: stateFor('selfOperated') };
+    draftStorage.initialize(states);
+    return states;
   });
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourStepIndex, setTourStepIndex] = useState(0);
   const [historySyncStatus, setHistorySyncStatus] = useState('正在连接共享历史…');
-  const historySyncStartedRef = useRef(false);
+  const [historyRefreshing, setHistoryRefreshing] = useState(true);
+  const [draftSaveError, setDraftSaveError] = useState(draftStorage.readError);
+  const historySyncRef = useRef<ReturnType<typeof createSnapshotSync<TrackingBatch[]>> | null>(null);
   const activeChannel = CHANNELS[activeChannelId];
   const activeState = channelStates[activeChannelId];
   const canEditWorkspace = canEdit(user, activeChannelId, 'workspace');
@@ -312,63 +284,50 @@ export default function App() {
     }));
   };
 
-  const refreshServerBatches = async (showStatus = false) => {
-    const result = await listTrackingBatches();
-    applyServerBatches(result.batches);
-    if (showStatus) {
-      setHistorySyncStatus(`共享历史已同步：${result.batches.length} 期`);
-    }
-    return result.batches;
+  const refreshServerBatches = (afterMutation = false) => {
+    const sync = historySyncRef.current;
+    if (afterMutation) sync?.invalidate();
+    return sync?.refresh() || Promise.resolve([]);
   };
 
   useEffect(() => {
-    if (historySyncStartedRef.current) return;
-    historySyncStartedRef.current = true;
     const localBatches = [...channelStates.tradeIn.historyBatches, ...channelStates.selfOperated.historyBatches]
       .filter(batch => canEdit(user, batch.channelId || 'tradeIn', 'upload'));
-    let initialSyncComplete = false;
-    let syncInFlight = false;
-
-    const migrateAndLoad = async () => {
-      if (syncInFlight) return;
-      syncInFlight = true;
-      try {
-        let migrationText = '';
-        if (!isReadOnly && localBatches.length > 0) {
-          const migration = await importTrackingBatches(localBatches);
-          migrationText = `；本机迁移 ${migration.imported} 期，跳过 ${migration.skipped} 期`;
-        }
-        const result = await listTrackingBatches();
-        applyServerBatches(result.batches);
-        setHistorySyncStatus(`共享历史 ${result.batches.length} 期${migrationText}`);
-        initialSyncComplete = true;
-      } catch (error) {
-        setHistorySyncStatus(`共享历史同步失败：${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        syncInFlight = false;
+    let migration: Promise<void> | undefined;
+    const sync = createSnapshotSync(async () => {
+      setHistoryRefreshing(true);
+      if (!migration) {
+        migration = (async () => {
+          if (!isReadOnly && localBatches.length > 0) {
+            const result = await importTrackingBatches(localBatches);
+            if (result.invalid.length) throw new Error(`有 ${result.invalid.length} 期本机历史未能迁移，原记录已保留`);
+            draftStorage.confirmHistoryMigration(localBatches.map(batch => batch.id));
+          }
+        })().catch(error => { migration = undefined; throw error; });
       }
-    };
-
-    migrateAndLoad();
-    const interval = window.setInterval(() => {
-      if (initialSyncComplete) {
-        refreshServerBatches().catch(() => undefined);
-      } else {
-        migrateAndLoad();
-      }
-    }, 30_000);
+      await migration;
+      return (await listTrackingBatches()).batches;
+    }, batches => {
+      applyServerBatches(batches);
+      setHistorySyncStatus(`共享历史已同步：${batches.length} 期`);
+      setHistoryRefreshing(false);
+    }, error => {
+      setHistorySyncStatus(`共享历史同步失败：${error instanceof Error ? error.message : String(error)}`);
+      setHistoryRefreshing(false);
+    });
+    historySyncRef.current = sync;
+    void sync.refresh().catch(() => undefined);
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
-      if (initialSyncComplete) {
-        refreshServerBatches().catch(() => undefined);
-      } else {
-        migrateAndLoad();
-      }
+      void sync.refresh().catch(() => undefined);
     };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
     return () => {
-      window.clearInterval(interval);
+      sync.dispose();
+      if (historySyncRef.current === sync) historySyncRef.current = null;
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
     };
   }, []);
 
@@ -460,18 +419,28 @@ export default function App() {
         selfSubsidyRules: activeState.selfSubsidyRules
       })
       : withManualPrices);
-  }, [activeChannel, activeChannelId, activeState, useSharedSnapshot, readOnlySnapshot]);
+  }, [activeChannel, activeChannelId, useSharedSnapshot, readOnlySnapshot,
+    activeState.productsMaster, activeState.dailyPriceRows, activeState.subsidyRules,
+    activeState.selfSubsidyRules, activeState.marginBottomLine, activeState.pricingMode,
+    activeState.manualRecommendPrices, activeState.smallGapToleranceMargin]);
 
-  useEffect(() => {
-    if (isReadOnly) return;
-    const saved = parseStoredChannelStates(localStorage.getItem(CHANNEL_STATE_STORAGE_KEY));
-    for (const channel of channelOrder) {
-      if (canEdit(user, channel, 'workspace') || canEdit(user, channel, 'upload')) {
-        saved[channel] = { ...channelStates[channel], historyBatches: [] };
-      }
-    }
-    persistChannelStates(saved as ChannelStates);
-  }, [channelStates, isReadOnly, user]);
+  const editableChannels = channelOrder.filter(channel => canEdit(user, channel, 'workspace') || canEdit(user, channel, 'upload'));
+  const editableChannelKey = editableChannels.join(',');
+  const persistDraft = () => {
+    const result = draftStorage.save(channelStates, editableChannels);
+    setDraftSaveError(result.error);
+  };
+  useEffect(persistDraft, [channelStates, editableChannelKey, draftStorage]);
+
+  const exportDraftBackup = () => {
+    const backup = Object.fromEntries(editableChannels.map(channel => [channel, { ...channelStates[channel], historyBatches: [] }]));
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup)], { type: 'application/json' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `竞争追价草稿备份-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (!tourOpen) return;
@@ -656,6 +625,9 @@ export default function App() {
         ]
       }));
       setHistorySyncStatus(`已写入共享历史：${result.batch.id}`);
+      void refreshServerBatches(true).catch(() => {
+        setHistorySyncStatus('快照已保存，共享历史刷新失败，可手动刷新。');
+      });
       if (canAccess(user, activeChannelId, 'history')) {
         setSelectedHistoryBatchIds(previous => ({ ...previous, [activeChannelId]: result.batch.id }));
         setActiveTab('history');
@@ -719,6 +691,9 @@ export default function App() {
         historyBatches: state.historyBatches.filter(batch => batch.id !== id)
       }));
       setHistorySyncStatus(`已从共享历史删除：${id}`);
+      void refreshServerBatches(true).catch(() => {
+        setHistorySyncStatus('快照已删除，共享历史刷新失败，可手动刷新。');
+      });
     } catch (error) {
       alert(`删除失败：${error instanceof Error ? error.message : String(error)}`);
     }
@@ -841,7 +816,10 @@ export default function App() {
                     data-tour={`channel-${channelId}`}
                     onClick={() => {
                       setActiveChannelId(channelId);
-                      if (!selected) setActiveTab(firstPage(channelId));
+                      if (!selected) {
+                        setActiveTab(firstPage(channelId));
+                        void refreshServerBatches().catch(() => undefined);
+                      }
                     }}
                     className={`relative w-full border-2 px-5 py-4 text-left text-xs font-black transition-colors ${
                       selected
@@ -867,7 +845,10 @@ export default function App() {
                             key={button.id}
                             type="button"
                             data-tour={`tab-${button.id}`}
-                            onClick={() => setActiveTab(button.id)}
+                            onClick={() => {
+                              setActiveTab(button.id);
+                              if (!active && button.id !== 'permissions') void refreshServerBatches().catch(() => undefined);
+                            }}
                             className={`block w-full border px-3 py-2 text-left text-xs transition-colors ${
                               active
                                 ? 'border-[#141414] bg-[#141414] text-white font-black'
@@ -936,7 +917,18 @@ export default function App() {
                 </div>}
                 <div className="flex items-center gap-2 text-xs text-[#141414]/70">
                   <span>{historySyncStatus}</span>
+                  <button type="button" disabled={historyRefreshing}
+                    onClick={() => { void refreshServerBatches().catch(() => undefined); }}
+                    className="inline-flex items-center gap-1 underline disabled:opacity-50">
+                    <RefreshCw className={`h-3 w-3 ${historyRefreshing ? 'animate-spin' : ''}`} />
+                    刷新共享历史
+                  </button>
                 </div>
+              </div>}
+              {draftSaveError && editableChannels.length > 0 && <div role="alert" className="mt-2 border border-amber-700 bg-amber-50 p-2 text-xs text-amber-900">
+                <span>{draftSaveError}</span>
+                <button type="button" onClick={persistDraft} className="ml-2 underline">重试保存草稿</button>
+                <button type="button" onClick={exportDraftBackup} className="ml-2 underline">导出当前草稿备份</button>
               </div>}
             </div>
 

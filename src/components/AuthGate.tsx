@@ -53,7 +53,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       running = true;
       try {
         const result = await getCurrentUser();
-        if (!cancelled) setUser(result.user);
+        if (!cancelled) setUser(previous => (
+          previous && JSON.stringify(previous) === JSON.stringify(result.user) ? previous : result.user
+        ));
       } catch (err) {
         if (!cancelled && (err as { status?: number }).status === 401) setUser(null);
       } finally { running = false; }
