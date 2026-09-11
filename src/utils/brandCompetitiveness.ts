@@ -54,8 +54,17 @@ const rawBrandOf = (product: CalculatedProduct) => {
   return explicitBrand ? normalizeBrandAlias(explicitBrand) || explicitBrand : '';
 };
 
+// Legacy imports used the first word of newSeries as brand (e.g. Mate/Find).
+// Recover only from an explicit brand prefix on the saved old model; never
+// guess from a new-series name or borrow a later snapshot's prices/weights.
+const oldModelBrandOf = (product: CalculatedProduct) => {
+  const model = String(product.oldModel || '').trim();
+  const prefix = model.match(/^(华为|荣耀|摩托罗拉|努比亚|红魔|三星|小米|一加|真我|iQOO|OPPO|vivo|Redmi|Huawei|Honor|Motorola|Nubia|Samsung|Xiaomi|OnePlus|realme)(?=\s|\d|[^a-zA-Z]|$)/i)?.[1];
+  return prefix === '红魔' ? '努比亚' : normalizeBrandAlias(prefix);
+};
+
 export const resolveCompetitivenessBrand = (product: CalculatedProduct) => (
-  rawBrandOf(product) || normalizeBrandAlias(product.brand)
+  rawBrandOf(product) || normalizeBrandAlias(product.brand) || oldModelBrandOf(product)
 );
 
 export const resolveCompetitivenessSeries = (product: CalculatedProduct) => String(product.newSeries || '').trim();

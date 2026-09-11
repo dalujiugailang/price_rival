@@ -141,14 +141,22 @@ export const buildCompetitivenessView = ({
     batchName: `${snapshot.name}${snapshot.remarks !== '无备注' ? ` · ${snapshot.remarks}` : ''}`,
     isDraft: snapshot.isDraft, isSnapshot, isSummaryOnly: snapshot.isSummaryOnly
   });
-  const timeline = snapshots.filter(snapshot => snapshot.isConfirmed).map(snapshot => toPoint(snapshot));
-  if (currentCalculatedItems.length > 0 || effectiveSourceId === LIVE_DRAFT) timeline.push(toPoint(live));
+  // A batch for other brands/series is not an observation of this dimension.
+  // Keep actual observations connected without filling absent scores. An
+  // explicitly selected empty batch stays visible so its absence is inspectable.
+  const omittedSnapshots = snapshots.filter(snapshot => snapshot.isConfirmed
+    && hasDimensionFilter && snapshot.products.length === 0 && snapshot.batchId !== effectiveSourceId);
+  const omittedIds = new Set(omittedSnapshots.map(snapshot => snapshot.batchId));
+  const timeline = snapshots.filter(snapshot => snapshot.isConfirmed && !omittedIds.has(snapshot.batchId))
+    .map(snapshot => toPoint(snapshot));
+  if ((hasDimensionFilter ? liveProducts.length > 0 : currentCalculatedItems.length > 0)
+    || effectiveSourceId === LIVE_DRAFT) timeline.push(toPoint(live));
   if (details && !details.isDraft && !details.isConfirmed) timeline.push(toPoint(details, true));
 
   return {
     sourceId: effectiveSourceId, brand: effectiveBrand, newSeries: effectiveSeries,
     brandOptions, seriesOptions, batches: [...batches].reverse(), details, timeline,
-    hasDimensionFilter,
+    hasDimensionFilter, omittedSnapshots,
     metrics: details?.metrics || unavailableViewMetrics()
   };
 };

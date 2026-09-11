@@ -8,6 +8,7 @@ import {
   filterCompetitivenessProducts,
   listCompetitivenessBrands,
   listCompetitivenessSeries,
+  resolveCompetitivenessBrand,
   selectCompetitivenessTimeline
 } from './brandCompetitiveness';
 
@@ -160,3 +161,18 @@ assert.equal(
 );
 
 console.log('brand competitiveness checks passed');
+
+for (const [brand, oldModel, expected] of [
+  ['Mate', '华为 Mate 60', '华为'], ['Find', 'OPPO Find N2', 'OPPO'],
+  ['17系列', '小米 15 Pro', '小米'], ['Z80', '努比亚 Z50 Ultra', '努比亚'],
+  ['红魔11S系列', '红魔 9 Pro', '努比亚'], ['S26', '三星 Galaxy Z Flip5', '三星'],
+  ['GT8', 'realme GT5', '真我'], ['X300Ultra', 'vivo X100 Ultra', 'vivo'],
+  ['Ace', '一加 12', '一加'], ['WIN', '荣耀 Magic6', '荣耀'],
+  ['G100', '摩托罗拉 Moto G55', '摩托罗拉'], ['17', 'REDMI K80', '小米'],
+  ['Unknown', 'iQOO 13', 'iQOO'], ['Find', 'Find X8', ''],
+  ['Unknown', 'vivobook 15', '']
+]) {
+  assert.equal(resolveCompetitivenessBrand({ ...product(brand, 100, true), oldModel }), expected);
+}
+assert.equal(resolveCompetitivenessBrand({ ...product('华为', 100, true), oldModel: '小米 15' }), '华为', 'saved valid brands retain priority');
+assert.equal(resolveCompetitivenessBrand({ ...product('华为', 100, true, { 'BK_品牌名称': '荣耀' }), oldModel: '小米 15' }), '荣耀');

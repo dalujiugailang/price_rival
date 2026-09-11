@@ -17,6 +17,7 @@
     "test:brand": "node server/brand.test.mjs",
     "test:brand-backfill": "node server/databaseBrandBackfill.test.mjs",
     "test:brand-competitiveness": "tsx src/utils/brandCompetitiveness.test.ts",
+    "test:competitiveness-view": "node --import tsx src/utils/competitivenessView.test.ts",
     "test:competitiveness-audit": "tsx src/utils/competitivenessAudit.test.ts",
     "test:competitiveness-export-model": "tsx src/utils/competitivenessTrendExport.test.ts",
     "test:competitiveness-workbook": "node server/competitivenessWorkbook.test.mjs",

@@ -478,6 +478,12 @@ export default function CompetitivenessSummary({
           高亮批次：{sourceLabel}{selectedBatchDetails && !selectedBatchDetails.isDraft && !selectedBatchDetails.isConfirmed ? '；未确认快照单独展示，不计入正式走势。' : ''}
           {displayedRange.range !== trendRange ? '；已展开全部期次以定位该批次。' : ''}
         </p>
+        {view.omittedSnapshots.length > 0 && (
+          <p className="mb-3 text-[11px] text-stone-600" role="status" aria-label="趋势无明细期次">
+            当前筛选按有明细的批次连线；{[...new Set(view.omittedSnapshots.map(snapshot => snapshot.date))].join('、')}
+            无该品牌／系列明细，未绘制数据点（含仅汇总历史）。
+          </p>
+        )}
 
         {/* Interactive Line Chart */}
         <div className="relative w-full h-80 min-h-[300px]" data-tour="trend-lines" id="competitiveness-recharts-container">

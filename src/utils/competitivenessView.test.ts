@@ -38,8 +38,8 @@ const historicalOnly = buildCompetitivenessView({ ...input, brand: '华为', new
 assert.equal(historicalOnly.details?.batchId, 'TRACK-OLD');
 assert.equal(historicalOnly.metrics.tmItemScore, 30);
 assert.equal(historicalOnly.details?.products.length, 2);
-assert.equal(historicalOnly.timeline.find(point => point.batchId === 'SUMMARY')?.tmItemScore, null, 'summary-only data cannot be split');
-assert.equal(historicalOnly.timeline.find(point => point.batchId === LIVE_DRAFT)?.tmItemScore, null, 'no matching rows is a gap, not zero');
+assert.ok(historicalOnly.omittedSnapshots.some(point => point.batchId === 'SUMMARY'), 'summary-only data cannot be split');
+assert.ok(!historicalOnly.timeline.some(point => point.batchId === LIVE_DRAFT), 'an unrelated live draft is not an observation');
 
 const track = buildCompetitivenessView({ ...input, sourceId: 'TRACK-OLD', brand: '华为', newSeries: 'Mate 60' });
 assert.equal(track.metrics.tmItemScore, 30);
@@ -104,3 +104,32 @@ assert.deepEqual(self.batches.map(batch => batch.id), ['SELF']);
 assert.deepEqual(self.seriesOptions, []);
 assert.equal(JSON.stringify(input), original, 'view selection never mutates saved snapshots or live rows');
 console.log('competitiveness view: scope, snapshots, weighting, missing data, timeline and channel checks passed');
+
+const regressionHistory = [
+  { id: 'AUG-11', date: '2026-08-11', isCompetitivenessConfirmed: true,
+    products: [{ ...product('Find', 'Find X8', 30, true), rawFields: {}, oldModel: 'OPPO Find N2' },
+      { ...product('Find', 'Find X8', 70, false), rawFields: {}, oldModel: 'OPPO Find X6' }] },
+  { id: 'SEP-04', date: '2026-09-04', isCompetitivenessConfirmed: true,
+    products: [product('OPPO', 'Find X8', 100, true)] },
+  { id: 'SEP-07', date: '2026-09-07', isCompetitivenessConfirmed: true,
+    products: [product('华为', 'Mate 80', 100, true), product('小米', '17', 100, true)] },
+  { id: 'SEP-08', date: '2026-09-08', isCompetitivenessConfirmed: true,
+    products: [product('OPPO', 'Find X8', 100, false)] }
+] as TrackingBatch[];
+const regressionInput = { historyBatches: regressionHistory, currentCalculatedItems: [], brand: 'OPPO' };
+const regressionBefore = JSON.stringify(regressionInput);
+const regression = buildCompetitivenessView(regressionInput);
+assert.deepEqual(regression.timeline.map(p => p.batchId), ['AUG-11', 'SEP-04', 'SEP-08']);
+for (const key of Object.keys(score(0)) as (keyof ReturnType<typeof score>)[]) {
+  assert.deepEqual(regression.timeline.map(p => p[key]), [30, 100, 0], `saved weights and flags for ${key}`);
+}
+assert.deepEqual(regression.omittedSnapshots.map(p => p.batchId), ['SEP-07']);
+assert.equal(JSON.stringify(regressionInput), regressionBefore);
+const unfilteredRegression = buildCompetitivenessView({ ...regressionInput, brand: ALL_BRANDS });
+assert.equal(unfilteredRegression.timeline.length, 4, 'all-brand view retains partial updates');
+const missingPriceRegression = buildCompetitivenessView({ ...regressionInput,
+  historyBatches: regressionHistory.map(b => b.id === 'SEP-04'
+    ? { ...b, products: b.products.map(p => ({ ...p, tmPrice: 0 })) } : b) });
+assert.equal(missingPriceRegression.timeline[1].tmItemScore, null, 'an observed brand with missing price remains a real metric gap');
+assert.equal(missingPriceRegression.timeline[1].zzItemScore, 100);
+console.log('legacy brand and partial-batch trend regressions passed');
