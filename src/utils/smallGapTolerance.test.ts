@@ -45,9 +45,9 @@ const firstEvaluation = evaluateSmallGapTolerance({
   channel: CHANNELS.tradeIn
 })[0];
 
-assert.equal(firstEvaluation.smallGapTolerancePrice, 1100);
+assert.equal(firstEvaluation.smallGapTolerancePrice, 1070);
 assert.equal(firstEvaluation.smallGapToleranceEligible, true);
-assert.ok(firstEvaluation.smallGapOpportunityRemark?.includes('取整容忍价¥1,100.00'));
+assert.ok(firstEvaluation.smallGapOpportunityRemark?.includes('取整容忍价¥1,070.00'));
 assert.ok(firstEvaluation.smallGapOpportunityRemark?.includes('可容忍'));
 assert.ok(Number.isFinite(firstEvaluation.smallGapToleranceMargin));
 
@@ -91,11 +91,11 @@ assert.deepEqual(getSmallGapTolerancePrices([
   exactBoundary,
   { ...belowFloor, ppv: 'below-floor-ppv' }
 ]), {
-  'small-gap-ppv': 1100
+  'small-gap-ppv': 1070
 });
 
 assert.deepEqual(getSmallGapTolerancePrices([exactBoundary], exactFloor), {
-  'small-gap-ppv': 1100
+  'small-gap-ppv': 1070
 });
 assert.deepEqual(getSmallGapTolerancePrices([exactBoundary], exactFloor + 0.0001), {});
 

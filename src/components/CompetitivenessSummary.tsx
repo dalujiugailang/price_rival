@@ -41,6 +41,7 @@ interface Props {
   activeSubsidyFileName: string;
   channelId?: ChannelId;
   channelName?: string;
+  revealIssueDetails?: boolean;
 }
 
 interface CompetitivenessDataPoint extends CompetitivenessMetrics {
@@ -88,7 +89,8 @@ export default function CompetitivenessSummary({
   currentCalculatedItems,
   activeSubsidyFileName,
   channelId = 'tradeIn',
-  channelName = '京东换新'
+  channelName = '京东换新',
+  revealIssueDetails = false
 }: Props) {
   const isSelfOperated = channelId === 'selfOperated';
   const quoteWeightFieldLabel = isSelfOperated ? 'ppv近30天报价访客数' : 'ppv近30天报价量';
@@ -263,12 +265,12 @@ export default function CompetitivenessSummary({
 
       {/* Benchmark groups follow the business comparison order: TM first, ZZ second. */}
       <div className="space-y-5">
-        <div className="border border-[#141414]/30 bg-[#F9F9F8] px-3 py-2 text-xs" aria-label="当前指标数据来源" aria-live="polite">
+        <div data-tour="competitiveness-source" className="border border-[#141414]/30 bg-[#F9F9F8] px-3 py-2 text-xs" aria-label="当前指标数据来源" aria-live="polite">
           <span className="font-bold">{view.sourceId === ALL_BATCHES ? '最新有效批次' : '选定批次'}：{sourceLabel}</span>
           <span className="mt-1 block text-stone-600">{scopeLabel}{selectedBatchDetails ? ` · ${selectedBatchDetails.products.length} 条明细` : ''}</span>
         </div>
         {!isSelfOperated && (
-          <section aria-labelledby="tm-benchmark-group" className="space-y-2">
+          <section data-tour="trend-tm-metrics" aria-labelledby="tm-benchmark-group" className="space-y-2">
             <div className="flex items-center gap-2 border-b border-[#141414]/30 pb-2">
               <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-[10px] font-black text-white">01–03</span>
               <h4 id="tm-benchmark-group" className="text-sm font-black text-[#141414]">天猫</h4>
@@ -328,7 +330,7 @@ export default function CompetitivenessSummary({
           </section>
         )}
 
-        <section aria-labelledby="zz-benchmark-group" className="space-y-2">
+        <section data-tour="trend-zz-metrics" aria-labelledby="zz-benchmark-group" className="space-y-2">
           <div className="flex items-center gap-2 border-b border-[#141414]/30 pb-2">
             <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-[10px] font-black text-white">04–06</span>
             <h4 id="zz-benchmark-group" className="text-sm font-black text-[#141414]">转转</h4>
@@ -406,7 +408,7 @@ export default function CompetitivenessSummary({
             <label className="flex max-w-full items-center gap-2 text-xs font-bold text-stone-700">
               <span className="shrink-0">数据范围</span>
               <select
-                aria-label="竞争力数据范围"
+                data-tour="trend-batch" aria-label="竞争力数据范围"
                 value={view.sourceId}
                 onChange={event => setSelectedBatchId(event.target.value)}
                 className="min-w-0 w-80 max-w-full border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none"
@@ -425,7 +427,7 @@ export default function CompetitivenessSummary({
             <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
               品牌
               <select
-                aria-label="品牌筛选"
+                data-tour="trend-brand" aria-label="品牌筛选"
                 value={view.brand}
                 disabled={view.sourceId !== ALL_BATCHES && !!selectedBatchDetails?.isSummaryOnly}
                 onChange={event => setSelectedBrand(event.target.value)}
@@ -441,7 +443,7 @@ export default function CompetitivenessSummary({
               <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
                 新机系列
                 <select
-                  aria-label="新机系列筛选"
+                  data-tour="trend-series" aria-label="新机系列筛选"
                   value={view.newSeries}
                   disabled={view.sourceId !== ALL_BATCHES && !!selectedBatchDetails?.isSummaryOnly}
                   onChange={event => setSelectedSeries(event.target.value)}
@@ -456,7 +458,7 @@ export default function CompetitivenessSummary({
             )}
             <button
               type="button"
-              onClick={handleExport}
+              data-tour="trend-export" onClick={handleExport}
               disabled={isExporting || timelineData.length === 0}
               className="inline-flex items-center gap-1.5 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold text-[#141414] hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -478,7 +480,7 @@ export default function CompetitivenessSummary({
         </p>
 
         {/* Interactive Line Chart */}
-        <div className="relative w-full h-80 min-h-[300px]" id="competitiveness-recharts-container">
+        <div className="relative w-full h-80 min-h-[300px]" data-tour="trend-lines" id="competitiveness-recharts-container">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={displayedTimelineData}
@@ -612,7 +614,7 @@ export default function CompetitivenessSummary({
           <div
             className="absolute bottom-[13px] left-0 z-10 inline-flex border border-[#141414] bg-white"
             role="group"
-            aria-label="趋势展示范围"
+            data-tour="trend-range" aria-label="趋势展示范围"
           >
             {([
               ['recent15', '近15次追价'],
@@ -637,7 +639,7 @@ export default function CompetitivenessSummary({
       </div>
 
       {/* Model Breakdown Inspection List */}
-      <div className="space-y-4">
+      <div data-tour="trend-audit" className="space-y-4">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
           <div>
             <h4 className="font-bold text-[#141414] text-xs uppercase tracking-wider">
@@ -698,6 +700,7 @@ export default function CompetitivenessSummary({
               <CompetitivenessAuditTable
                 products={selectedBatchDetails.products}
                 isSummaryOnly={selectedBatchDetails.isSummaryOnly}
+                revealIssueDetails={revealIssueDetails}
               />
               </div>
             ) : null}

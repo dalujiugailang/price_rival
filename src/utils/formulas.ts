@@ -19,17 +19,22 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 export const roundUploadPrice = (value: number) => {
   if (!Number.isFinite(value) || value <= 0) return 0;
   const integerPrice = Math.floor(value);
-  const base = Math.floor(integerPrice / 100) * 100;
-  const tail = integerPrice - base;
 
-  if (tail === 0) return base;
-  if (tail <= 39) return base;
-  if (tail <= 49) return base + 40;
-  if (tail <= 59) return base + 50;
-  if (tail <= 69) return base + 60;
-  return base + 100;
+  if (integerPrice < 5) return 2;
+  if (integerPrice === 250) return 245;
+
+  const unit = integerPrice % 10;
+  const tens = integerPrice - unit;
+
+  if (integerPrice <= 100) return unit < 5 ? tens : tens + 5;
+  if (integerPrice <= 500) return tens;
+  if (unit <= 4) return tens;
+  if (unit === 5) return integerPrice;
+  return tens + 10;
 };
 
+// Used by the small-gap workflow, which must stay at or above the competitor price.
+// Normal automatic repricing applies roundUploadPrice directly to its calculated target.
 export const getRoundedCompetitivePrice = (competitorPrice: number, targetPrice = competitorPrice + 2) => {
   if (!Number.isFinite(competitorPrice) || competitorPrice <= 0) return 0;
   const start = Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : competitorPrice + 2;
@@ -218,7 +223,7 @@ export function calculateProductPrice(
     } else if (product.jdPrice >= targetCompetitorPrice) {
       pricingRemark = `jd裸机价>=${targetCompetitorLabel}，不调整`;
     } else {
-      const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice, getTargetPricingStart(targetCompetitorPrice));
+      const targetPrice = roundUploadPrice(getTargetPricingStart(targetCompetitorPrice));
       recommendJdPrice = targetPrice;
       ahsSubsidyAfter = subsidyAtPrice(targetPrice, activeRules, currentSubsidy);
       maxPriceByMargin = targetPrice;
@@ -229,7 +234,7 @@ export function calculateProductPrice(
   } else if (product.jdPrice >= targetCompetitorPrice) {
     pricingRemark = `jd裸机价>=${targetCompetitorLabel}，不调整`;
   } else {
-    const targetPrice = getRoundedCompetitivePrice(targetCompetitorPrice, getTargetPricingStart(targetCompetitorPrice));
+    const targetPrice = roundUploadPrice(getTargetPricingStart(targetCompetitorPrice));
     const targetSubsidy = subsidyAtPrice(targetPrice, activeRules, currentSubsidy);
     const targetPostMargin = calcMarginalProfit(targetPrice, targetSubsidy, product.basePrice, channel);
 

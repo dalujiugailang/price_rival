@@ -313,7 +313,7 @@ export default function TmHandPriceGapPanel({ products, channelName, channelId }
         </div>
         <button
           type="button"
-          onClick={handleShareImage}
+          data-tour="gap-preview" onClick={handleShareImage}
           disabled={sharing || rows.length === 0}
           className="inline-flex items-center justify-center gap-2 border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white hover:bg-[#2A2A2B] disabled:cursor-not-allowed disabled:bg-[#141414]/40"
         >

@@ -44,6 +44,26 @@ export const createAccessStore = (db, writeAudit) => {
     db.prepare('INSERT INTO access_members VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)')
       .run(profile.openId, profile.name, profile.department || '', access.role, JSON.stringify(access.scopes), Number(access.enabled), source, timestamp, timestamp);
   };
+  const migrateViewerTutorialAccess = () => transaction(() => {
+    const migrationId = 'trade-in-viewer-tutorial-v1';
+    if (db.prepare('SELECT 1 FROM access_migrations WHERE id=?').get(migrationId)) return;
+    const legacyScopes = new Set(['tradeIn.workspace', 'tradeIn.competitiveness', 'tradeIn.tmHandGap']);
+    for (const row of db.prepare("SELECT * FROM access_members WHERE role='viewer'").all()) {
+      const before = member(row);
+      const scopes = new Set(before.scopes);
+      // The deployed viewer preset also includes history; retain that page in the new preset.
+      scopes.delete('tradeIn.history');
+      if (scopes.size !== legacyScopes.size || [...scopes].some(scope => !legacyScopes.has(scope))) continue;
+      db.prepare('UPDATE access_members SET scopes_json=?, updated_at=?, version=version+1 WHERE open_id=?')
+        .run(JSON.stringify(DEFAULT_VIEWER_SCOPES), now(), before.openId);
+      const after = get(before.openId);
+      writeAudit({ action: 'ACCESS_SCOPE_MIGRATE', resourceType: 'access_member', resourceId: before.openId,
+        details: { migrationId, name: before.name,
+          before: { role: before.role, scopes: before.scopes, enabled: before.enabled, version: before.version },
+          after: { role: after.role, scopes: after.scopes, enabled: after.enabled, version: after.version } } });
+    }
+    db.prepare('INSERT INTO access_migrations VALUES (?, ?)').run(migrationId, now());
+  });
   return {
     getMember: get,
     hasMembers: () => !!db.prepare('SELECT 1 FROM access_members LIMIT 1').get(),
@@ -58,6 +78,7 @@ export const createAccessStore = (db, writeAudit) => {
         ORDER BY name LIMIT 30`).all(query).map(row => ({ openId: row.open_id, name: row.name, department: row.department }));
     },
     initializeAccess({ editors, viewers, admins, profiles = {} }) {
+      migrateViewerTutorialAccess();
       if (db.prepare("SELECT 1 FROM access_migrations WHERE id='personal-access-v1'").get()) return;
       if (editors.length + viewers.length === 0) return;
       const ids = [...new Set([...editors, ...viewers])];

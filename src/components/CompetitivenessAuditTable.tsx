@@ -16,6 +16,7 @@ import {
 interface Props {
   products: CalculatedProduct[];
   isSummaryOnly?: boolean;
+  revealIssueDetails?: boolean;
 }
 
 type AuditRow = CompetitivenessAuditBrand | CompetitivenessAuditSeries;
@@ -134,7 +135,7 @@ function IssueSummary({ row, expanded, onToggle, isBrand = false }: {
       {onToggle ? (
         <button
           type="button"
-          aria-expanded={expanded}
+          data-tour={isBrand ? undefined : 'audit-issues'} aria-expanded={expanded}
           onClick={onToggle}
           className="w-full text-right hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]"
         >
@@ -166,12 +167,21 @@ function ReferenceMetricCells({ metrics }: { metrics: CompetitivenessMetrics }) 
   );
 }
 
-export default function CompetitivenessAuditTable({ products, isSummaryOnly = false }: Props) {
+export default function CompetitivenessAuditTable({ products, isSummaryOnly = false, revealIssueDetails = false }: Props) {
   const auditRows = useMemo(() => buildCompetitivenessAudit(products), [products]);
   const [showReferenceMetrics, setShowReferenceMetrics] = useState(false);
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(() => new Set());
   const [expandedSeries, setExpandedSeries] = useState<Set<string>>(() => new Set());
   const visibleColumnCount = showReferenceMetrics ? 8 : 5;
+  // Keep a user's open issue in view, or reveal the first available issue for the tour.
+  // Deriving this from the current scope also handles direct step selection and filtering.
+  const revealedBrand = revealIssueDetails
+    ? auditRows.find(brand => expandedBrands.has(brand.key)
+      && brand.series.some(series => expandedSeries.has(series.key) && series.issueProducts.length > 0))
+      ?? auditRows.find(brand => brand.issueProducts.length > 0)
+    : undefined;
+  const revealedSeries = revealedBrand?.series.find(series => expandedSeries.has(series.key) && series.issueProducts.length > 0)
+    ?? revealedBrand?.series.find(series => series.issueProducts.length > 0);
 
   const toggleBrand = (brand: string) => {
     setExpandedBrands(current => {
@@ -276,14 +286,14 @@ export default function CompetitivenessAuditTable({ products, isSummaryOnly = fa
           </thead>
           <tbody>
             {auditRows.map(brandRow => {
-              const brandExpanded = expandedBrands.has(brandRow.key);
+              const brandExpanded = expandedBrands.has(brandRow.key) || revealedBrand?.key === brandRow.key;
               return (
                 <React.Fragment key={brandRow.key}>
                   <tr className="border-b border-[#141414]/40 bg-white hover:bg-stone-50" data-audit-level="brand">
                     <td className="border-r border-[#141414] bg-white px-2 py-2.5 align-middle">
                       <button
                         type="button"
-                        aria-expanded={brandExpanded}
+                        data-tour="audit-brand" aria-expanded={brandExpanded}
                         onClick={() => toggleBrand(brandRow.key)}
                         className="flex w-full items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]"
                       >
@@ -307,7 +317,7 @@ export default function CompetitivenessAuditTable({ products, isSummaryOnly = fa
                   </tr>
 
                   {brandExpanded ? brandRow.series.map(seriesRow => {
-                    const seriesExpanded = expandedSeries.has(seriesRow.key);
+                    const seriesExpanded = expandedSeries.has(seriesRow.key) || revealedSeries?.key === seriesRow.key;
                     return (
                       <React.Fragment key={seriesRow.key}>
                         <tr className="border-b border-[#141414]/20 bg-[#F9F9F8] hover:bg-stone-100" data-audit-level="series">
@@ -328,7 +338,7 @@ export default function CompetitivenessAuditTable({ products, isSummaryOnly = fa
 
                         {seriesExpanded && seriesRow.issueProducts.length > 0 ? (
                           <tr className="border-b border-[#141414] bg-[#F7F7F5]" data-audit-level="sku">
-                            <td colSpan={visibleColumnCount} className="px-3 py-2.5">
+                            <td colSpan={visibleColumnCount} data-tour="audit-issue-details" className="scroll-mt-4 px-3 py-2.5">
                               <div className="border border-[#141414] bg-white">
                                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#141414] bg-[#E2E1DE] px-3 py-2">
                                   <div className="flex items-center gap-2 font-bold text-stone-900">

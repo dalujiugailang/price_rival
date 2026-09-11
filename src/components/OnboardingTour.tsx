@@ -1,12 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export interface TourStep {
   target: string;
   title: string;
   body: string;
   tab?: string;
+  chapter?: string;
+  action?: string;
+  fallbackTarget?: string;
+  unavailable?: string;
+  placement?: 'below';
 }
-
 interface Props {
   open: boolean;
   steps: TourStep[];
@@ -15,164 +19,119 @@ interface Props {
   onFinish: () => void;
   onNext: () => void;
   onPrev: () => void;
+  onSelect: (index: number) => void;
 }
-
-type SpotlightRect = {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-};
-
-const PADDING = 8;
-
-export default function OnboardingTour({
-  open,
-  steps,
-  currentIndex,
-  onPause,
-  onFinish,
-  onNext,
-  onPrev
-}: Props) {
-  const [rect, setRect] = useState<SpotlightRect | null>(null);
+type Rect = { top: number; left: number; width: number; height: number };
+export default function OnboardingTour({ open, steps, currentIndex, onPause, onFinish, onNext, onPrev, onSelect }: Props) {
+  const [rect, setRect] = useState<Rect | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [cardHeight, setCardHeight] = useState(320);
+  const cardRef = useRef<HTMLDivElement>(null);
   const step = steps[currentIndex];
-  const isLast = currentIndex >= steps.length - 1;
 
   useEffect(() => {
     if (!open || !step) return;
-
-    let cancelled = false;
-    const updateRect = () => {
-      const element = document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`);
-      if (!element) {
-        setRect(null);
-        return;
+    let frame = 0;
+    let scrolledElement: HTMLElement | null = null;
+    const find = (target?: string) => {
+      if (!target) return null;
+      return Array.from(document.querySelectorAll<HTMLElement>(`[data-tour="${target}"]`))
+        .find(element => element.getClientRects().length > 0) || null;
+    };
+    const measure = () => {
+      const primary = find(step.target);
+      const element = primary || find(step.fallbackTarget);
+      setMissing(!primary);
+      setViewport(previous => previous.width === window.innerWidth && previous.height === window.innerHeight
+        ? previous : { width: window.innerWidth, height: window.innerHeight });
+      if (!element) { setRect(null); return; }
+      if (element !== scrolledElement) {
+        scrolledElement = element;
+        element.scrollIntoView({ block: step.placement === 'below' ? 'start' : 'center', inline: 'nearest', behavior: 'instant' });
       }
-
-      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
-      window.setTimeout(() => {
-        if (cancelled) return;
-        const next = element.getBoundingClientRect();
-        setRect({
-          top: Math.max(8, next.top - PADDING),
-          left: Math.max(8, next.left - PADDING),
-          width: next.width + PADDING * 2,
-          height: next.height + PADDING * 2
-        });
-      }, 260);
+      const bounds = element.getBoundingClientRect();
+      const top = Math.max(4, bounds.top - 6);
+      const left = Math.max(4, bounds.left - 6);
+      const next = { top, left, width: Math.max(0, Math.min(window.innerWidth - 4, bounds.right + 6) - left),
+        height: Math.max(0, Math.min(window.innerHeight - 4, bounds.bottom + 6) - top) };
+      setRect(previous => previous && Object.keys(next).every(key => previous[key as keyof Rect] === next[key as keyof Rect]) ? previous : next);
     };
-
-    updateRect();
-    window.addEventListener('resize', updateRect);
-    window.addEventListener('scroll', updateRect, true);
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.body, { childList: true, subtree: true });
+    schedule();
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, true);
     return () => {
-      cancelled = true;
-      window.removeEventListener('resize', updateRect);
-      window.removeEventListener('scroll', updateRect, true);
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
     };
-  }, [open, step]);
+  }, [open, step, cardHeight]);
 
-  const tooltipStyle = useMemo<React.CSSProperties>(() => {
-    if (!rect) {
-      return {
-        left: '50%',
-        top: '50%',
-        transform: 'translate(-50%, -50%)'
-      };
-    }
+  useEffect(() => {
+    if (!open || !cardRef.current) return;
+    const observer = new ResizeObserver(entries => {
+      const measuredHeight = entries[0].target.getBoundingClientRect().height;
+      if (measuredHeight > 0) setCardHeight(measuredHeight);
+    });
+    observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, [open]);
 
-    const tooltipWidth = 340;
-    const tooltipHeight = 190;
-    const gap = 14;
-    const canPlaceRight = rect.left + rect.width + tooltipWidth + gap < window.innerWidth;
-    const canPlaceBelow = rect.top + rect.height + tooltipHeight + gap < window.innerHeight;
-
-    if (canPlaceRight) {
-      return {
-        left: rect.left + rect.width + gap,
-        top: Math.max(12, Math.min(rect.top, window.innerHeight - tooltipHeight - 12))
-      };
-    }
-
-    if (canPlaceBelow) {
-      return {
-        left: Math.max(12, Math.min(rect.left, window.innerWidth - tooltipWidth - 12)),
-        top: rect.top + rect.height + gap
-      };
-    }
-
-    return {
-      left: Math.max(12, Math.min(rect.left, window.innerWidth - tooltipWidth - 12)),
-      top: Math.max(12, rect.top - tooltipHeight - gap)
-    };
-  }, [rect]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onPause(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onPause]);
 
   if (!open || !step) return null;
+  const width = Math.min(380, viewport.width - 24);
+  const height = Math.min(cardHeight, viewport.height - 24);
+  const rightFits = step.placement !== 'below' && rect && rect.left + rect.width + width + 24 <= viewport.width;
+  const belowFits = rect && rect.top + rect.height + height + 24 <= viewport.height;
+  const left = rightFits ? rect!.left + rect!.width + 12
+    : Math.max(12, Math.min(rect?.left ?? (viewport.width - width) / 2, viewport.width - width - 12));
+  const top = rightFits ? Math.max(12, Math.min(rect!.top, viewport.height - height - 12))
+    : belowFits ? rect!.top + rect!.height + 12
+    : rect && rect.top > height + 24 ? rect.top - height - 12 : Math.max(12, viewport.height - height - 12);
+  const chapters = [...new Set(steps.map(item => item.chapter || '导览'))];
 
-  const topHeight = rect ? rect.top : 0;
-  const leftWidth = rect ? rect.left : 0;
-  const rightLeft = rect ? rect.left + rect.width : 0;
-  const bottomTop = rect ? rect.top + rect.height : 0;
-
-  return (
-    <div className="fixed inset-0 z-[10000] pointer-events-none">
-      {rect ? (
-        <>
-          <div className="absolute left-0 top-0 w-full bg-black/55" style={{ height: topHeight }} />
-          <div className="absolute left-0 bg-black/55" style={{ top: rect.top, width: leftWidth, height: rect.height }} />
-          <div className="absolute right-0 bg-black/55" style={{ top: rect.top, left: rightLeft, height: rect.height }} />
-          <div className="absolute left-0 bottom-0 w-full bg-black/55" style={{ top: bottomTop }} />
-          <div
-            className="absolute border-[3px] border-[#2563eb] bg-white/10 shadow-[0_0_0_4px_rgba(37,99,235,0.25)]"
-            style={rect}
-          />
-        </>
-      ) : (
-        <div className="absolute inset-0 bg-black/55" />
-      )}
-
-      <div
-        className="pointer-events-auto fixed w-[340px] border-2 border-[#141414] bg-white p-4 text-[#141414] shadow-[5px_5px_0_#141414]"
-        style={tooltipStyle}
-      >
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <span className="bg-[#141414] px-2 py-0.5 text-[11px] font-black text-white">
-            {currentIndex + 1}/{steps.length}
-          </span>
-          <button
-            type="button"
-            onClick={onPause}
-            className="border border-[#141414] px-2 py-0.5 text-[11px] font-black hover:bg-[#141414] hover:text-white"
-          >
-            暂停
-          </button>
-        </div>
-        <h3 className="mb-2 text-base font-black">{step.title}</h3>
-        <p className="text-sm font-bold leading-relaxed text-[#141414]/75">{step.body}</p>
-        {!rect && (
-          <div className="mt-2 border border-[#141414]/30 bg-[#F0EFEC] px-2 py-1 text-[11px] font-bold">
-            当前步骤目标未显示，继续下一步或返回上一页重试。
-          </div>
-        )}
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={onPrev}
-            disabled={currentIndex === 0}
-            className="border border-[#141414] px-3 py-1.5 text-xs font-black disabled:opacity-40"
-          >
-            上一步
-          </button>
-          <button
-            type="button"
-            onClick={isLast ? onFinish : onNext}
-            className="border border-[#141414] bg-[#141414] px-3 py-1.5 text-xs font-black text-white hover:bg-[#2A2A2B]"
-          >
-            {isLast ? '完成' : '下一步'}
-          </button>
-        </div>
+  return <>
+    {step.placement === 'below' && <div aria-hidden="true" style={{ height: height + 24 }} />}
+    <div className="pointer-events-none fixed inset-0 z-[10000]">
+    {rect ? <>
+      <div className="absolute inset-x-0 top-0 bg-black/30" style={{ height: rect.top }} />
+      <div className="absolute left-0 bg-black/30" style={{ top: rect.top, width: rect.left, height: rect.height }} />
+      <div className="absolute right-0 bg-black/30" style={{ top: rect.top, left: rect.left + rect.width, height: rect.height }} />
+      <div className="absolute inset-x-0 bottom-0 bg-black/30" style={{ top: rect.top + rect.height }} />
+      <div className="absolute border-2 border-[#141414]" style={rect} />
+    </> : <div className="absolute inset-0 bg-black/30" />}
+    <div ref={cardRef} role="dialog" aria-label="看板使用导览" className="pointer-events-auto fixed overflow-y-auto border-2 border-[#141414] bg-white p-4 text-[#141414] shadow-[3px_3px_0_#141414]"
+      style={{ left, top, width, maxHeight: viewport.height - 24 }}>
+      <div className="-mx-4 -mt-4 mb-4 flex items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] px-4 py-3 text-xs">
+        <strong>{step.chapter || '导览'} · {currentIndex + 1}/{steps.length}</strong>
+        <button type="button" onClick={onPause} className="border border-[#141414] bg-white px-2 py-1 font-bold hover:bg-[#E4E3E0]">暂停</button>
+      </div>
+      <h3 className="mb-3 text-base font-bold">{step.title}</h3>
+      {missing ? <p className="mb-3 bg-[#F0EFEC] p-3 text-[13px] leading-6">{step.unavailable || '当前内容尚未加载，可等待数据返回或查看下一步骤。'}</p>
+        : step.action && <p className="mb-3 text-sm font-bold leading-6">{step.action}</p>}
+      <p className="text-[13px] leading-6 text-[#141414]/70">{step.body}</p>
+      <label className="mt-4 block border-t border-[#141414]/20 pt-3 text-xs text-[#141414]/60">
+        选择导览步骤
+        <select aria-label="导览步骤" value={currentIndex} onChange={event => onSelect(Number(event.target.value))} className="mt-2 block w-full border border-[#141414] bg-white px-2 py-2 text-xs text-[#141414]">
+          {chapters.map(chapter => <optgroup key={chapter} label={chapter}>{steps.map((item, index) => (item.chapter || '导览') === chapter
+            ? <option key={item.target + index} value={index}>{index + 1}. {item.title}</option> : null)}</optgroup>)}
+        </select>
+      </label>
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <button type="button" onClick={onPrev} disabled={currentIndex === 0} className="border border-[#141414] px-3 py-2 text-xs disabled:opacity-40">上一步</button>
+        <button type="button" onClick={currentIndex === steps.length - 1 ? onFinish : onNext} className="border border-[#141414] bg-[#141414] px-3 py-2 text-xs font-bold text-white">{currentIndex === steps.length - 1 ? '完成' : '下一步'}</button>
       </div>
     </div>
-  );
+    </div>
+  </>;
 }

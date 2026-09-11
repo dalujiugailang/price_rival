@@ -87,7 +87,7 @@ export default function HistoryPanel({
   };
 
   return (
-    <section className="min-w-0 space-y-4" id="history-panel-area" aria-label={`${channelName}历史快照`}>
+    <section className="min-w-0 space-y-4" data-tour="history-panel" id="history-panel-area" aria-label={`${channelName}历史快照`}>
       <div className="min-w-0 border border-[#141414] bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] px-4 py-3">
           <h2 className="flex items-center gap-2 text-sm font-bold">
@@ -95,10 +95,10 @@ export default function HistoryPanel({
             <span className="border border-[#141414] bg-white px-1.5 text-xs">{batches.length}</span>
           </h2>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className={buttonClass} aria-expanded={showAllSnapshots} aria-controls="snapshot-library" onClick={() => setShowAllSnapshots(value => !value)}>
+            <button type="button" className={buttonClass} aria-expanded={showAllSnapshots} data-tour="history-library" aria-controls="snapshot-library" onClick={() => setShowAllSnapshots(value => !value)}>
               <List className="h-3.5 w-3.5" /> 全部快照
             </button>
-            <button type="button" className={buttonClass} disabled={!canCompare} aria-pressed={showComparison && canCompare} onClick={() => setShowComparison(value => !value)}>
+            <button type="button" className={buttonClass} data-tour="history-compare" disabled={!canCompare} aria-pressed={showComparison && canCompare} onClick={() => setShowComparison(value => !value)}>
               <ArrowLeftRight className="h-3.5 w-3.5" /> 两期对比
             </button>
           </div>
@@ -129,7 +129,7 @@ export default function HistoryPanel({
         {batches.length > 0 ? (
           <div className="flex min-w-0 items-stretch bg-[#F0EFEC] px-2 pt-3">
             <button type="button" className="mb-2 shrink-0 px-1 text-[#555] hover:text-black" aria-label="向左滚动快照" onClick={() => stripRef.current?.scrollBy({ left: -(stripRef.current?.clientWidth || 400) * 0.7, behavior: 'smooth' })}><ChevronLeft className="h-4 w-4" /></button>
-            <div ref={stripRef} role="tablist" aria-label={`${channelName}快照 Sheet`} className="relative flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto">
+            <div ref={stripRef} data-tour="history-tabs" role="tablist" aria-label={`${channelName}快照 Sheet`} className="relative flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto">
               {batches.map((batch, index) => {
                 const selected = batch.id === inspectedId;
                 const title = snapshotRemark(batch) || '未填写备注';
@@ -157,7 +157,7 @@ export default function HistoryPanel({
 
       {inspectedBatch && (
         <div role="tabpanel" id="snapshot-detail" aria-labelledby={`snapshot-tab-${inspectedBatch.id}`} className="min-w-0 space-y-4">
-          <div className="border border-[#141414] bg-white px-4 py-3">
+          <div data-tour="history-meta" className="border border-[#141414] bg-white px-4 py-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 space-y-1.5">
                 <h3 className="break-words text-sm font-bold">{snapshotRemark(inspectedBatch) || '历史测算快照'}</h3>
@@ -175,7 +175,7 @@ export default function HistoryPanel({
             </div>
             {(inspectedBatch.investmentRateMetrics || inspectedBatch.subsidyFileName) && (
               <details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs">
-                <summary className="w-fit cursor-pointer text-[#555]">保存时投入测算与来源</summary>
+                <summary data-tour="history-sources" className="w-fit cursor-pointer text-[#555]">保存时投入测算与来源</summary>
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
                   {inspectedBatch.investmentRateMetrics && <>
                     <span>预估投入 <strong>{formatRMB(inspectedBatch.investmentRateMetrics.estimatedInvestmentAmount)}</strong></span>

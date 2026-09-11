@@ -26,7 +26,7 @@
     "test:snapshot-history": "node --import tsx src/utils/snapshotHistory.test.tsx",
     "test:workspace-sync": "node --import tsx src/utils/workspaceSync.test.ts",
     "test:auth": "node server/auth.test.mjs",
-    "test:access": "node --test server/access.test.mjs",
+    "test:access": "node --test server/access.test.mjs server/tutorialAccessMigration.test.mjs",
     "start": "node server/index.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

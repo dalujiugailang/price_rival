@@ -10,7 +10,7 @@ import { once } from 'node:events';
 import { createDatabase } from './database.mjs';
 import { createAuth } from './auth.mjs';
 import { listAuthorizedBatches } from './accessProjection.mjs';
-import { ALL_ACCESS_SCOPES, DEFAULT_VIEWER_SCOPES } from '../shared/accessPolicy.mjs';
+import { ALL_ACCESS_SCOPES, DEFAULT_VIEWER_SCOPES, canAccess, canEdit } from '../shared/accessPolicy.mjs';
 
 const admin = { openId: 'ou_testadmin', name: '测试管理员', role: 'admin', tenantKey: 'test', loginType: 'feishu' };
 const context = { actor: admin, requestId: 'access-test', ip: '127.0.0.1', userAgent: 'test' };
@@ -32,6 +32,23 @@ const session = (db, openId, role = 'admin', extra = {}) => {
   db.createSession(crypto.createHash('sha256').update(token).digest('hex'), { ...admin, openId, role, ...extra }, new Date(Date.now() + 3600000).toISOString());
   return `price_rival_session=${token}`;
 };
+
+test('business viewers have four read-only pages; tutorial alone cannot read business snapshots', () => {
+  const user = { role: 'viewer', enabled: true, scopes: DEFAULT_VIEWER_SCOPES };
+  assert.deepEqual(DEFAULT_VIEWER_SCOPES, ['tradeIn.history', 'tradeIn.competitiveness', 'tradeIn.tmHandGap', 'tradeIn.tutorial']);
+  for (const page of ['history', 'competitiveness', 'tmHandGap', 'tutorial']) {
+    assert.equal(canAccess(user, 'tradeIn', page), true);
+    assert.equal(canEdit(user, 'tradeIn', page), false);
+  }
+  for (const page of ['workspace', 'upload', 'audit']) assert.equal(canAccess(user, 'tradeIn', page), false);
+  assert.equal(canAccess(user, 'selfOperated', 'tutorial'), false);
+  const f = fixture();
+  try {
+    f.db.createBatch(batch('tradeIn', '2026-09-11'), context);
+    assert.deepEqual(listAuthorizedBatches(f.db, { ...user, scopes: ['tradeIn.tutorial'] }), []);
+    assert.equal(listAuthorizedBatches(f.db, user).length, 1);
+  } finally { f.close(); }
+});
 
 test('migrate exact legacy members once; preserve roles, scopes and disabled state across restart', () => {
   const f = fixture();

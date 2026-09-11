@@ -6,10 +6,12 @@ export const ACCESS_PAGES = [
   { id: 'workspace', name: '追价工作台' }, { id: 'upload', name: '数据源' },
   { id: 'history', name: '历史' }, { id: 'competitiveness', name: '竞争力走势' },
   { id: 'tmHandGap', name: '追后到手高出TM', selfName: '追后AHS高出ZZ' },
-  { id: 'audit', name: '操作日志' }
+  { id: 'audit', name: '操作日志' },
+  { id: 'tutorial', name: '产品教程', channelId: 'tradeIn' }
 ];
-export const ALL_ACCESS_SCOPES = ACCESS_CHANNELS.flatMap(channel => ACCESS_PAGES.map(page => `${channel.id}.${page.id}`));
-export const DEFAULT_VIEWER_SCOPES = ['tradeIn.workspace', 'tradeIn.competitiveness', 'tradeIn.tmHandGap'];
+export const pagesForChannel = channelId => ACCESS_PAGES.filter(page => !page.channelId || page.channelId === channelId);
+export const ALL_ACCESS_SCOPES = ACCESS_CHANNELS.flatMap(channel => pagesForChannel(channel.id).map(page => `${channel.id}.${page.id}`));
+export const DEFAULT_VIEWER_SCOPES = ['tradeIn.history', 'tradeIn.competitiveness', 'tradeIn.tmHandGap', 'tradeIn.tutorial'];
 export const isEditor = user => user?.role === 'admin' || user?.role === 'editor';
 export const canAccess = (user, channel, page) => (
   ALL_ACCESS_SCOPES.includes(`${channel}.${page}`)

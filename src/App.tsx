@@ -50,6 +50,7 @@ import OnboardingTour, { TourStep } from './components/OnboardingTour';
 import AuditLogPanel from './components/AuditLogPanel';
 import PermissionPanel from './components/PermissionPanel';
 import SharedSourcesPanel from './components/SharedSourcesPanel';
+import ProductTutorial from './components/ProductTutorial';
 import { ACCESS_PAGES, accessibleChannels, canAccess, canEdit, isEditor } from '../shared/accessPolicy.mjs';
 import { useAuth } from './components/AuthGate';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
@@ -111,7 +112,7 @@ type SaveBatchOptions = {
   pricingTimestamp: string;
 };
 
-type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions';
+type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions' | 'tutorial';
 
 type ChannelWorkspaceState = {
   productsMaster: Product[];
@@ -197,71 +198,244 @@ export default function App() {
   const effectivePricingMode = readOnlySnapshot?.pricingMode ?? activeState.pricingMode;
   const effectiveInvestmentRateInputs = readOnlySnapshot?.investmentRateInputs ?? activeState.investmentRateInputs;
   const isSelfOperated = activeChannelId === 'selfOperated';
-  const tourSteps = useMemo<TourStep[]>(() => [
-    {
-      target: `channel-${activeChannelId}`,
-      title: '第一步：选择业务渠道',
-      body: `先确认当前渠道是“${activeChannel.name}”。京东换新对标 TM，自营对标 ZZ，后续上传字段、补贴和竞争力口径都会跟着切换。`
-    },
-    {
-      target: 'tab-upload',
-      title: '第二步：进入数据源',
-      body: '点这里进入数据源页。新手先从这里开始，不要直接在工作台改价格。',
-      tab: 'upload'
-    },
-    {
-      target: 'base-upload',
-      title: '第三步：上传本次竞争追价表',
-      body: isSelfOperated
-        ? '点这里上传自营竞争表，需要包含旧机型号、ppv、zz裸机价等字段。'
-        : '点这里上传京东换新竞争表，需要包含新机系列、旧机型号、ppv、tm裸机价、tm总补贴-人工、zz裸机价等字段。',
-      tab: 'upload'
-    },
-    {
-      target: 'daily-api',
-      title: '第四步：匹配 daily price',
-      body: '点这个按钮自动按 ppv 匹配 JD 最终报价、BI 基准价和等级 id。匹配完再进入测算。',
-      tab: 'upload'
-    },
-    {
-      target: isSelfOperated ? 'self-subsidy' : 'subsidy-upload',
-      title: isSelfOperated ? '第五步：粘贴自营普发券' : '第五步：上传补贴表',
-      body: isSelfOperated
-        ? '在这里粘贴门槛和优惠金额，然后点击“应用自营普发券规则”。补贴会按追后价格动态命中。'
-        : '点这里上传补贴表，系统会按新机系列和 JD 物品价门槛命中 AHS 投入、京东补贴。',
-      tab: 'upload'
-    },
-    {
-      target: 'top-strategy',
-      title: '第六步：调整追价策略',
-      body: '教程会自动回到工作台。这里就是切换边际底线或 100%竞争力的按钮组，切换后追后价格、利润、投入费率和高出清单会实时变化。',
-      tab: 'workspace'
-    },
-    {
-      target: 'small-gap-reminder',
-      title: '第七步：小额价差提醒与手动改价',
-      body: '先看 AZ提醒列的小额价差机会。遇到距竞品只差一点的高价值机型，可以双击“京东物品价-追价后”这一格手动改价，再按新的价格重算利润和竞争力。',
-      tab: 'workspace'
-    },
-    {
-      target: 'investment-rate',
-      title: '第八步：计算投入费率',
-      body: '填入近 30 天销售额后点击“计算费率”。注意输入框变化不会立即刷新，必须点计算按钮。',
-      tab: 'workspace'
-    },
-    {
-      target: 'save-snapshot',
-      title: '第九步：保存和输出',
-      body: '确认结果后点这里保存测算快照。需要汇报时，可再导出追价表、查看竞争力走势或生成追后高出清单。',
-      tab: 'workspace'
-    },
-    {
-      target: 'competitiveness-trend-chart',
-      title: '第十步：查看竞争力走势',
-      body: '教程会进入竞争力走势页。重点看“历史追平周期竞争力波动走势”折线图，用正式落数和当前工作台草稿做追价复盘和汇报。',
-      tab: 'competitiveness'
-    }
-  ], [activeChannel.name, activeChannelId, isSelfOperated]);
+  const tourSteps = useMemo<TourStep[]>(() => {
+    const steps: TourStep[] = [
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "tab-competitiveness",
+        "title": "进入竞争力走势",
+        "action": "在此查看各批次的竞争力指标。",
+        "body": "本导览覆盖数据查询与业务复盘。高亮区域支持直接操作，完成查看后可进入下一步。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-batch",
+        "title": "选择数据批次",
+        "action": "展开“数据范围”，选择需要查询的历史批次。",
+        "body": "全量视图用于观察趋势，指定批次用于核对单期结果。批次选项包含日期及正式落数状态；只读账号仅查看已共享数据。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-brand",
+        "title": "设置品牌范围",
+        "action": "选择目标品牌；查看整体结果时选择“全部品牌”。",
+        "body": "指标卡片、趋势和明细随筛选范围联动。跨期或跨品牌比较时，应核对样本范围是否一致。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-series",
+        "title": "设置新机系列范围",
+        "action": "选择需要查询的新机系列。",
+        "body": "系列选项与品牌联动。仅汇总历史未保存PPV明细，不支持系列拆分，筛选项会显示为不可用。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "competitiveness-source",
+        "title": "核对指标数据来源",
+        "action": "核对来源标签中的批次、日期及筛选范围。",
+        "body": "部分系列没有当前数据时，卡片采用最近有效历史值。指标所属批次以来源标签为准。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-tm-metrics",
+        "title": "查看天猫物品价竞争力",
+        "action": "查看天猫指标组第一项。",
+        "body": "追后京东物品价不低于天猫物品价时，判定为有竞争力；随后按近30天报价量加权。该指标不含补贴。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-tm-metrics",
+        "title": "查看天猫补贴后竞争力",
+        "action": "依次查看天猫指标组第二项、第三项。",
+        "body": "第二项比较AHS补贴后与天猫回收商补贴后报价；第三项比较双方总到手价。物品价具备竞争力但到手价不足时，应继续核对补贴。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-zz-metrics",
+        "title": "查看转转竞争力指标",
+        "action": "依次查看物品价、AHS补贴后报价、京东到手价三项指标。",
+        "body": "后两项均以转转到手价为对标价格，我方分别采用AHS补贴后报价和京东总到手价，需区分计算口径。"
+      },
+      {
+        "tab": "tutorial",
+        "chapter": "竞争力看板",
+        "target": "guide-weighting",
+        "title": "核对报价量加权口径",
+        "action": "查看A、B两条记录及其计算结果。",
+        "body": "A报价量为90且具备竞争力，B报价量为10且不具备竞争力，汇总结果为90%。按记录条数计算的50%不适用于本指标。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-lines",
+        "title": "查看历史节点指标",
+        "action": "将鼠标悬停在趋势图的日期节点。",
+        "body": "横轴表示批次，纵轴表示竞争力。悬停可查看该期指标。60%升至65%为提高5个百分点；样本和补贴版本变化也可能影响结果。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-lines",
+        "title": "切换曲线显示状态",
+        "action": "点击图例中的指标名称，重复点击可恢复显示。",
+        "body": "可仅保留天猫物品价与到手价曲线进行比较。曲线显示状态不影响原始数据。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-range",
+        "title": "设置趋势展示期数",
+        "action": "选择“近15次追价”或“全部”。",
+        "body": "该设置控制图表显示期数。查询较早批次时可选择全部；定位历史批次时，图表也可能自动展开相应范围。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "竞争力看板",
+        "target": "trend-export",
+        "title": "导出竞争力走势",
+        "action": "选择“导出全量走势Excel”。",
+        "body": "使用导出文件前，应核对数据范围、批次与日期。无数据时按钮不可用；导览本身不会触发下载。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "补贴问题",
+        "target": "trend-audit",
+        "title": "查看品牌与系列诊断",
+        "action": "查看下方“详细大底表横向竞争力审计诊断”。",
+        "body": "诊断明细与批次及筛选范围保持一致。确认选定数据后，再比较天猫物品价竞争力、到手价竞争力及补贴承接缺口。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "补贴问题",
+        "target": "audit-brand",
+        "title": "展开品牌明细",
+        "action": "点击品牌名称前的展开按钮。",
+        "body": "重点查看物品价竞争力较高、到手价竞争力偏低的新机系列。",
+        "fallbackTarget": "trend-audit",
+        "unavailable": "当前范围暂无可展开的品牌明细。请选择包含PPV明细的批次；仅汇总历史不支持展开。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "补贴问题",
+        "target": "audit-issues",
+        "title": "查看补贴问题PPV",
+        "action": "点击系列行“补贴问题明细”中的记录条数。",
+        "body": "明细列出物品价具备竞争力、到手价缺乏竞争力的记录。优先核对报价量较高的PPV，并检查双方价格、补贴和到手价。",
+        "fallbackTarget": "trend-audit",
+        "unavailable": "请先展开品牌并定位系列行。缺少明细或问题记录时，不展示可展开的内容。"
+      },
+      {
+        "tab": "competitiveness",
+        "chapter": "补贴问题",
+        "target": "audit-issue-details",
+        "placement": "below",
+        "title": "区分竞争力差值与价格差额",
+        "action": "横向查看这块明细中的物品价差、补贴差和到手价差。",
+        "body": "明细金额均按JD−TM计算：物品价差＋补贴差＝到手价差，单位为元。上方的天猫补贴承接缺口是两项竞争力之差，单位为百分点，不代表应追加的补贴金额。",
+        "fallbackTarget": "trend-audit",
+        "unavailable": "当前范围没有可展开的补贴问题PPV。请选择包含问题明细的批次、品牌或系列；仅汇总历史无法展开PPV明细。"
+      },
+      {
+        "tab": "tmHandGap",
+        "chapter": "高出TM",
+        "target": "tm-hand-gap-list",
+        "title": "查看到手价高出TM明细",
+        "action": "按新机系列核对京东到手价、天猫到手价及高出金额。",
+        "body": "高出金额不直接等于可削减补贴，需结合活动门槛评估。本页使用当前共享数据，不继承走势页的历史批次筛选。"
+      },
+      {
+        "tab": "tmHandGap",
+        "chapter": "高出TM",
+        "target": "gap-preview",
+        "title": "生成清单预览",
+        "action": "选择“生成分享预览”。",
+        "body": "核对预览中的型号和价格后，可自行下载或分享。无符合条件的记录时按钮不可用；导览不会自动发送内容。"
+      },
+      {
+        "tab": "history",
+        "chapter": "历史快照",
+        "target": "history-library",
+        "title": "选择历史快照",
+        "action": "展开“全部快照”，选择需要核对的批次。",
+        "body": "也可通过下方快照页签切换。应结合业务日期和备注定位批次，不仅依据保存时间。"
+      },
+      {
+        "tab": "history",
+        "chapter": "历史快照",
+        "target": "history-meta",
+        "title": "核对快照状态",
+        "action": "核对保存时间、正式状态、落数日期和批次ID。",
+        "body": "保存快照不等于确认正式落数。同渠道同落数日期重新确认时，旧正式记录降为未确认快照，并继续保留。",
+        "fallbackTarget": "history-panel",
+        "unavailable": "当前尚未选择快照，请通过“全部快照”选择记录。暂无历史数据时，可继续查看后续说明。"
+      },
+      {
+        "tab": "history",
+        "chapter": "历史快照",
+        "target": "history-sources",
+        "title": "核对补贴版本与投入来源",
+        "action": "展开“保存时投入测算与来源”。",
+        "body": "此处展示快照保存的补贴文件及投入测算。比较两期数据时，应核对补贴版本是否发生变化。",
+        "fallbackTarget": "history-panel",
+        "unavailable": "当前尚未选择快照，或所选快照未保存来源信息。来源缺失不代表补贴为0。"
+      },
+      {
+        "tab": "history",
+        "chapter": "历史快照",
+        "target": "history-search",
+        "title": "搜索快照明细",
+        "action": "在搜索框输入型号、PPV或SKU。",
+        "body": "搜索仅作用于当前快照。清空输入可恢复原范围；未匹配到记录时，应先核对批次。",
+        "fallbackTarget": "history-panel",
+        "unavailable": "请选择包含PPV明细的快照；两期对比模式下，需先选择“返回快照明细”。"
+      },
+      {
+        "tab": "history",
+        "chapter": "历史快照",
+        "target": "history-table",
+        "title": "设置明细列筛选",
+        "action": "点击对应表头的筛选按钮。",
+        "body": "同列多个选项按“或”匹配，跨列条件按“且”匹配，并可叠加搜索。选择“清除筛选与搜索”可恢复原范围。",
+        "fallbackTarget": "history-panel",
+        "unavailable": "当前未展示快照明细，或处于两期对比模式。仅汇总历史不支持逐条筛选。"
+      },
+      {
+        "tab": "history",
+        "chapter": "历史快照",
+        "target": "history-export",
+        "title": "导出快照明细",
+        "action": "选择“导出快照”。",
+        "body": "导出范围为当前筛选结果。导出整期数据前应清除筛选与搜索；历史缺失字段显示“—”，不使用当前数据补算。",
+        "fallbackTarget": "history-panel",
+        "unavailable": "请选择包含明细的快照；两期对比模式下，需先返回快照明细。"
+      },
+      {
+        "tab": "history",
+        "chapter": "历史快照",
+        "target": "history-compare",
+        "title": "对比两期快照",
+        "action": "选择“两期对比”，再设置“对比基准”。",
+        "body": "核对同一PPV两期的价格、边际利润率及单期新增或缺失记录。可对比快照不足两份时，按钮不可用。"
+      },
+      {
+        "tab": "tutorial",
+        "chapter": "完成",
+        "target": "tab-tutorial",
+        "title": "完成使用导览",
+        "action": "通过左侧“产品教程”可随时查阅计算口径。",
+        "body": "报告应注明批次、落数日期、品牌或系列及正式状态。涉及价格或补贴调整的问题，应由运营人员进一步核对。"
+      }
+    ];
+    return steps.filter(step => canAccess(user, activeChannelId, step.tab));
+  }, [activeChannelId, user]);
 
   const updateActiveState = (updater: (state: ChannelWorkspaceState) => ChannelWorkspaceState) => {
     if (!canEdit(user, activeChannelId, activeTab)) return;
@@ -764,6 +938,7 @@ export default function App() {
     }));
   };
   const startTour = () => {
+    setActiveTab(tourSteps[tourStepIndex]?.tab as ViewTab || 'tutorial');
     setTourOpen(true);
   };
   const finishTour = () => {
@@ -791,7 +966,7 @@ export default function App() {
     .map(page => ({ id: page.id as ViewTab, label: page.id === 'history' ? `历史 (${activeState.historyBatches.length})`
       : isSelfOperated && page.selfName ? page.selfName : page.name }));
   if (isAdmin && activeChannelId === 'tradeIn') viewButtons.push({ id: 'permissions', label: '权限管理' });
-  const showWorkspaceControls = canViewWorkspace && !['permissions', 'history'].includes(activeTab);
+  const showWorkspaceControls = canViewWorkspace && !['permissions', 'history', 'tutorial'].includes(activeTab);
   const hasPausedTour = !tourOpen && tourStepIndex > 0;
   const channelTargetLabel = (channelId: ChannelId) => (
     CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价×103%' : '天猫裸机价×103%'
@@ -799,8 +974,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans overflow-x-hidden selection:bg-[#141414] selection:text-[#E4E3E0]">
-      <div className="flex min-h-screen">
-        <aside className="w-[260px] shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col">
+      <div className={`flex min-h-screen ${activeTab === 'tutorial' ? 'flex-col md:flex-row' : ''}`}>
+        <aside className={`${activeTab === 'tutorial' ? 'w-full md:w-[260px]' : 'w-[260px]'} shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col`}>
           <div className="p-5 border-b border-[#141414] bg-[#E4E3E0]">
             <h1 className="text-lg font-black leading-tight">线上竞争追价系统</h1>
           </div>
@@ -817,6 +992,8 @@ export default function App() {
                     onClick={() => {
                       setActiveChannelId(channelId);
                       if (!selected) {
+                        setTourOpen(false);
+                        setTourStepIndex(0);
                         setActiveTab(firstPage(channelId));
                         void refreshServerBatches().catch(() => undefined);
                       }
@@ -836,7 +1013,7 @@ export default function App() {
                   </button>
 
                   {selected && (
-                    <nav className="ml-6 space-y-2 text-sm font-bold">
+                    <nav className={`${activeTab === 'tutorial' ? 'grid grid-cols-2 gap-2 md:block md:ml-6 md:space-y-2' : 'ml-6 space-y-2'} text-sm font-bold`}>
                       {viewButtons.map((button, index) => {
                         const active = activeTab === button.id;
                         const marker = index === viewButtons.length - 1 ? '└' : '├';
@@ -847,7 +1024,7 @@ export default function App() {
                             data-tour={`tab-${button.id}`}
                             onClick={() => {
                               setActiveTab(button.id);
-                              if (!active && button.id !== 'permissions') void refreshServerBatches().catch(() => undefined);
+                              if (!active && !['permissions', 'tutorial'].includes(button.id)) void refreshServerBatches().catch(() => undefined);
                             }}
                             className={`block w-full border px-3 py-2 text-left text-xs transition-colors ${
                               active
@@ -905,7 +1082,7 @@ export default function App() {
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-xs font-black text-white">{activeChannel.name}</span>
-                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
+                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'tutorial' ? '产品教程' : activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
               </div>
               {activeTab !== 'permissions' && <div className="flex flex-wrap gap-4 mt-1">
                 {activeTab !== 'history' && <div className="flex items-center gap-2 text-xs text-[#141414]/70">
@@ -937,7 +1114,7 @@ export default function App() {
                 {user.name} · {isAdmin ? '管理员' : isReadOnly ? '只读' : '可编辑'}
                 <button type="button" onClick={logout} className="ml-2 underline">退出</button>
               </div>
-              {canEditWorkspace && canEditUpload && canAccess(user, activeChannelId, 'competitiveness') && activeTab !== 'permissions' && <button
+              {canAccess(user, activeChannelId, 'tutorial') && activeTab !== 'permissions' && <button
                 type="button"
                 data-tour="tutorial-button"
                 onClick={startTour}
@@ -980,6 +1157,11 @@ export default function App() {
 
             <div className={activeTab === 'history' ? 'min-w-0' : 'border border-[#141414] bg-white p-1'}>
               {activeTab === 'permissions' && isAdmin && <PermissionPanel />}
+              {activeTab === 'tutorial' && canAccess(user, activeChannelId, 'tutorial') && <ProductTutorial tourTarget={tourOpen ? tourSteps[tourStepIndex]?.target : undefined} onStartTour={() => {
+                setTourStepIndex(0);
+                setActiveTab('tutorial');
+                setTourOpen(true);
+              }} />}
               {activeTab === 'workspace' && canViewWorkspace && (
                 <>
                   <InvestmentRatePanel
@@ -1043,6 +1225,7 @@ export default function App() {
 
               {activeTab === 'competitiveness' && canAccess(user, activeChannelId, 'competitiveness') && (
                 <CompetitivenessSummary
+                  revealIssueDetails={tourOpen && tourSteps[tourStepIndex]?.target === 'audit-issue-details'}
                   historyBatches={activeState.historyBatches}
                   currentCalculatedItems={useSharedSnapshot ? [] : activeCalculatedItems}
                   activeSubsidyFileName={activeState.activeSubsidyFileName}
@@ -1071,6 +1254,7 @@ export default function App() {
       <OnboardingTour
         open={tourOpen}
         steps={tourSteps}
+        onSelect={goToTourStep}
         currentIndex={tourStepIndex}
         onPause={() => setTourOpen(false)}
         onFinish={finishTour}

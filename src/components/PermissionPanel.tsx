@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AccessMember, DirectoryMember, listAccessMembers, searchAccessDirectory, updateAccessMember } from '../api';
-import { ACCESS_CHANNELS, ACCESS_PAGES, DEFAULT_VIEWER_SCOPES } from '../../shared/accessPolicy.mjs';
+import { ACCESS_CHANNELS, ACCESS_PAGES, DEFAULT_VIEWER_SCOPES, pagesForChannel } from '../../shared/accessPolicy.mjs';
 
 const control = 'border border-[#141414] bg-white px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50';
 const date = (value: string | null) => value ? new Date(value).toLocaleString('zh-CN', {
@@ -103,12 +103,13 @@ export default function PermissionPanel() {
       <div className="text-xs font-bold">查看范围</div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {ACCESS_CHANNELS.map(channel => {
-          const scopes = ACCESS_PAGES.map(page => `${channel.id}.${page.id}`);
+          const pages = pagesForChannel(channel.id);
+          const scopes = pages.map(page => `${channel.id}.${page.id}`);
           const count = scopes.filter(scope => draft.scopes.includes(scope)).length;
           return <fieldset className="border border-[#141414]/30 px-3 pb-3" key={channel.id}>
             <legend className="px-1"><label className="inline-flex gap-2 items-center py-1 text-xs font-bold">
               <input aria-label={`${channel.name}全部页面`} type="checkbox" checked={count === scopes.length} ref={input => { if (input) input.indeterminate = count > 0 && count < scopes.length; }} onChange={event => toggle(scopes, event.target.checked)} />{channel.name}</label></legend>
-            <div className="grid grid-cols-2 gap-2">{ACCESS_PAGES.map(page => <label className="flex items-center gap-2 text-xs min-h-8" key={page.id}>
+            <div className="grid grid-cols-2 gap-2">{pages.map(page => <label className="flex items-center gap-2 text-xs min-h-8" key={page.id}>
               <input type="checkbox" aria-label={`${channel.name}：${channel.id === 'selfOperated' && page.selfName ? page.selfName : page.name}`} checked={draft.scopes.includes(`${channel.id}.${page.id}`)} onChange={event => toggle([`${channel.id}.${page.id}`], event.target.checked)} />
               {channel.id === 'selfOperated' && page.selfName ? page.selfName : page.name}
             </label>)}</div>

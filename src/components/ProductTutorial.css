@@ -1,0 +1,80 @@
+.product-tutorial .tutorial-data-row {
+  transition: background-color 140ms ease;
+}
+
+.product-tutorial .tutorial-data-row:hover {
+  background-color: #f9f9f8;
+}
+
+.product-tutorial button {
+  transition: color 160ms ease, background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.product-tutorial button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.product-tutorial .tutorial-tour-button span {
+  transition: transform 180ms ease;
+}
+
+.product-tutorial .tutorial-tour-button:hover span,
+.product-tutorial .tutorial-tour-button:focus-visible span {
+  transform: translateX(3px);
+}
+
+@media (hover: hover) {
+  .product-tutorial .tutorial-tour-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 2px 2px 0 #141414;
+  }
+}
+
+.product-tutorial .tutorial-reading-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.product-tutorial .tutorial-reading-steps li {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  padding-bottom: 24px;
+}
+
+.product-tutorial .tutorial-reading-steps li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: 32px;
+  bottom: 0;
+  left: 15px;
+  width: 1px;
+  background: #d8d7d2;
+}
+
+.product-tutorial .tutorial-reading-steps li:last-child {
+  padding-bottom: 0;
+}
+
+.product-tutorial .tutorial-step-number {
+  display: flex;
+  flex: 0 0 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #141414;
+  background: #f0efec;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-tutorial button,
+  .product-tutorial .tutorial-tour-button span,
+  .product-tutorial .tutorial-data-row {
+    transition: none;
+    transform: none !important;
+  }
+}

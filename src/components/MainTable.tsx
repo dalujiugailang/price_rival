@@ -788,7 +788,7 @@ export default function MainTable({
   ), document.body) : null;
 
   return (
-    <div className="bg-white border border-[#141414] overflow-hidden" id={snapshot ? 'snapshot-tracking-panel' : 'main-tracking-panel'}>
+    <div className="bg-white border border-[#141414] overflow-hidden" data-tour={snapshot ? "history-table" : undefined} id={snapshot ? 'snapshot-tracking-panel' : 'main-tracking-panel'}>
       {smallGapTolerancePopover}
       <div className="p-3 border-b border-[#141414] bg-[#F0EFEC] flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -805,7 +805,7 @@ export default function MainTable({
             </span>
           </div>
         </div>
-        <button onClick={exportToExcel} className="px-3 py-1.5 border border-[#141414] bg-white hover:bg-black hover:text-white text-xs font-bold">
+        <button data-tour={snapshot ? "history-export" : undefined} onClick={exportToExcel} className="px-3 py-1.5 border border-[#141414] bg-white hover:bg-black hover:text-white text-xs font-bold">
           {snapshot ? '导出快照' : '导出追价表'}
         </button>
         {!readOnly && (
@@ -864,6 +864,7 @@ export default function MainTable({
               <path d="m20 20-3.5-3.5" />
             </svg>
             <input
+              data-tour={snapshot ? "history-search" : undefined}
               id={snapshot ? 'snapshot-table-search' : 'tracking-table-search'}
               type="search"
               value={tableSearch}
