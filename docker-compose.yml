@@ -13,6 +13,9 @@ services:
       DAILY_PRICE_LOOKUP_URL: ${DAILY_PRICE_LOOKUP_URL:-https://daily-price.gtmdudu.xyz/api/lookup}
       DAILY_PRICE_BRAND_LOOKUP_URL: ${DAILY_PRICE_BRAND_LOOKUP_URL:-https://daily-price.gtmdudu.xyz/api/zz-competitiveness/lookup}
       DAILY_PRICE_TOKEN: ${DAILY_PRICE_TOKEN:-}
+      ANDROID_REVENUE_SUPABASE_URL: ${ANDROID_REVENUE_SUPABASE_URL:-https://effaryjuqgzeegkzxnij.supabase.co}
+      ANDROID_REVENUE_SUPABASE_PUBLISHABLE_KEY: ${ANDROID_REVENUE_SUPABASE_PUBLISHABLE_KEY:-}
+      ANDROID_REVENUE_METRICS_API_KEY: ${ANDROID_REVENUE_METRICS_API_KEY:-}
       APP_URL: ${APP_URL:-http://localhost:3000}
       DATABASE_PATH: /app/data/price-rival.sqlite
       FEISHU_APP_ID: ${FEISHU_APP_ID:-}

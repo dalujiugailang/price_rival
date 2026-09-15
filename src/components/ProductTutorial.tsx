@@ -253,7 +253,7 @@ export default function ProductTutorial({ onStartTour, tourTarget }: { onStartTo
           {group.title === '逐行竞争判断' && <p className="text-[#141414]/70">竞品价&gt;0且比较条件成立记1，否则记0；历史未保存的结果显示“—”。</p>}
         </InfoSection></div>)}
         <InfoSection title="看板投入测算">
-          <p>竞争预估投入费用＝Σ（正向物品价调整金额 × ppv近30天成交量）。投入费率＝预估费用 ÷ 对应范围的近30天回收预估销售额。</p>
+          <p>竞争预估投入费用＝Σ（正向物品价调整金额 × ppv近30天成交量）。投入费率＝预估费用 ÷ 对应范围的近30天回收预估销售额。京东换新的安卓大盘和换新渠道分母由 Supabase 自动拉取，并展示数据日与统计区间。</p>
         </InfoSection>
       </TextSection>}
 

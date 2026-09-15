@@ -10,6 +10,7 @@ import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateCompetitivenessMetrics } from '../utils/competitiveness';
 import { addDynamicPricingWorkbookSheets } from '../utils/pricingWorkbook';
 import { getSmallGapTolerancePrices } from '../utils/smallGapTolerance';
+import { handPriceRowKey, type HandPriceAction } from '../utils/handPriceAlignment';
 import { getTmPriceGaps } from '../utils/tmPriceGaps';
 import { createSnapshotWorkbook } from '../utils/snapshotHistory';
 import {
@@ -21,6 +22,7 @@ import {
   setColumnFilter
 } from '../utils/tableColumnFilters';
 import ColumnFilterButton from './ColumnFilterButton';
+import RepricingControlsPopover from './RepricingControlsPopover';
 import * as XLSX from 'xlsx';
 
 interface Props {
@@ -33,6 +35,10 @@ interface Props {
   subsidyRules: SubsidyRule[];
   selfSubsidyRules: SelfOperatedSubsidyRule[];
   smallGapToleranceMargin: number;
+  handPriceMargin?: number;
+  onHandPriceAction?: (action: HandPriceAction, keys: string[], floor: number) => void;
+  onUndoHandPrice?: () => void;
+  canUndoHandPrice?: boolean;
   onMarginChange: (margin: number) => void;
   onApplySmallGapTolerance: (margin: number, pricesByPpv: Record<string, number>) => void;
   onPricingModeChange: (mode: PricingMode) => void;
@@ -82,6 +88,10 @@ export default function MainTable({
   subsidyRules,
   selfSubsidyRules,
   smallGapToleranceMargin,
+  handPriceMargin = -0.05,
+  onHandPriceAction,
+  onUndoHandPrice,
+  canUndoHandPrice = false,
   onMarginChange,
   onApplySmallGapTolerance,
   onPricingModeChange,
@@ -108,6 +118,14 @@ export default function MainTable({
   const [smallGapTolerancePopoverPosition, setSmallGapTolerancePopoverPosition] = useState({ top: 0, left: 0 });
   const [marginInput, setMarginInput] = useState(marginInputText(marginBottomLine));
   const [smallGapToleranceInput, setSmallGapToleranceInput] = useState(marginInputText(smallGapToleranceMargin));
+  const [handPriceMarginInput, setHandPriceMarginInput] = useState(String(Number((handPriceMargin * 100).toFixed(8))));
+  const [handPriceStatus, setHandPriceStatus] = useState('');
+  const [handPriceBusy, setHandPriceBusy] = useState(false);
+  useEffect(() => { setHandPriceBusy(false); }, [products]);
+  useEffect(() => {
+    setHandPriceMarginInput(String(Number((handPriceMargin * 100).toFixed(8))));
+  }, [handPriceMargin, channelId]);
+  useEffect(() => { setHandPriceStatus(''); }, [channelId]);
 
   useEffect(() => {
     setMarginInput(marginInputText(marginBottomLine));
@@ -487,6 +505,15 @@ export default function MainTable({
     matchesColumnFilters(product, columnFilters, getColumnFilterValue)
     && matchesTableSearch(product, tableSearch, getTableSearchValues)
   ));
+  const parsedHandMargin = /^-?\d+(\.\d*)?$/.test(handPriceMarginInput) ? Number(handPriceMarginInput) / 100 : NaN;
+  const validHandMargin = Number.isFinite(parsedHandMargin) && parsedHandMargin >= -1 && parsedHandMargin <= 1;
+  const runHandPriceAction = (action: HandPriceAction) => {
+    if (readOnly || isSelfOperated || !onHandPriceAction || handPriceBusy || !filteredProducts.length
+      || (action === 'rollback' && !validHandMargin)) return;
+    setHandPriceBusy(true);
+    onHandPriceAction(action, filteredProducts.map(handPriceRowKey), action === 'rollback' ? parsedHandMargin : handPriceMargin);
+    setHandPriceStatus(`${action === 'align' ? '①追至TM 103%' : '②底线回调'}已处理${filteredProducts.length}行；原因见小差额提醒。`);
+  };
   const activeColumnFilterCount = Object.keys(columnFilters).length;
   const hasTableSearch = tableSearch.trim().length > 0;
   const moneyColumnIndexes = new Set([9, 11, 13, 14, 16, 18, 19, 21, 22, 27, 29, 31, 32, 33, 35, 36]);
@@ -687,7 +714,15 @@ export default function MainTable({
         return (
           <td key={index} data-tour={p.smallGapOpportunityRemark ? 'small-gap-reminder' : undefined} style={style} className="px-2 py-1 border-r border-[#141414]/20 text-left text-[10px] font-bold leading-snug">
             {p.smallGapOpportunityRemark ? (
-              <div className="line-clamp-3 text-amber-800" title={p.smallGapOpportunityRemark}>{p.smallGapOpportunityRemark}</div>
+              <div className="text-amber-800" title={p.smallGapOpportunityRemark}>
+                <div className="line-clamp-3">{p.handPriceAdjustment?.rollbackReason || p.handPriceAdjustment?.alignReason || p.smallGapOpportunityRemark}</div>
+                {p.handPriceAdjustment && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer underline">查看调整原因</summary>
+                    <div className="whitespace-pre-line py-1">{p.smallGapOpportunityRemark}</div>
+                  </details>
+                )}
+              </div>
             ) : (
               <span className="text-[#141414]/30">-</span>
             )}
@@ -846,6 +881,28 @@ export default function MainTable({
             className="w-24 px-2 py-1 border border-[#141414] text-xs font-bold disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:text-[#555]"
           />
           <span className="text-xs">%</span>
+          {!readOnly && !isSelfOperated && onHandPriceAction && (
+            <RepricingControlsPopover>
+              <div className="font-bold">筛选 {filteredProducts.length} 行</div>
+              <button type="button" onClick={() => runHandPriceAction('align')} disabled={handPriceBusy || !filteredProducts.length}
+                className="w-full border border-[#141414] bg-white px-1 py-2 font-bold hover:bg-[#141414] hover:text-white disabled:opacity-40">① 到手追至TM 103%</button>
+              <label className="block" htmlFor="hand-price-margin">回调边际底线</label>
+              <div className="flex items-center gap-1">
+                <input id="hand-price-margin" aria-label="回调边际底线" inputMode="decimal" value={handPriceMarginInput}
+                  onChange={event => setHandPriceMarginInput(event.target.value)} aria-invalid={!validHandMargin}
+                  className="min-w-0 w-full border border-[#141414] bg-white px-1 py-1 font-mono" />
+                <span>%</span>
+              </div>
+              {!validHandMargin && <p className="text-red-700">请输入-100至100</p>}
+              <button type="button" onClick={() => runHandPriceAction('rollback')}
+                disabled={handPriceBusy || !validHandMargin || !filteredProducts.some(p => p.handPriceAdjustment?.aligned)}
+                className="w-full border border-[#141414] bg-white px-1 py-2 font-bold hover:bg-[#141414] hover:text-white disabled:opacity-40">② 边际底线回调</button>
+              <button type="button" disabled={!canUndoHandPrice || handPriceBusy} onClick={() => {
+                onUndoHandPrice?.(); setHandPriceStatus('已撤销最近一次操作。');
+              }} className="w-full border border-[#141414]/40 bg-white py-1 disabled:opacity-40">撤销本次操作</button>
+              <p role="status" className="leading-relaxed text-[#555]">{handPriceStatus}</p>
+            </RepricingControlsPopover>
+          )}
           </>
           )}
         </div>

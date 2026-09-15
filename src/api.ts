@@ -1,4 +1,4 @@
-import { TrackingBatch } from './types';
+import { BrandSalesAmount30d, TrackingBatch } from './types';
 import { CompetitivenessTrendExportPayload } from './utils/competitivenessTrendExport';
 
 export interface AuthUser {
@@ -28,6 +28,19 @@ export interface AuditLog {
   userAgent?: string;
   details: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface AndroidRevenueSnapshot {
+  dataDate: string;
+  periodStart: string;
+  periodEnd: string;
+  windowDays: 30;
+  currency: string;
+  androidSalesAmount30d: number;
+  androidJdTradeInSalesAmount30d: number;
+  brandSalesAmounts30d: BrandSalesAmount30d[];
+  sourceName: string;
+  syncedAt: string;
 }
 
 const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> => {
@@ -79,6 +92,11 @@ export const listTrackingBatches = (channelId?: string) => {
   const query = channelId ? `?channelId=${encodeURIComponent(channelId)}` : '';
   return requestJson<{ success: true; batches: TrackingBatch[] }>(`/api/tracking-batches${query}`);
 };
+
+export const getLatestAndroidRevenueSnapshot = () => requestJson<{
+  success: true;
+  snapshot: AndroidRevenueSnapshot;
+}>('/api/android-revenue/latest');
 
 export const saveTrackingBatch = (batch: TrackingBatch) => requestJson<{ success: true; batch: TrackingBatch }>(
   '/api/tracking-batches',

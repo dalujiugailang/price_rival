@@ -100,6 +100,28 @@ export interface InvestmentRateInputs {
   androidJdTradeInSalesAmount30d: number;
 }
 
+export interface BrandSalesAmount30d {
+  brand: string;
+  displayName: string;
+  salesAmount30d: number;
+}
+
+export interface BrandCompetitionInvestmentMetrics extends BrandSalesAmount30d {
+  workspaceRowCount: number;
+  adjustedPpvCount: number;
+  adjustedDealVolume30d: number;
+  estimatedInvestmentAmount: number;
+  investmentRate: number;
+}
+
+export interface InvestmentRateSource {
+  provider: 'supabase';
+  dataDate: string;
+  periodStart: string;
+  periodEnd: string;
+  syncedAt: string;
+}
+
 export interface CompetitionInvestmentMetrics {
   adjustedPpvCount: number;
   adjustedDealVolume30d: number;
@@ -126,7 +148,16 @@ export interface SourceUploadRecord {
   remarks?: string;
 }
 
+export interface HandPriceAdjustment {
+  signature: string;
+  rawPrice?: number;
+  aligned: boolean;
+  alignReason: string;
+  rollbackReason?: string;
+}
+
 export interface CalculatedProduct extends Product {
+  handPriceAdjustment?: HandPriceAdjustment;
   ahsQuotedPrice: number;       // L = J + K
   jdHandPrice: number;          // N = J + M
   tmHandPrice: number;          // S = O + P
@@ -219,6 +250,7 @@ export interface TrackingBatch {
   confirmedAt?: string;
   competitivenessMetrics?: CompetitivenessMetrics;
   investmentRateInputs?: InvestmentRateInputs;
+  investmentRateSource?: InvestmentRateSource;
   investmentRateMetrics?: CompetitionInvestmentMetrics;
   isSummaryOnly?: boolean;
   serverCreatedAt?: string;

@@ -118,7 +118,11 @@ export const createSnapshotWorkbook = (
     ['手机安卓大盘竞争投入费率', batch.investmentRateMetrics?.androidOverallRate ?? null],
     ['手机安卓换新渠道竞争投入费率', batch.investmentRateMetrics?.androidJdTradeInRate ?? null],
     ['手机安卓近30天回收预估销售总额', batch.investmentRateInputs?.androidSalesAmount30d ?? null],
-    ['手机安卓近30天京东换新渠道销售额', batch.investmentRateInputs?.androidJdTradeInSalesAmount30d ?? null]
+    ['手机安卓近30天京东换新渠道销售额', batch.investmentRateInputs?.androidJdTradeInSalesAmount30d ?? null],
+    ['费率分母数据源', batch.investmentRateSource?.provider ?? null],
+    ['费率分母数据日', batch.investmentRateSource?.dataDate ?? null],
+    ['费率分母统计区间', batch.investmentRateSource ? `${batch.investmentRateSource.periodStart} 至 ${batch.investmentRateSource.periodEnd}` : null],
+    ['费率分母同步时间', batch.investmentRateSource?.syncedAt ?? null]
   ]), '快照信息');
   return workbook;
 };

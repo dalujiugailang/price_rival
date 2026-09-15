@@ -14,6 +14,7 @@ import { createDatabase } from './database.mjs';
 import { canAccess, accessibleChannels } from '../shared/accessPolicy.mjs';
 import { listAuthorizedBatches } from './accessProjection.mjs';
 import { registerAccessRoutes } from './accessRoutes.mjs';
+import { createAndroidRevenueClient } from './androidRevenue.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, '..');
@@ -48,6 +49,7 @@ const DAILY_PRICE_BRAND_LOOKUP_URL = process.env.DAILY_PRICE_BRAND_LOOKUP_URL
   || new URL('/api/zz-competitiveness/lookup', DAILY_PRICE_LOOKUP_URL).toString();
 const DAILY_PRICE_TOKEN = process.env.DAILY_PRICE_TOKEN || process.env.DAILY_PRICE_API_TOKEN || '';
 const DATABASE_PATH = path.resolve(appRoot, process.env.DATABASE_PATH || 'data/price-rival.sqlite');
+const androidRevenue = createAndroidRevenueClient({ env: process.env });
 
 const db = createDatabase(DATABASE_PATH);
 const app = express();
@@ -113,6 +115,17 @@ app.get('/api/tracking-batches', (req, res) => {
     success: true,
     batches: listAuthorizedBatches(db, req.authUser, channelId)
   });
+});
+
+app.get('/api/android-revenue/latest', requirePage('tradeIn', 'workspace'), async (_req, res) => {
+  try {
+    res.json({ success: true, snapshot: await androidRevenue.getLatest() });
+  } catch (error) {
+    res.status(error.statusCode || 503).json({
+      success: false,
+      error: error instanceof Error ? error.message : '安卓销售额自动拉取失败'
+    });
+  }
 });
 
 app.get('/api/tracking-batches/:id', (req, res) => {
@@ -270,6 +283,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`Competition pricing server listening on ${HOST}:${PORT}`);
   console.log(`SQLite database: ${DATABASE_PATH}`);
   console.log(`Feishu auth configured: ${auth.authConfigured ? 'yes' : 'no'}; dev login: ${auth.devLoginEnabled ? 'enabled' : 'disabled'}`);
+  console.log(`Android revenue Supabase: ${androidRevenue.configured ? 'configured' : 'not configured'}`);
 });
 
 const createLocalCallbackBridge = () => {

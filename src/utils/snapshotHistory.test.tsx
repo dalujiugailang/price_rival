@@ -75,6 +75,7 @@ assert.match(html, /商品SKUID/);
 assert.match(html, /京东物品价-追价后调整金额/);
 assert.match(html, /保存模式/);
 assert.doesNotMatch(html, /双击手动改价|保存快照|容忍\(/);
+assert.doesNotMatch(html, /到手价两步追价|回调边际底线/, 'historical snapshots must not expose repricing actions');
 assert.doesNotMatch(html, /100\.0%/, 'do not recalculate missing saved competitiveness with current rules');
 assert.match(html, /—/);
 const emptyHtml = renderToStaticMarkup(<HistoryPanel historyBatches={[]} onSelectBatch={() => {}} />);

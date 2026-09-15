@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   CalculatedProduct, 
   DailyPriceRow,
@@ -24,6 +24,7 @@ import {
 import { calculateCompetitivenessMetrics } from './utils/competitiveness';
 import { calculateCompetitionInvestmentMetrics } from './utils/investment';
 import { evaluateSmallGapTolerance } from './utils/smallGapTolerance';
+import { applyHandPriceAdjustment, handPriceRowKey, updateHandPriceAdjustments, type HandPriceAction, type HandPriceAdjustments } from './utils/handPriceAlignment';
 import { createWorkspaceDraftStorage } from './utils/workspaceDraftStorage';
 import { createSnapshotSync } from './utils/snapshotSync';
 import { 
@@ -56,9 +57,11 @@ import { useAuth } from './components/AuthGate';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
 import {
   deleteTrackingBatch,
+  getLatestAndroidRevenueSnapshot,
   importTrackingBatches,
   listTrackingBatches,
-  saveTrackingBatch
+  saveTrackingBatch,
+  AndroidRevenueSnapshot
 } from './api';
 
 const normalizeFieldName = (value: string) => value.replace(/^[A-Z]+_/, '').trim().replace(/\s+/g, '').toLowerCase();
@@ -121,6 +124,8 @@ type ChannelWorkspaceState = {
   selfSubsidyRules: SelfOperatedSubsidyRule[];
   sourceUploadRecords: SourceUploadRecord[];
   manualRecommendPrices: Record<string, number>;
+  handPriceAdjustments: HandPriceAdjustments;
+  handPriceMargin: number;
   investmentRateInputs: InvestmentRateInputs;
   selectedCompetitionPpvs: string[];
   historyBatches: TrackingBatch[];
@@ -141,6 +146,8 @@ const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts:
   selfSubsidyRules: state.selfSubsidyRules || [],
   sourceUploadRecords: state.sourceUploadRecords || [],
   manualRecommendPrices: state.manualRecommendPrices || {},
+  handPriceAdjustments: state.handPriceAdjustments || {},
+  handPriceMargin: typeof state.handPriceMargin === 'number' && Number.isFinite(state.handPriceMargin) ? state.handPriceMargin : -0.05,
   investmentRateInputs: { ...DEFAULT_INVESTMENT_RATE_INPUTS, ...(state.investmentRateInputs || {}) },
   selectedCompetitionPpvs: state.selectedCompetitionPpvs || (state.productsMaster || fallbackProducts).map(product => product.ppv),
   historyBatches: state.historyBatches || [],
@@ -180,10 +187,24 @@ export default function App() {
     return states;
   });
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
+  const [handPriceUndo, setHandPriceUndo] = useState<{
+    channel: ChannelId;
+    before: HandPriceAdjustments;
+    after: HandPriceAdjustments;
+    products: Product[];
+    rules: SubsidyRule[];
+    dailyPrices: DailyPriceRow[];
+    manualPrices: Record<string, number>;
+    margin: number;
+    mode: PricingMode;
+  } | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourStepIndex, setTourStepIndex] = useState(0);
   const [historySyncStatus, setHistorySyncStatus] = useState('正在连接共享历史…');
   const [historyRefreshing, setHistoryRefreshing] = useState(true);
+  const [androidRevenueSnapshot, setAndroidRevenueSnapshot] = useState<AndroidRevenueSnapshot | null>(null);
+  const [androidRevenueStatus, setAndroidRevenueStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [androidRevenueError, setAndroidRevenueError] = useState('');
   const [draftSaveError, setDraftSaveError] = useState(draftStorage.readError);
   const historySyncRef = useRef<ReturnType<typeof createSnapshotSync<TrackingBatch[]>> | null>(null);
   const activeChannel = CHANNELS[activeChannelId];
@@ -198,6 +219,29 @@ export default function App() {
   const effectivePricingMode = readOnlySnapshot?.pricingMode ?? activeState.pricingMode;
   const effectiveInvestmentRateInputs = readOnlySnapshot?.investmentRateInputs ?? activeState.investmentRateInputs;
   const isSelfOperated = activeChannelId === 'selfOperated';
+
+  const refreshAndroidRevenue = useCallback(async () => {
+    setAndroidRevenueStatus('loading');
+    setAndroidRevenueError('');
+    try {
+      const { snapshot } = await getLatestAndroidRevenueSnapshot();
+      setAndroidRevenueSnapshot(snapshot);
+      setChannelStates(previous => ({
+        ...previous,
+        tradeIn: {
+          ...previous.tradeIn,
+          investmentRateInputs: {
+            androidSalesAmount30d: snapshot.androidSalesAmount30d,
+            androidJdTradeInSalesAmount30d: snapshot.androidJdTradeInSalesAmount30d
+          }
+        }
+      }));
+      setAndroidRevenueStatus('success');
+    } catch (error) {
+      setAndroidRevenueStatus('error');
+      setAndroidRevenueError(error instanceof Error ? error.message : 'Supabase 安卓销售额拉取失败');
+    }
+  }, []);
   const tourSteps = useMemo<TourStep[]>(() => {
     const steps: TourStep[] = [
       {
@@ -584,7 +628,7 @@ export default function App() {
         })
         : product;
     });
-    setActiveCalculatedItems(activeChannelId === 'tradeIn'
+    const withSmallGap = activeChannelId === 'tradeIn'
       ? evaluateSmallGapTolerance({
         products: withManualPrices,
         toleranceMargin: activeState.smallGapToleranceMargin,
@@ -592,11 +636,15 @@ export default function App() {
         channel: activeChannel,
         selfSubsidyRules: activeState.selfSubsidyRules
       })
-      : withManualPrices);
+      : withManualPrices;
+    setActiveCalculatedItems(activeChannelId === 'tradeIn'
+      ? withSmallGap.map(product => applyHandPriceAdjustment(product,
+        activeState.handPriceAdjustments[handPriceRowKey(product)], activeState.subsidyRules, activeState.marginBottomLine))
+      : withSmallGap);
   }, [activeChannel, activeChannelId, useSharedSnapshot, readOnlySnapshot,
     activeState.productsMaster, activeState.dailyPriceRows, activeState.subsidyRules,
     activeState.selfSubsidyRules, activeState.marginBottomLine, activeState.pricingMode,
-    activeState.manualRecommendPrices, activeState.smallGapToleranceMargin]);
+    activeState.manualRecommendPrices, activeState.smallGapToleranceMargin, activeState.handPriceAdjustments]);
 
   const editableChannels = channelOrder.filter(channel => canEdit(user, channel, 'workspace') || canEdit(user, channel, 'upload'));
   const editableChannelKey = editableChannels.join(',');
@@ -605,6 +653,11 @@ export default function App() {
     setDraftSaveError(result.error);
   };
   useEffect(persistDraft, [channelStates, editableChannelKey, draftStorage]);
+
+  useEffect(() => {
+    if (activeChannelId !== 'tradeIn' || !canEditWorkspace) return;
+    void refreshAndroidRevenue();
+  }, [activeChannelId, canEditWorkspace, refreshAndroidRevenue]);
 
   const exportDraftBackup = () => {
     const backup = Object.fromEntries(editableChannels.map(channel => [channel, { ...channelStates[channel], historyBatches: [] }]));
@@ -665,6 +718,7 @@ export default function App() {
       ...state,
       productsMaster: nextProducts,
       manualRecommendPrices: {},
+      handPriceAdjustments: {},
       selectedCompetitionPpvs: nextProducts.map(product => product.ppv),
       lastApiSyncTime: `${fileName} 已载入`,
       sourceUploadRecords: [
@@ -782,6 +836,13 @@ export default function App() {
       confirmedAt: confirmCompetitiveness ? new Date().toISOString().replace('T', ' ').slice(0, 19) : undefined,
       competitivenessMetrics,
       investmentRateInputs: activeState.investmentRateInputs,
+      investmentRateSource: activeChannelId === 'tradeIn' && androidRevenueSnapshot ? {
+        provider: 'supabase',
+        dataDate: androidRevenueSnapshot.dataDate,
+        periodStart: androidRevenueSnapshot.periodStart,
+        periodEnd: androidRevenueSnapshot.periodEnd,
+        syncedAt: androidRevenueSnapshot.syncedAt
+      } : undefined,
       investmentRateMetrics
     };
 
@@ -929,6 +990,35 @@ export default function App() {
         ...pricesByPpv
       }
     }));
+  };
+
+  const canUndoHandPrice = Boolean(handPriceUndo
+    && handPriceUndo.channel === activeChannelId
+    && handPriceUndo.after === activeState.handPriceAdjustments
+    && handPriceUndo.products === activeState.productsMaster
+    && handPriceUndo.rules === activeState.subsidyRules
+    && handPriceUndo.dailyPrices === activeState.dailyPriceRows
+    && handPriceUndo.manualPrices === activeState.manualRecommendPrices
+    && handPriceUndo.margin === activeState.marginBottomLine
+    && handPriceUndo.mode === activeState.pricingMode);
+
+  const handleHandPriceAction = (action: HandPriceAction, keys: string[], floor: number) => {
+    if (!canEditWorkspace || activeChannelId !== 'tradeIn' || keys.length === 0
+      || !Number.isFinite(floor) || floor < -1 || floor > 1) return;
+    const next = updateHandPriceAdjustments(activeCalculatedItems, keys,
+      activeState.handPriceAdjustments, activeState.subsidyRules, action, floor);
+    setHandPriceUndo({ channel: activeChannelId, before: activeState.handPriceAdjustments, after: next,
+      products: activeState.productsMaster, rules: activeState.subsidyRules,
+      dailyPrices: activeState.dailyPriceRows, manualPrices: activeState.manualRecommendPrices,
+      margin: activeState.marginBottomLine, mode: activeState.pricingMode });
+    updateActiveState(state => ({ ...state, handPriceAdjustments: next,
+      handPriceMargin: action === 'rollback' ? floor : state.handPriceMargin }));
+  };
+
+  const handleUndoHandPrice = () => {
+    if (!canEditWorkspace || !canUndoHandPrice || !handPriceUndo) return;
+    updateActiveState(state => ({ ...state, handPriceAdjustments: handPriceUndo.before }));
+    setHandPriceUndo(null);
   };
 
   const setInvestmentRateInputs = (inputs: InvestmentRateInputs) => {
@@ -1170,6 +1260,10 @@ export default function App() {
                     onInvestmentRateInputsChange={setInvestmentRateInputs}
                     channelSalesLabel={activeChannel.channelSalesLabel}
                     readOnly={!canEditWorkspace}
+                    automaticSnapshot={activeChannelId === 'tradeIn' && canEditWorkspace ? androidRevenueSnapshot : undefined}
+                    automaticStatus={activeChannelId === 'tradeIn' && canEditWorkspace ? androidRevenueStatus : undefined}
+                    automaticError={activeChannelId === 'tradeIn' && canEditWorkspace ? androidRevenueError : undefined}
+                    onAutomaticRefresh={activeChannelId === 'tradeIn' && canEditWorkspace ? refreshAndroidRevenue : undefined}
                   />
                   <MainTable
                     readOnly={!canEditWorkspace}
@@ -1180,6 +1274,10 @@ export default function App() {
                     subsidyRules={activeState.subsidyRules}
                     selfSubsidyRules={activeState.selfSubsidyRules}
                     smallGapToleranceMargin={activeState.smallGapToleranceMargin}
+                    handPriceMargin={activeState.handPriceMargin}
+                    onHandPriceAction={handleHandPriceAction}
+                    onUndoHandPrice={handleUndoHandPrice}
+                    canUndoHandPrice={canUndoHandPrice}
                     onMarginChange={handleMarginChange}
                     onApplySmallGapTolerance={handleApplySmallGapTolerance}
                     onPricingModeChange={handlePricingModeChange}

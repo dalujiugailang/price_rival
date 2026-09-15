@@ -172,6 +172,7 @@ test('HTTP access enforcement: admin-only changes, read-only writes, channel sco
     }
     assert.equal((await call(admin.openId, '/api/access-members')).data.members.length, 3);
     assert.equal((await call(viewer, '/api/tracking-batches?channelId=selfOperated')).status, 403);
+    assert.equal((await call(viewer, '/api/android-revenue/latest')).status, 403);
     assert.equal((await call(viewer, '/api/tracking-batches/selfOperated-2026-09-09')).status, 403);
     assert.ok((await call(viewer, '/api/tracking-batches')).data.batches.every(item => item.channelId === 'tradeIn'));
     for (const [route, method, body] of [
@@ -204,6 +205,7 @@ test('HTTP access enforcement: admin-only changes, read-only writes, channel sco
     assert.equal((await call(editor, '/api/tracking-batches', 'POST', { batch: batch('selfOperated', '2026-09-11') })).status, 201);
     assert.equal((await call(editor, '/api/tracking-batches/import', 'POST', { batches: [batch('selfOperated', '2026-09-12')] })).status, 403);
     assert.equal((await call(editor, '/api/daily-price/lookup', 'POST', { channelId: 'selfOperated', ppv: ['test'] })).status, 403);
+    assert.equal((await call(editor, '/api/android-revenue/latest')).status, 403);
   } finally {
     if (server && server.exitCode === null) { server.kill('SIGTERM'); await once(server, 'exit'); }
     f.close();

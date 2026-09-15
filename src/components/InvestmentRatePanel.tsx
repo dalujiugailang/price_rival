@@ -6,7 +6,9 @@
 import React, { useEffect, useState } from 'react';
 import { CalculatedProduct, InvestmentRateInputs } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
-import { calculateCompetitionInvestmentMetrics } from '../utils/investment';
+import { calculateBrandCompetitionInvestmentMetrics, calculateCompetitionInvestmentMetrics } from '../utils/investment';
+import { ChevronDown, RefreshCw } from 'lucide-react';
+import { AndroidRevenueSnapshot } from '../api';
 
 interface Props {
   products: CalculatedProduct[];
@@ -14,6 +16,10 @@ interface Props {
   onInvestmentRateInputsChange: (inputs: InvestmentRateInputs) => void;
   channelSalesLabel?: string;
   readOnly?: boolean;
+  automaticSnapshot?: AndroidRevenueSnapshot | null;
+  automaticStatus?: 'idle' | 'loading' | 'success' | 'error';
+  automaticError?: string;
+  onAutomaticRefresh?: () => void | Promise<void>;
 }
 
 export default function InvestmentRatePanel({
@@ -21,10 +27,18 @@ export default function InvestmentRatePanel({
   investmentRateInputs,
   onInvestmentRateInputsChange,
   channelSalesLabel = '手机安卓近30天京东换新渠道销售额',
-  readOnly = false
+  readOnly = false,
+  automaticSnapshot,
+  automaticStatus = 'idle',
+  automaticError,
+  onAutomaticRefresh
 }: Props) {
   const [draftInputs, setDraftInputs] = useState(investmentRateInputs);
+  const [showBrandRates, setShowBrandRates] = useState(false);
   const investmentMetrics = calculateCompetitionInvestmentMetrics(products, investmentRateInputs);
+  const brandInvestmentMetrics = automaticSnapshot && showBrandRates
+    ? calculateBrandCompetitionInvestmentMetrics(products, automaticSnapshot.brandSalesAmounts30d ?? [])
+    : [];
   const isDraftChanged = (
     draftInputs.androidSalesAmount30d !== investmentRateInputs.androidSalesAmount30d
     || draftInputs.androidJdTradeInSalesAmount30d !== investmentRateInputs.androidJdTradeInSalesAmount30d
@@ -51,7 +65,9 @@ export default function InvestmentRatePanel({
           <div className="flex items-center justify-between border-b border-[#141414] pb-2">
             <div className="text-xs font-black text-[#141414]">投入费率结果</div>
             <div className="text-[10px] font-bold text-[#141414]/60">
-              已按最近一次计算刷新
+              {onAutomaticRefresh && automaticStatus === 'loading'
+                ? '正在更新分母'
+                : automaticStatus === 'error' ? '自动分母更新失败' : '已按最近一次计算刷新'}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -82,7 +98,57 @@ export default function InvestmentRatePanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 content-center border border-[#141414] bg-[#D8D7D2] p-3">
+        {onAutomaticRefresh ? (
+          <div className="grid grid-cols-1 gap-2 content-center border border-[#141414] bg-[#D8D7D2] p-3" aria-live="polite">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-black text-[#141414]">Supabase 自动分母</span>
+              <button
+                type="button"
+                onClick={() => void onAutomaticRefresh()}
+                disabled={automaticStatus === 'loading'}
+                className="flex h-7 items-center gap-1 border border-[#141414] bg-white px-2 text-[10px] font-black hover:bg-[#141414] hover:text-white disabled:cursor-wait disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3 w-3 ${automaticStatus === 'loading' ? 'animate-spin' : ''}`} />
+                {automaticStatus === 'loading' ? '拉取中' : '刷新'}
+              </button>
+            </div>
+            {automaticSnapshot ? (
+              <>
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div className="border border-[#141414]/40 bg-white p-2">
+                    <div className="font-bold text-[#141414]/60">安卓大盘</div>
+                    <div className="mt-1 font-mono font-black">{formatRMB(automaticSnapshot.androidSalesAmount30d)}</div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-expanded={showBrandRates}
+                    aria-controls="brand-investment-rate-detail"
+                    onClick={() => setShowBrandRates(value => !value)}
+                    className="border border-[#141414]/40 bg-white p-2 text-left transition-colors hover:border-[#141414] hover:bg-[#F0EFEC]"
+                  >
+                    <div className="font-bold text-[#141414]/60">京东换新</div>
+                    <div className="mt-1 font-mono font-black">{formatRMB(automaticSnapshot.androidJdTradeInSalesAmount30d)}</div>
+                    <div className="mt-1 flex items-center gap-1 font-bold text-[#141414]/60">
+                      品牌费率 <ChevronDown className={`h-3 w-3 transition-transform ${showBrandRates ? 'rotate-180' : ''}`} />
+                    </div>
+                  </button>
+                </div>
+                <div className="text-[10px] font-bold leading-relaxed text-[#141414]/70">
+                  数据日 {automaticSnapshot.dataDate} · {automaticSnapshot.periodStart} 至 {automaticSnapshot.periodEnd}
+                </div>
+              </>
+            ) : (
+              <div className="border border-dashed border-[#141414]/50 bg-white p-3 text-[10px] font-bold text-[#141414]/70">
+                {automaticStatus === 'loading' ? '正在从 Supabase 获取近30天销售额…' : '尚未取得自动分母'}
+              </div>
+            )}
+            {automaticError && (
+              <div className="text-[10px] font-bold leading-relaxed text-red-700">
+                {automaticError}；{automaticSnapshot ? '当前继续使用上次成功取得的分母。' : '未覆盖本地已有分母。'}
+              </div>
+            )}
+          </div>
+        ) : <div className="grid grid-cols-1 gap-2 content-center border border-[#141414] bg-[#D8D7D2] p-3">
           <label className="space-y-1">
             <span className="block text-[10px] font-bold text-[#141414]/70">手机安卓近30天回收预估销售总额</span>
             <input
@@ -125,7 +191,47 @@ export default function InvestmentRatePanel({
           >
             {readOnly ? '只读' : '计算费率'}
           </button>
-        </div>
+        </div>}
+
+        {onAutomaticRefresh && automaticSnapshot && showBrandRates && (
+          <div id="brand-investment-rate-detail" className="xl:col-span-3 border border-[#141414] bg-[#F9F9F8]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#141414] bg-[#F0EFEC] px-3 py-2">
+              <div>
+                <div className="text-xs font-black">BK 品牌竞争投入费率</div>
+                <div className="mt-0.5 text-[10px] font-bold text-[#141414]/60">品牌费率＝当前工作台该 BK 品牌竞争预估投入 ÷ Supabase 该品牌京东换新近30天销售额</div>
+              </div>
+              <div className="text-[10px] font-bold text-[#141414]/60">数据日 {automaticSnapshot.dataDate}</div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] border-collapse text-[11px]">
+                <thead>
+                  <tr className="border-b border-[#141414] bg-white text-left">
+                    <th className="px-3 py-2">BK 品牌名称</th>
+                    <th className="px-3 py-2 text-right">工作台行数</th>
+                    <th className="px-3 py-2 text-right">调整 PPV</th>
+                    <th className="px-3 py-2 text-right">近30天成交量</th>
+                    <th className="px-3 py-2 text-right">竞争预估投入</th>
+                    <th className="px-3 py-2 text-right">品牌销售额分母</th>
+                    <th className="px-3 py-2 text-right">品牌投入费率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {brandInvestmentMetrics.map(row => (
+                    <tr key={row.brand} className="border-b border-[#141414]/15 last:border-b-0">
+                      <td className="px-3 py-2 font-black">{row.displayName}</td>
+                      <td className="px-3 py-2 text-right font-mono">{row.workspaceRowCount}</td>
+                      <td className="px-3 py-2 text-right font-mono">{row.adjustedPpvCount}</td>
+                      <td className="px-3 py-2 text-right font-mono">{row.adjustedDealVolume30d}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatRMB(row.estimatedInvestmentAmount)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatRMB(row.salesAmount30d)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-black text-green-700">{formatPercent(row.investmentRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

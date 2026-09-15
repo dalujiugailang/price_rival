@@ -253,6 +253,8 @@ npm start
 
 服务端会托管 `dist`，并提供飞书登录、共享历史、审计日志和 `/api/daily-price/lookup` 代理。
 
+京东换新工作台打开时还会通过服务端 `/api/android-revenue/latest` 调用受保护的 Supabase RPC，自动更新安卓大盘和京东换新近30天回收预估销售额。页面只接触本系统接口，不会收到 Supabase publishable key 或 metrics API key；成功取得的数据日、30天区间和同步时间会随测算快照一并保存。
+
 ## Docker 部署
 
 云服务器安装 Docker 和 Docker Compose 后，在项目目录创建 `.env`：
@@ -267,6 +269,9 @@ FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=你的应用密钥
 FEISHU_ALLOWED_DEPARTMENT_IDS=od-xxx,od-yyy
 FEISHU_READ_ONLY_DEPARTMENT_IDS=od-换新部门
+ANDROID_REVENUE_SUPABASE_URL=https://effaryjuqgzeegkzxnij.supabase.co
+ANDROID_REVENUE_SUPABASE_PUBLISHABLE_KEY=你的Supabase公开调用密钥
+ANDROID_REVENUE_METRICS_API_KEY=你的安卓销售额只读接口密钥
 ```
 
 启动：
@@ -292,6 +297,9 @@ Express server 支持以下变量：
 - `DAILY_PRICE_LOOKUP_URL`: daily price 上游接口，默认 `https://daily-price.gtmdudu.xyz/api/lookup`。
 - `DAILY_PRICE_BRAND_LOOKUP_URL`: daily price 品牌明细接口，默认 `https://daily-price.gtmdudu.xyz/api/zz-competitiveness/lookup`。
 - `DAILY_PRICE_TOKEN` / `DAILY_PRICE_API_TOKEN`: daily price API token。
+- `ANDROID_REVENUE_SUPABASE_URL`: 安卓近30天销售额快照所在的 Supabase 项目地址。
+- `ANDROID_REVENUE_SUPABASE_PUBLISHABLE_KEY`: 服务端调用 Supabase RPC 所需的公开调用密钥；不下发到浏览器。
+- `ANDROID_REVENUE_METRICS_API_KEY`: 安卓销售额只读 RPC 的独立鉴权密钥；只保存在服务端。
 - `DATABASE_PATH`: SQLite 数据库路径，Docker 内默认为 `/app/data/price-rival.sqlite`。
 - `APP_URL`: 系统对外地址，用于 OAuth 回调和 Cookie 安全策略。
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`: 飞书自建应用凭证。

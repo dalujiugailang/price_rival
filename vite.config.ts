@@ -1,7 +1,10 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // Business spreadsheets are not public assets; authorized pages load data through the API.
@@ -9,7 +12,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, '.'),
+      '@': path.resolve(configDir, '.'),
     },
   },
   server: {
