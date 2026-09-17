@@ -3,10 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ChannelId, DailyPriceRow, Product, SelfOperatedSubsidyRule, SourceUploadRecord, SubsidyRule, TrackingBatch } from '../types';
 import { getDailyPriceLookupPpvs } from '../utils/dailyPriceLookup';
+import { gradeSourceUrl, listGradeSources, uploadGradeSource } from '../gradeApi';
+import { GradeSource } from '../gradeTypes';
 
 type CellValue = string | number | boolean | null;
 type ParsedSheet = {
@@ -177,7 +179,7 @@ const parseBaseProducts = async (file: File, channelId: ChannelId = 'tradeIn'): 
     const ppv = toText(getField(record, ['ppv']));
     const newSeries = toText(getField(record, ['新机系列']));
     const oldModel = toText(getField(record, ['旧机型号']));
-    const level = toText(getField(record, ['等级']));
+    const level = toText(getExactField(record, ['商品LEVEL', '等级', 'level', '等级名称']));
     const skuId = toNumber(getField(record, ['skuid', 'sku id']));
     const levelId = toText(getField(record, ['等级id', '等级ID', 'levelid', 'level id']));
 
@@ -614,6 +616,16 @@ export default function UploadSection({
   const [error, setError] = useState('');
   const [dailyApiStatus, setDailyApiStatus] = useState('');
   const [ppvAggregationStatus, setPpvAggregationStatus] = useState('');
+  const [ppvPeriodEnd, setPpvPeriodEnd] = useState('');
+  const [savedPpvSource, setSavedPpvSource] = useState<GradeSource | null>(null);
+  const ppvPeriodStart = ppvPeriodEnd ? new Date(Date.parse(ppvPeriodEnd) - 29 * 86400000).toISOString().slice(0, 10) : '';
+  useEffect(() => {
+    let live = true;
+    if (channelId === 'tradeIn') void listGradeSources().then(result => {
+      if (live) setSavedPpvSource(result.sources.find(source => source.kind === 'volume') || null);
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [channelId]);
   const [selfSubsidyGridRows, setSelfSubsidyGridRows] = useState<SelfSubsidyGridRow[]>(DEFAULT_SELF_SUBSIDY_GRID_ROWS);
   const [selfSubsidyStatus, setSelfSubsidyStatus] = useState('');
 
@@ -702,13 +714,24 @@ export default function UploadSection({
     setError('');
     setPpvAggregationStatus('');
     try {
+      if (channelId === 'tradeIn') {
+        if (!ppvPeriodEnd) throw new Error('请先选择完整底表的近30天统计截止日期');
+        const stored = await uploadGradeSource(file, 'volume', ppvPeriodStart, ppvPeriodEnd);
+        setSavedPpvSource(stored.source);
+      }
       const result = await buildPpvAggregation(file, channelId);
       if (result.outputRows.length === 0) {
         throw new Error(`没有生成可导出的聚合结果，请检查商品型号、商品SKU、商品LEVEL、${isSelfOperated ? '报价访客数' : '报价量'}、成交量字段。`);
       }
-      const zzPriceResult = await applyZzPriceValues(result.outputRows, channelId);
+      let zzPriceResult: PpvAggregationZzPriceResult;
+      let lookupWarning = '';
+      try { zzPriceResult = await applyZzPriceValues(result.outputRows, channelId); }
+      catch (lookupError) {
+        zzPriceResult = { rows: result.outputRows, apiMatchedRows: 0 };
+        lookupWarning = `；ZZ券前价查询未完成：${lookupError instanceof Error ? lookupError.message : '请求失败'}，已导出Top2，可稍后补查`;
+      }
       exportPpvAggregationWorkbook(zzPriceResult.rows, channelId);
-      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，剔除商品LEVEL为S的PPV后，按${isSelfOperated ? '报价访客数' : '报价量'}占比75%+成交量占比25%的综合得分Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果；匹配询价说明 ${result.descriptionMatchedRows} 行，API拉取到ZZ券前价并标记“无需爬价” ${zzPriceResult.apiMatchedRows} 行。`);
+      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，剔除商品LEVEL为S的PPV后，按${isSelfOperated ? '报价访客数' : '报价量'}占比75%+成交量占比25%的综合得分Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果；匹配询价说明 ${result.descriptionMatchedRows} 行，API拉取到ZZ券前价并标记“无需爬价” ${zzPriceResult.apiMatchedRows} 行。${lookupWarning}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ppv聚合导出失败');
     } finally {
@@ -863,9 +886,17 @@ export default function UploadSection({
                 : '上传底表后按商品LEVEL+商品SKU生成ppv，先剔除商品LEVEL为S的PPV，再按商品型号以报价量占比75%+成交量占比25%的综合得分取前2名（第二名同分全部保留）；API能拉取到ZZ券前价时，zz裸机价标记为“无需爬价”，新机系列和天猫价格列留空。'}
             </div>
           </div>
+          {!isSelfOperated && <div className="space-y-2 text-xs">
+            <label className="block font-bold">底表近30天统计截止日期 <input type="date" aria-label="底表统计截止日期" value={ppvPeriodEnd} disabled={!!busyType} onChange={event => setPpvPeriodEnd(event.target.value)} className="ml-2 border border-[#141414] px-2 py-1" /></label>
+            {ppvPeriodStart && <div>{ppvPeriodStart} 至 {ppvPeriodEnd}，含首尾共30天</div>}
+            <div className="text-[#555]">上传时先保存原文件和全量PPV，供等级推算匹配成交量。</div>
+            {savedPpvSource && <div className="border border-[#141414] bg-[#F0EFEC] p-2">已保存：{savedPpvSource.fileName} · {savedPpvSource.rowCount} 个完整 PPV<br/>{savedPpvSource.periodStart} 至 {savedPpvSource.periodEnd} · <a className="underline" href={gradeSourceUrl(savedPpvSource.id)}>下载原文件</a></div>}
+          </div>}
           <input
             type="file"
             accept=".xlsx,.xls,.csv"
+            aria-label="Top2完整底表上传"
+            disabled={!!busyType}
             className={inputClass}
             onChange={(event) => {
               handlePpvAggregation(event.target.files?.[0]);

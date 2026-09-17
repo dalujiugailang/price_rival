@@ -9,6 +9,7 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   // Business spreadsheets are not public assets; authorized pages load data through the API.
   publicDir: false,
+  cacheDir: process.env.VITE_CACHE_DIR || 'node_modules/.vite',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

@@ -12,6 +12,8 @@ import {
   snapshotStatus, snapshotTimeLabel, sortSnapshots
 } from '../utils/snapshotHistory';
 import { SnapshotTable } from './MainTable';
+import GradeSnapshotHistory from './GradeSnapshotHistory';
+import {calculateBrandCompetitionInvestmentMetrics} from '../utils/investment';
 
 interface Props {
   historyBatches: TrackingBatch[];
@@ -35,6 +37,8 @@ export default function HistoryPanel({
   const batches = useMemo(() => sortSnapshots(historyBatches), [historyBatches]);
   const inspectedBatch = selectSnapshot(batches, selectedBatchId);
   const inspectedId = inspectedBatch?.id;
+  const investmentMetrics=inspectedBatch?.totalInvestmentRateMetrics || inspectedBatch?.investmentRateMetrics;
+  const brandInvestments=useMemo(()=>inspectedBatch?calculateBrandCompetitionInvestmentMetrics(inspectedBatch.products,inspectedBatch.investmentBrandSalesAmounts30d||[],inspectedBatch.gradeInvestment):[],[inspectedBatch]);
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
   const [search, setSearch] = useState('');
   const [showComparison, setShowComparison] = useState(false);
@@ -177,15 +181,21 @@ export default function HistoryPanel({
               <details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs">
                 <summary data-tour="history-sources" className="w-fit cursor-pointer text-[#555]">保存时投入测算与来源</summary>
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-                  {inspectedBatch.investmentRateMetrics && <>
-                    <span>预估投入 <strong>{formatRMB(inspectedBatch.investmentRateMetrics.estimatedInvestmentAmount)}</strong></span>
-                    <span>安卓大盘投入费率 <strong>{formatPercent(inspectedBatch.investmentRateMetrics.androidOverallRate)}</strong></span>
-                    <span>换新渠道投入费率 <strong>{formatPercent(inspectedBatch.investmentRateMetrics.androidJdTradeInRate)}</strong></span>
+                  {investmentMetrics && <>
+                    <span>合计预估投入 <strong>{formatRMB(investmentMetrics.estimatedInvestmentAmount)}</strong></span>
+                    <span>其中已确认等级新增投入 <strong>{formatRMB(inspectedBatch.gradeInvestment?.amount||0)}</strong></span>
+                    {inspectedBatch.gradeInvestmentRevenueDate&&<span>确认时分母数据日 {inspectedBatch.gradeInvestmentRevenueDate}</span>}
+                    <span>安卓大盘投入费率 <strong>{investmentMetrics.androidOverallRate==null?'-':formatPercent(investmentMetrics.androidOverallRate)}</strong></span>
+                    <span>换新渠道投入费率 <strong>{investmentMetrics.androidJdTradeInRate==null?'-':formatPercent(investmentMetrics.androidJdTradeInRate)}</strong></span>
                   </>}
                   {inspectedBatch.subsidyFileName && <span className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</span>}
                 </div>
               </details>
             )}
+            {(inspectedBatch.channelId||'tradeIn')==='tradeIn'&&hasSnapshotDetails(inspectedBatch)&&<details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs"><summary className="cursor-pointer">分品牌投入费率</summary>
+              <div className="mt-2 overflow-auto"><table className="w-full min-w-[600px] text-right"><thead><tr>{['品牌','重点追价投入','已确认等级投入','合计投入','品牌销售额分母','费率'].map(label=><th key={label} className="p-2">{label}</th>)}</tr></thead><tbody>{brandInvestments.map(row=><tr key={row.brand} className="border-t"><td className="p-2">{row.displayName}</td><td>{formatRMB(row.coreInvestmentAmount||0)}</td><td>{formatRMB(row.gradeInvestmentAmount||0)}</td><td>{formatRMB(row.estimatedInvestmentAmount)}</td><td>{row.salesAmount30d>0?formatRMB(row.salesAmount30d):'-'}</td><td>{row.investmentRate==null?'-':formatPercent(row.investmentRate)}</td></tr>)}</tbody></table></div>
+              {inspectedBatch.gradeInvestment?.pendingRows? <p className="mt-2 text-amber-800">等级投入仍有 {inspectedBatch.gradeInvestment.pendingRows} 行待补，仅计入已知费用。</p>:null}
+            </details>}
           </div>
 
           {showComparison && canCompare && comparisonBatch ? (
@@ -219,7 +229,9 @@ export default function HistoryPanel({
               </div>
             </div>
           ) : hasSnapshotDetails(inspectedBatch) ? (
-            <div key={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} /></div>
+            (inspectedBatch.channelId || 'tradeIn') === 'tradeIn'
+              ? <div key={inspectedBatch.id}><GradeSnapshotHistory batchId={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} /></GradeSnapshotHistory></div>
+              : <div key={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} /></div>
           ) : (
             <div className="border border-[#141414] bg-white p-6">
               <div className="mb-5 text-center">

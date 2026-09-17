@@ -27,6 +27,7 @@ import { evaluateSmallGapTolerance } from './utils/smallGapTolerance';
 import { applyHandPriceAdjustment, handPriceRowKey, updateHandPriceAdjustments, type HandPriceAction, type HandPriceAdjustments } from './utils/handPriceAlignment';
 import { createWorkspaceDraftStorage } from './utils/workspaceDraftStorage';
 import { createSnapshotSync } from './utils/snapshotSync';
+import { snapshotPricingProducts } from './utils/snapshotPricingDraft';
 import { 
   TrendingDown, 
   Layers, 
@@ -42,6 +43,8 @@ import {
 } from 'lucide-react';
 import DashboardStats from './components/DashboardStats';
 import InvestmentRatePanel from './components/InvestmentRatePanel';
+import GradeExpansionPanel from './components/GradeExpansionPanel';
+import {gradeBatchMismatch} from '../shared/gradeHistory.mjs';
 import MainTable from './components/MainTable';
 import UploadSection from './components/UploadSection';
 import HistoryPanel from './components/HistoryPanel';
@@ -187,6 +190,7 @@ export default function App() {
     return states;
   });
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
+  const [workspacePane, setWorkspacePane] = useState<'pricing' | 'grades'>('pricing');
   const [handPriceUndo, setHandPriceUndo] = useState<{
     channel: ChannelId;
     before: HandPriceAdjustments;
@@ -212,13 +216,22 @@ export default function App() {
   const canEditWorkspace = canEdit(user, activeChannelId, 'workspace');
   const canEditUpload = canEdit(user, activeChannelId, 'upload');
   const canViewWorkspace = canAccess(user, activeChannelId, 'workspace');
-  const useSharedSnapshot = !canEditWorkspace;
+  // Show saved prices until an editor changes strategy or uploads new inputs.
+  const useSharedSnapshot = !canEditWorkspace || activeState.productsMaster.length === 0;
   const latestSnapshot = activeState.historyBatches.find(batch => !batch.isSummaryOnly && batch.products.length > 0);
   const readOnlySnapshot = useSharedSnapshot ? latestSnapshot : undefined;
   const effectiveMarginBottomLine = readOnlySnapshot?.marginBottomLine ?? activeState.marginBottomLine;
   const effectivePricingMode = readOnlySnapshot?.pricingMode ?? activeState.pricingMode;
-  const effectiveInvestmentRateInputs = readOnlySnapshot?.investmentRateInputs ?? activeState.investmentRateInputs;
+  const effectiveInvestmentRateInputs = activeChannelId==='tradeIn'&&androidRevenueSnapshot
+    ? {androidSalesAmount30d:androidRevenueSnapshot.androidSalesAmount30d,androidJdTradeInSalesAmount30d:androidRevenueSnapshot.androidJdTradeInSalesAmount30d}
+    : readOnlySnapshot?.totalInvestmentRateInputs ?? readOnlySnapshot?.investmentRateInputs ?? activeState.investmentRateInputs;
   const isSelfOperated = activeChannelId === 'selfOperated';
+  const gradeProducts = useSharedSnapshot ? readOnlySnapshot?.products || [] : activeCalculatedItems;
+  const investmentBatch=useMemo(()=>{
+    if(useSharedSnapshot)return readOnlySnapshot;
+    const request={prices:gradeProducts.map(p=>({id:p.id,skuId:String(p.skuId),ppv:p.ppv,model:p.oldModel,newSeries:p.newSeries||'',price:p.recommendJdPrice,display:{recommendAdjustment:p.recommendAdjustment}}))};
+    return activeState.historyBatches.find(b=>b.products.length===gradeProducts.length&&!gradeBatchMismatch(request,b));
+  },[useSharedSnapshot,readOnlySnapshot,gradeProducts,activeState.historyBatches]);
 
   const refreshAndroidRevenue = useCallback(async () => {
     setAndroidRevenueStatus('loading');
@@ -805,7 +818,7 @@ export default function App() {
   };
 
   const handleSaveBatch = async (remarks: string, operator: string, options?: SaveBatchOptions) => {
-    if (!canEditWorkspace) return { success: false, error: '当前账号没有工作台编辑权限' };
+    if (!canEditWorkspace || useSharedSnapshot) return { success: false, error: '请先上传本次竞争表，再保存新的追价快照' };
     const todayStr = new Date().toISOString().slice(0, 10);
     const timeCode = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
     const randomSuffix = createBatchRandomSuffix();
@@ -836,6 +849,7 @@ export default function App() {
       confirmedAt: confirmCompetitiveness ? new Date().toISOString().replace('T', ' ').slice(0, 19) : undefined,
       competitivenessMetrics,
       investmentRateInputs: activeState.investmentRateInputs,
+      investmentBrandSalesAmounts30d:activeChannelId==='tradeIn'?androidRevenueSnapshot?.brandSalesAmounts30d:undefined,
       investmentRateSource: activeChannelId === 'tradeIn' && androidRevenueSnapshot ? {
         provider: 'supabase',
         dataDate: androidRevenueSnapshot.dataDate,
@@ -943,20 +957,22 @@ export default function App() {
     }));
   };
 
-  const handleMarginChange = (margin: number) => {
+  const handleStrategyChange = (mode: PricingMode, margin = effectiveMarginBottomLine) => {
+    if (!canEditWorkspace) return;
     updateActiveState(state => ({
       ...state,
-      marginBottomLine: margin,
-      pricingMode: 'margin'
+      ...(readOnlySnapshot ? {
+        productsMaster: snapshotPricingProducts(readOnlySnapshot),
+        dailyPriceRows: [], manualRecommendPrices: {}, handPriceAdjustments: {},
+        selectedCompetitionPpvs: readOnlySnapshot.products.map(p => p.ppv),
+        sourceUploadRecords: readOnlySnapshot.sourceUploadRecords || state.sourceUploadRecords,
+        lastApiSyncTime: `沿用 ${readOnlySnapshot.date} 快照原价`,
+      } : {}),
+      marginBottomLine: margin, pricingMode: mode
     }));
   };
-
-  const handlePricingModeChange = (mode: PricingMode) => {
-    updateActiveState(state => ({
-      ...state,
-      pricingMode: mode
-    }));
-  };
+  const handleMarginChange = (margin: number) => handleStrategyChange('margin', margin);
+  const handlePricingModeChange = (mode: PricingMode) => handleStrategyChange(mode);
 
   const handleCreateCompetitionVersion = () => {
     updateActiveState(state => ({
@@ -1145,7 +1161,7 @@ export default function App() {
             >
               上传数据源
             </button>}
-            {canEditWorkspace && <button
+            {canEditWorkspace && !useSharedSnapshot && <button
               type="button"
               data-tour="save-snapshot"
               onClick={() => {
@@ -1238,7 +1254,10 @@ export default function App() {
           </header>
 
           <main className={`px-6 py-6 space-y-6 mx-auto ${activeTab === 'history' ? 'max-w-none' : 'max-w-[1440px]'}`}>
-            {showWorkspaceControls && <DashboardStats
+            {activeTab === 'workspace' && canEditWorkspace && readOnlySnapshot && <div className="border border-[#141414] bg-white px-4 py-3 text-sm">
+              当前展示 {readOnlySnapshot.date} 保存的追价快照，共 {readOnlySnapshot.products.length} 行。切换追价策略或边际底线即可基于这批机型实时重算。
+            </div>}
+            {showWorkspaceControls && !(activeTab === 'workspace' && activeChannelId === 'tradeIn' && workspacePane === 'grades' && canEditWorkspace) && <DashboardStats
               products={activeCalculatedItems}
               marginBottomLine={effectiveMarginBottomLine}
               pricingMode={effectivePricingMode}
@@ -1254,19 +1273,40 @@ export default function App() {
               }} />}
               {activeTab === 'workspace' && canViewWorkspace && (
                 <>
+                  {activeChannelId === 'tradeIn' && canEditWorkspace && <div className="flex gap-2 border-b border-[#141414] bg-[#F0EFEC] p-3">
+                    <button className={`border border-[#141414] px-4 py-2 text-xs font-bold ${workspacePane === 'pricing' ? 'bg-[#141414] text-white' : 'bg-white'}`} onClick={() => setWorkspacePane('pricing')}>重点追价</button>
+                    <button className={`border border-[#141414] px-4 py-2 text-xs font-bold ${workspacePane === 'grades' ? 'bg-[#141414] text-white' : 'bg-white'}`} onClick={() => setWorkspacePane('grades')}>等级推算</button>
+                  </div>}
+                  {activeChannelId === 'tradeIn' && canEditWorkspace && workspacePane === 'grades' ? <GradeExpansionPanel
+                    products={gradeProducts}
+                    subsidyRules={activeState.subsidyRules}
+                    trackingBatchId={readOnlySnapshot?.id}
+                    historyBatches={activeState.historyBatches}
+                    onSaved={()=>refreshServerBatches(true)}
+                    onViewHistory={canAccess(user, 'tradeIn', 'history') ? id => {
+                      setSelectedHistoryBatchIds(previous => ({ ...previous, tradeIn: id }));
+                      setActiveTab('history');
+                    } : undefined}
+                    workspaceVersion={readOnlySnapshot ? `共享快照 ${readOnlySnapshot.id}` : `竞争版本 V${activeState.competitionVersionIndex}`}
+                    canUpload={canEditUpload}
+                  /> : <>
                   <InvestmentRatePanel
-                    products={activeCalculatedItems}
+                    products={gradeProducts}
+                    showGradeInvestment={activeChannelId==='tradeIn'}
+                    gradeInvestment={activeChannelId==='tradeIn'?investmentBatch?.gradeInvestment:undefined}
+                    brandSalesAmounts30d={androidRevenueSnapshot?.brandSalesAmounts30d ?? investmentBatch?.investmentBrandSalesAmounts30d}
                     investmentRateInputs={effectiveInvestmentRateInputs}
                     onInvestmentRateInputsChange={setInvestmentRateInputs}
                     channelSalesLabel={activeChannel.channelSalesLabel}
-                    readOnly={!canEditWorkspace}
+                    readOnly={!canEditWorkspace || useSharedSnapshot}
                     automaticSnapshot={activeChannelId === 'tradeIn' && canEditWorkspace ? androidRevenueSnapshot : undefined}
                     automaticStatus={activeChannelId === 'tradeIn' && canEditWorkspace ? androidRevenueStatus : undefined}
                     automaticError={activeChannelId === 'tradeIn' && canEditWorkspace ? androidRevenueError : undefined}
                     onAutomaticRefresh={activeChannelId === 'tradeIn' && canEditWorkspace ? refreshAndroidRevenue : undefined}
                   />
                   <MainTable
-                    readOnly={!canEditWorkspace}
+                    readOnly={!canEditWorkspace || useSharedSnapshot}
+                    strategyReadOnly={!canEditWorkspace}
                     products={activeCalculatedItems}
                     marginBottomLine={effectiveMarginBottomLine}
                     pricingMode={effectivePricingMode}
@@ -1290,6 +1330,7 @@ export default function App() {
                     onCreateCompetitionVersion={handleCreateCompetitionVersion}
                     onManualRecommendPriceChange={handleManualRecommendPriceChange}
                   />
+                  </>}
                 </>
               )}
 

@@ -107,6 +107,7 @@ export interface BrandSalesAmount30d {
 }
 
 export interface BrandCompetitionInvestmentMetrics extends BrandSalesAmount30d {
+  coreInvestmentAmount?:number;gradeInvestmentAmount?:number;pendingGradeRows?:number;
   workspaceRowCount: number;
   adjustedPpvCount: number;
   adjustedDealVolume30d: number;
@@ -128,6 +129,11 @@ export interface CompetitionInvestmentMetrics {
   estimatedInvestmentAmount: number;
   androidOverallRate: number;
   androidJdTradeInRate: number;
+}
+
+export interface GradeInvestmentContribution {
+  runId:string;confirmedAt:string;amount:number;ppvCount:number;soldVolume:number;pendingRows:number;unmatchedSkus:number;
+  byBrand:Array<{brand:string;amount:number;ppvCount:number;soldVolume:number;pendingRows:number}>;
 }
 
 export interface ManualPriceRow {
@@ -252,6 +258,12 @@ export interface TrackingBatch {
   investmentRateInputs?: InvestmentRateInputs;
   investmentRateSource?: InvestmentRateSource;
   investmentRateMetrics?: CompetitionInvestmentMetrics;
+  gradeInvestment?: GradeInvestmentContribution;
+  gradeFinalRunId?: string;
+  totalInvestmentRateMetrics?: CompetitionInvestmentMetrics;
+  totalInvestmentRateInputs?:InvestmentRateInputs;
+  gradeInvestmentRevenueDate?:string;
+  investmentBrandSalesAmounts30d?: BrandSalesAmount30d[];
   isSummaryOnly?: boolean;
   serverCreatedAt?: string;
   serverCreatedBy?: string;

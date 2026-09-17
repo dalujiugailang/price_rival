@@ -247,6 +247,14 @@ export const createAuth = ({ db, env, appUrl }) => {
     });
 
     app.get('/api/auth/login', (req, res) => {
+      // Local previews may be opened via either loopback name. Set OAuth state
+      // on the configured host so the callback can read the same cookie.
+      const loginOrigin = new URL(appUrl);
+      if (['localhost', '127.0.0.1'].includes(loginOrigin.hostname)
+        && req.hostname && req.hostname !== loginOrigin.hostname) {
+        res.redirect(new URL('/api/auth/login', loginOrigin).toString());
+        return;
+      }
       if (!authConfigured) {
         res.status(503).json({ success: false, error: '飞书登录尚未完成服务端配置' });
         return;

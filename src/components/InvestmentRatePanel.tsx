@@ -4,13 +4,16 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { CalculatedProduct, InvestmentRateInputs } from '../types';
+import { CalculatedProduct, InvestmentRateInputs, GradeInvestmentContribution, BrandSalesAmount30d } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
 import { calculateBrandCompetitionInvestmentMetrics, calculateCompetitionInvestmentMetrics } from '../utils/investment';
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import { AndroidRevenueSnapshot } from '../api';
 
 interface Props {
+  gradeInvestment?:GradeInvestmentContribution;
+  brandSalesAmounts30d?:BrandSalesAmount30d[];
+  showGradeInvestment?:boolean;
   products: CalculatedProduct[];
   investmentRateInputs: InvestmentRateInputs;
   onInvestmentRateInputsChange: (inputs: InvestmentRateInputs) => void;
@@ -31,13 +34,16 @@ export default function InvestmentRatePanel({
   automaticSnapshot,
   automaticStatus = 'idle',
   automaticError,
-  onAutomaticRefresh
+  onAutomaticRefresh,
+  gradeInvestment,
+  brandSalesAmounts30d,
+  showGradeInvestment=false
 }: Props) {
   const [draftInputs, setDraftInputs] = useState(investmentRateInputs);
   const [showBrandRates, setShowBrandRates] = useState(false);
-  const investmentMetrics = calculateCompetitionInvestmentMetrics(products, investmentRateInputs);
-  const brandInvestmentMetrics = automaticSnapshot && showBrandRates
-    ? calculateBrandCompetitionInvestmentMetrics(products, automaticSnapshot.brandSalesAmounts30d ?? [])
+  const investmentMetrics = calculateCompetitionInvestmentMetrics(products, investmentRateInputs,gradeInvestment);
+  const brandInvestmentMetrics = showBrandRates
+    ? calculateBrandCompetitionInvestmentMetrics(products, brandSalesAmounts30d ?? automaticSnapshot?.brandSalesAmounts30d ?? [],gradeInvestment)
     : [];
   const isDraftChanged = (
     draftInputs.androidSalesAmount30d !== investmentRateInputs.androidSalesAmount30d
@@ -56,7 +62,7 @@ export default function InvestmentRatePanel({
           竞争预计投入费率测算
         </h2>
         <div className="text-[10px] font-bold text-[#141414]/65">
-          正向调整金额 × ppv近30天成交量；保存并确认落数时写入历史快照。
+          {showGradeInvestment?'重点追价投入 + 已保存确认的等级新增投入':'正向调整金额 × ppv近30天成交量；保存并确认落数时写入历史快照。'}
         </div>
       </div>
 
@@ -87,13 +93,14 @@ export default function InvestmentRatePanel({
         </div>
 
         <div className="bg-[#141414] text-white border border-[#141414] p-4 flex flex-col justify-around items-start gap-0 min-h-[128px]">
-          <div className="text-[10px] font-bold text-white/70">竞争预估投入费用</div>
+          <div className="text-[10px] font-bold text-white/70">{showGradeInvestment?'合计预估投入费用':'竞争预估投入费用'}</div>
           <div>
             <div className="font-mono text-3xl font-black leading-none tracking-normal">
               {formatRMB(investmentMetrics.estimatedInvestmentAmount)}
             </div>
             <div className="mt-3 pt-2 border-t border-white/20 text-[10px] font-bold text-white/65">
               调整 PPV {investmentMetrics.adjustedPpvCount} 条 / 成交量 {investmentMetrics.adjustedDealVolume30d}
+              {showGradeInvestment&&<div className="mt-1">已确认等级新增投入 {formatRMB(gradeInvestment?.amount||0)}{gradeInvestment?.pendingRows?` · 待补 ${gradeInvestment.pendingRows} 行`:''}</div>}
             </div>
           </div>
         </div>
@@ -193,14 +200,14 @@ export default function InvestmentRatePanel({
           </button>
         </div>}
 
-        {onAutomaticRefresh && automaticSnapshot && showBrandRates && (
+        {showBrandRates && (
           <div id="brand-investment-rate-detail" className="xl:col-span-3 border border-[#141414] bg-[#F9F9F8]">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#141414] bg-[#F0EFEC] px-3 py-2">
               <div>
-                <div className="text-xs font-black">BK 品牌竞争投入费率</div>
-                <div className="mt-0.5 text-[10px] font-bold text-[#141414]/60">品牌费率＝当前工作台该 BK 品牌竞争预估投入 ÷ Supabase 该品牌京东换新近30天销售额</div>
+                <div className="text-xs font-black">BK 品牌投入费率</div>
+                <div className="mt-0.5 text-[10px] font-bold text-[#141414]/60">品牌费率＝（重点追价投入＋已确认等级新增投入）÷ 该品牌京东换新近30天销售额；缺少分母显示“-”。</div>
               </div>
-              <div className="text-[10px] font-bold text-[#141414]/60">数据日 {automaticSnapshot.dataDate}</div>
+              {automaticSnapshot&&<div className="text-[10px] font-bold text-[#141414]/60">数据日 {automaticSnapshot.dataDate}</div>}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse text-[11px]">
@@ -210,7 +217,9 @@ export default function InvestmentRatePanel({
                     <th className="px-3 py-2 text-right">工作台行数</th>
                     <th className="px-3 py-2 text-right">调整 PPV</th>
                     <th className="px-3 py-2 text-right">近30天成交量</th>
-                    <th className="px-3 py-2 text-right">竞争预估投入</th>
+                    <th className="px-3 py-2 text-right">重点追价投入</th>
+                    <th className="px-3 py-2 text-right">已确认等级投入</th>
+                    <th className="px-3 py-2 text-right">合计投入</th>
                     <th className="px-3 py-2 text-right">品牌销售额分母</th>
                     <th className="px-3 py-2 text-right">品牌投入费率</th>
                   </tr>
@@ -222,9 +231,11 @@ export default function InvestmentRatePanel({
                       <td className="px-3 py-2 text-right font-mono">{row.workspaceRowCount}</td>
                       <td className="px-3 py-2 text-right font-mono">{row.adjustedPpvCount}</td>
                       <td className="px-3 py-2 text-right font-mono">{row.adjustedDealVolume30d}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatRMB(row.coreInvestmentAmount||0)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatRMB(row.gradeInvestmentAmount||0)}{row.pendingGradeRows?`（待补${row.pendingGradeRows}行）`:''}</td>
                       <td className="px-3 py-2 text-right font-mono">{formatRMB(row.estimatedInvestmentAmount)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{formatRMB(row.salesAmount30d)}</td>
-                      <td className="px-3 py-2 text-right font-mono font-black text-green-700">{formatPercent(row.investmentRate)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{row.salesAmount30d>0?formatRMB(row.salesAmount30d):'-'}</td>
+                      <td className="px-3 py-2 text-right font-mono font-black text-green-700">{row.investmentRate==null?'-':formatPercent(row.investmentRate)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { pricingColumnWidths, pricingColumnCodes, pricingColumnLabels } from '../../shared/pricingColumns.mjs';
 import { createPortal } from 'react-dom';
 import { CalculatedProduct, ChannelId, PricingMode, SelfOperatedSubsidyRule, SubsidyRule, TrackingBatch } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
@@ -27,6 +28,7 @@ import * as XLSX from 'xlsx';
 
 interface Props {
   readOnly?: boolean;
+  strategyReadOnly?: boolean;
   snapshot?: TrackingBatch;
   products: CalculatedProduct[];
   marginBottomLine: number;
@@ -80,6 +82,7 @@ const marginInputText = (margin: number) => String(Math.round(margin * 1000) / 1
 
 export default function MainTable({
   readOnly: requestedReadOnly = false,
+  strategyReadOnly: requestedStrategyReadOnly = requestedReadOnly,
   snapshot,
   products,
   marginBottomLine,
@@ -99,6 +102,7 @@ export default function MainTable({
   onManualRecommendPriceChange,
 }: Props) {
   const readOnly = requestedReadOnly || Boolean(snapshot);
+  const strategyReadOnly = requestedStrategyReadOnly || Boolean(snapshot);
   const isSelfOperated = channelId === 'selfOperated';
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [batchRemarks, setBatchRemarks] = useState('');
@@ -235,7 +239,7 @@ export default function MainTable({
   };
 
   const handleMarginInputChange = (value: string) => {
-    if (readOnly) return;
+    if (strategyReadOnly) return;
     setMarginInput(value);
     if (!/^-?\d*(\.\d*)?$/.test(value) || value === '' || value === '-' || value === '.') return;
 
@@ -370,59 +374,9 @@ export default function MainTable({
     return `询价表${month}${day}`;
   };
 
-  const fixedColumnWidths = [
-    112, 126, 420, 112, 96, 128, 116, 92, 148, 132, 150, 104, 92, 154, 168, 116, 104, 92, 104, 92, 100, 120, 120, 94, 94, 94, 132, 156, 180, 150, 180, 148, 148, 110, 150, 120, 120, 132, 160, 220, 160, 160, 220, 190, 120
-  ];
-  const fixedCodes = [
-    'A', 'E', 'F', 'T', 'U', 'H', 'I', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AB-TM补', 'AB-TM补后', 'AC', 'AF', 'AG', 'AI', 'AT', 'AW', 'AW物差', 'AW到手差', 'AO', 'AP', 'AQ', 'AR', 'AY', 'AY说明', 'AZ', 'AZ提醒', 'BA', 'BB', 'BF', 'BE', 'BE物差', 'BE到手差', 'BE说明', 'BG', 'BG-TM补', 'BH', 'BI', 'BJ', 'BJ-ZZ', 'BK'
-  ];
-  const fixedLabels = [
-    '新机系列',
-    '旧机型号',
-    'ppv',
-    '商品SKUID',
-    '等级id',
-    quoteWeightLabel,
-    'ppv近30天成交量',
-    'jd裸机价',
-    isSelfOperated ? '自营普发券AHS补贴' : '对应新品型号ahs投入',
-    isSelfOperated ? 'jd裸机价+AHS补贴' : '含AHS补贴后报价',
-    '对应新品型号jd总投入',
-    'jd总到手价',
-    'tm裸机价',
-    '对应新品型号tm回收商投入',
-    '含tm回收商补贴后报价',
-    'tm总补贴-人工',
-    'tm总到手价',
-    'zz裸机价',
-    'zz券后价',
-    '基准价',
-    '追前边际利润率',
-    '追前tm物品价差',
-    '追前tm到手价差',
-    '裸机比tm',
-    '到手比tm',
-    '裸机比zz',
-    '仅含ahs补贴+裸机 vs zz到手',
-    '京东物品价-追价后',
-    '京东物品价-追价后理由',
-    '京东物品价-追价后调整金额',
-    '小差额提醒',
-    isSelfOperated ? '追后AHS补贴' : 'ahs承担补贴-追价后',
-    isSelfOperated ? '追后物品价+AHS补贴' : '含AHS补贴后报价-追价后',
-    'jd总到手价-追价后',
-    '追后边际利润率',
-    '追后tm物品价差',
-    '追后tm到手价差',
-    '追后边际利润率说明',
-    '京东物品价-追价后 vs 天猫',
-    '京东物品价+ahs补贴-追价后 vs天猫',
-    '京东到手价-追价后 vs 天猫',
-    '京东物品价-追价后 vs 转转',
-    '京东物品价+ahs补贴-追价后 vs 转转',
-    '京东到手价-追价后vs转转',
-    '品牌名称'
-  ];
+  const fixedColumnWidths = pricingColumnWidths;
+  const fixedCodes = pricingColumnCodes;
+  const fixedLabels = pricingColumnLabels(isSelfOperated);
   const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 30, 33, 35, 36, 38, 39, 40, 43]);
   const noteDisplayHiddenColumnIndexes = new Set([28, 37]);
   const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
@@ -863,11 +817,11 @@ export default function MainTable({
           <label className="text-xs font-bold">追后边际利润率底线：</label>
           <div className="flex gap-1 bg-white p-0.5 border border-[#141414]">
             {[-0.03, 0, 0.03].map(val => (
-              <button key={val} type="button" disabled={readOnly} onClick={() => onMarginChange(val)} className={`px-3 py-1 text-xs font-bold disabled:cursor-not-allowed ${pricingMode === 'margin' && marginBottomLine === val ? 'bg-[#141414] text-white' : 'hover:bg-black/10 disabled:text-[#777]'}`}>
+              <button key={val} type="button" disabled={strategyReadOnly} onClick={() => onMarginChange(val)} className={`px-3 py-1 text-xs font-bold disabled:cursor-not-allowed ${pricingMode === 'margin' && marginBottomLine === val ? 'bg-[#141414] text-white' : 'hover:bg-black/10 disabled:text-[#777]'}`}>
                 {formatPercent(val)}
               </button>
             ))}
-            <button type="button" disabled={readOnly} onClick={() => onPricingModeChange('fullCompetition')} className={`px-3 py-1 text-xs font-bold disabled:cursor-not-allowed ${pricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'hover:bg-black/10 disabled:text-[#777]'}`}>
+            <button type="button" disabled={strategyReadOnly} onClick={() => onPricingModeChange('fullCompetition')} className={`px-3 py-1 text-xs font-bold disabled:cursor-not-allowed ${pricingMode === 'fullCompetition' ? 'bg-[#141414] text-white' : 'hover:bg-black/10 disabled:text-[#777]'}`}>
               100%竞争力
             </button>
           </div>
@@ -875,7 +829,7 @@ export default function MainTable({
             type="text"
             inputMode="decimal"
             value={marginInput}
-            disabled={readOnly}
+            disabled={strategyReadOnly}
             onChange={(e) => handleMarginInputChange(e.target.value)}
             onBlur={() => setMarginInput(marginInputText(marginBottomLine))}
             className="w-24 px-2 py-1 border border-[#141414] text-xs font-bold disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:text-[#555]"

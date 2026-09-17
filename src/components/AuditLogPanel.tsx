@@ -2,6 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { AuditLog, listAuditLogs } from '../api';
 
 const ACTION_LABELS: Record<string, string> = {
+  grade_investment_confirmed:'确认等级额外投入',
+  grade_source_saved: '保存等级数据源',
+  grade_run_generated: '生成等级推算',
+  grade_run_refreshed: '更新等级推算价格',
+  grade_run_saved: '保存等级推算到历史',
+  grade_run_exported: '导出等级推算',
   AUTH_LOGIN_SUCCESS: '登录成功',
   AUTH_LOGIN_FAILED: '登录失败',
   AUTH_LOGIN_DENIED: '登录拒绝',

@@ -15,6 +15,9 @@ import { canAccess, accessibleChannels } from '../shared/accessPolicy.mjs';
 import { listAuthorizedBatches } from './accessProjection.mjs';
 import { registerAccessRoutes } from './accessRoutes.mjs';
 import { createAndroidRevenueClient } from './androidRevenue.mjs';
+import { createGradeStore } from './gradeStore.mjs';
+import { withGradeInvestment } from '../shared/gradeInvestment.mjs';
+import { registerGradeRoutes, createGradePriceClient } from './gradeRoutes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, '..');
@@ -52,6 +55,8 @@ const DATABASE_PATH = path.resolve(appRoot, process.env.DATABASE_PATH || 'data/p
 const androidRevenue = createAndroidRevenueClient({ env: process.env });
 
 const db = createDatabase(DATABASE_PATH);
+const gradeStore = createGradeStore(DATABASE_PATH);
+const investmentBatches={listBatches:channel=>db.listBatches(channel).map(batch=>withGradeInvestment(batch,gradeStore.getFinalRun(batch.id)))};
 const app = express();
 const auth = createAuth({ db, env: process.env, appUrl: APP_URL });
 
@@ -88,6 +93,9 @@ const requireSameOrigin = (req, res, next) => {
 
 app.use('/api', auth.requireAuth, requireSameOrigin);
 registerAccessRoutes(app, { db, auth });
+registerGradeRoutes(app, { store: gradeStore, getBatch: id => db.getBatch(id), writeAudit: details => db.writeAudit(details),
+  lookupRevenue:()=>androidRevenue.getLatest(),
+  lookupPrices: createGradePriceClient({ url: DAILY_PRICE_LOOKUP_URL, token: DAILY_PRICE_TOKEN }) });
 const requestChannel = req => req.body?.channelId || 'tradeIn';
 const requirePage = (channel, page) => (req, res, next) => {
   if (canAccess(req.authUser, typeof channel === 'function' ? channel(req) : channel, page)) return next();
@@ -113,7 +121,7 @@ app.get('/api/tracking-batches', (req, res) => {
   }
   res.json({
     success: true,
-    batches: listAuthorizedBatches(db, req.authUser, channelId)
+    batches: listAuthorizedBatches(investmentBatches, req.authUser, channelId)
   });
 });
 
@@ -134,7 +142,7 @@ app.get('/api/tracking-batches/:id', (req, res) => {
     res.status(404).json({ success: false, error: '历史批次不存在' });
     return;
   }
-  const authorized = listAuthorizedBatches(db, req.authUser, batch.channelId || 'tradeIn').find(item => item.id === batch.id);
+  const authorized = listAuthorizedBatches(investmentBatches, req.authUser, batch.channelId || 'tradeIn').find(item => item.id === batch.id);
   if (!authorized) {
     res.status(403).json({ success: false, error: '当前账号未开通该批次的查看范围' });
     return;
@@ -300,7 +308,8 @@ const createLocalCallbackBridge = () => {
   const isLocalCallback = callbackUrl.protocol === 'http:'
     && ['localhost', '127.0.0.1'].includes(callbackUrl.hostname);
   const callbackPort = Number(callbackUrl.port || 80);
-  if (!isLocalCallback || callbackPort === PORT) return null;
+  // The frontend proxy already forwards this callback; do not bind its port twice.
+  if (!isLocalCallback || callbackPort === PORT || callbackUrl.origin === new URL(APP_URL).origin) return null;
 
   const bridge = express();
   bridge.get(callbackUrl.pathname, (req, res) => {
@@ -319,6 +328,7 @@ const callbackBridge = createLocalCallbackBridge();
 
 const shutdown = () => {
   const closeDatabase = () => {
+    gradeStore.close();
     db.close();
     process.exit(0);
   };

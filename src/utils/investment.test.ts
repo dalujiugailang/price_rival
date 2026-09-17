@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { CalculatedProduct } from '../types';
-import { calculateBrandCompetitionInvestmentMetrics } from './investment';
+import { calculateBrandCompetitionInvestmentMetrics,calculateCompetitionInvestmentMetrics } from './investment';
 
 const product = (
   brand: string,
@@ -33,3 +33,15 @@ assert.deepEqual(rows.map(row => ({
 ]);
 
 console.log('Brand investment rate: BK brand grouping, numerator and denominator passed.');
+
+const extra={runId:'final',confirmedAt:'now',amount:100,ppvCount:1,soldVolume:5,pendingRows:1,unmatchedSkus:0,byBrand:[{brand:'荣耀',amount:100,ppvCount:1,soldVolume:5,pendingRows:1}]};
+const inputs={androidSalesAmount30d:10000,androidJdTradeInSalesAmount30d:5000};
+const core=[product('荣耀',10,5)];
+assert.equal(calculateCompetitionInvestmentMetrics(core,inputs).estimatedInvestmentAmount,50);
+assert.equal(calculateCompetitionInvestmentMetrics(core,inputs,{...extra,confirmedAt:''}).estimatedInvestmentAmount,50);
+assert.equal(calculateCompetitionInvestmentMetrics(core,inputs,extra).estimatedInvestmentAmount,150);
+assert.equal(calculateCompetitionInvestmentMetrics(core,inputs,extra).androidJdTradeInRate,.03);
+const brand=calculateBrandCompetitionInvestmentMetrics(core,[{brand:'荣耀',displayName:'荣耀',salesAmount30d:1000}],extra)[0];
+assert.equal(brand.coreInvestmentAmount,50);assert.equal(brand.gradeInvestmentAmount,100);assert.equal(brand.investmentRate,.15);
+assert.equal(calculateBrandCompetitionInvestmentMetrics(core,[],extra)[0].investmentRate,null);
+console.log('Confirmed grade expense: overall, brand, unsaved exclusion and missing denominator passed.');
