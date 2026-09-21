@@ -28,6 +28,7 @@ export interface Product {
   tmSubsidySheet: number;   // Q 天猫总补贴-线下表
   zzPrice: number;          // T 转转裸机价
   basePrice: number;        // AG 基准价
+  manualBasePrice?: number;
 
   manualOperator?: string;
   manualUpdateTime?: string;

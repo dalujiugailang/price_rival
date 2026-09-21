@@ -621,7 +621,7 @@ export default function App() {
         jdPrice,
         ahsInput,
         jdSubsidy,
-        basePrice,
+        basePrice: Number.isFinite(prod.manualBasePrice) ? prod.manualBasePrice! : basePrice,
         zzPrice,
         levelId,
         brand
@@ -982,6 +982,16 @@ export default function App() {
     setActiveTab('workspace');
   };
 
+  const handleManualBasePriceChange = (ppv: string, price?: number) => {
+    if (!canEditWorkspace || (price !== undefined && (!Number.isFinite(price) || price < 0))) return;
+    updateActiveState(state => ({
+      ...state,
+      productsMaster: state.productsMaster.map(product => product.ppv === ppv
+        ? { ...product, manualBasePrice: price }
+        : product)
+    }));
+  };
+
   const handleManualRecommendPriceChange = (ppv: string, price?: number) => {
     updateActiveState(state => {
       const next = { ...state.manualRecommendPrices };
@@ -1329,6 +1339,7 @@ export default function App() {
                     onToggleCompetitionPpv={handleToggleCompetitionPpv}
                     onCreateCompetitionVersion={handleCreateCompetitionVersion}
                     onManualRecommendPriceChange={handleManualRecommendPriceChange}
+                    onManualBasePriceChange={handleManualBasePriceChange}
                   />
                   </>}
                 </>

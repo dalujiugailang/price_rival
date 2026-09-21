@@ -60,6 +60,7 @@ interface Props {
   onToggleCompetitionPpv: (ppv: string, selected: boolean) => void;
   onCreateCompetitionVersion: () => void;
   onManualRecommendPriceChange: (ppv: string, price?: number) => void;
+  onManualBasePriceChange?: (ppv: string, price?: number) => void;
 }
 
 const currentLocalDate = () => {
@@ -100,6 +101,7 @@ export default function MainTable({
   onPricingModeChange,
   onSaveBatch,
   onManualRecommendPriceChange,
+  onManualBasePriceChange,
 }: Props) {
   const readOnly = requestedReadOnly || Boolean(snapshot);
   const strategyReadOnly = requestedStrategyReadOnly || Boolean(snapshot);
@@ -115,6 +117,9 @@ export default function MainTable({
   const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
   const [editingRecommendPpv, setEditingRecommendPpv] = useState<string | null>(null);
   const [editingRecommendValue, setEditingRecommendValue] = useState('');
+  const [editingBaseId, setEditingBaseId] = useState<string | null>(null);
+  const [editingBaseValue, setEditingBaseValue] = useState('');
+  const baseEditActive = useRef(false);
   const [savingBatch, setSavingBatch] = useState(false);
   const smallGapToleranceTriggerRef = useRef<HTMLButtonElement>(null);
   const smallGapTolerancePopoverRef = useRef<HTMLDivElement>(null);
@@ -338,6 +343,19 @@ export default function MainTable({
     if (readOnly) return;
     setEditingRecommendPpv(product.ppv);
     setEditingRecommendValue(displayValue(product.recommendJdPrice));
+  };
+
+  const commitBaseEdit = (product: CalculatedProduct) => {
+    if (!baseEditActive.current || readOnly || !onManualBasePriceChange) return;
+    const text = editingBaseValue.trim();
+    const price = text ? Number(text.replace(/[¥￥,\s]/g, '')) : undefined;
+    if (price !== undefined && (!Number.isFinite(price) || price < 0)) {
+      alert('请输入有效的非负基准价。');
+      return;
+    }
+    baseEditActive.current = false;
+    if (price !== product.basePrice) onManualBasePriceChange(product.ppv, price);
+    setEditingBaseId(null);
   };
 
   const commitRecommendEdit = () => {
@@ -615,7 +633,33 @@ export default function MainTable({
       case 18:
         return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.zzHandPrice)}</td>;
       case 19:
-        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{formatRMB(p.basePrice)}</td>;
+        return (
+          <td key={index} style={style}
+            className={`px-2 py-1 text-right border-r border-[#141414]/20 font-mono ${p.manualBasePrice !== undefined ? 'text-blue-700 font-bold' : ''}`}
+            onDoubleClick={readOnly || !onManualBasePriceChange ? undefined : () => {
+              baseEditActive.current = true;
+              setEditingBaseId(p.id);
+              setEditingBaseValue(String(p.basePrice));
+            }}
+            title={readOnly ? '只读快照' : '双击修改基准价，清空恢复原价'}
+          >
+            {editingBaseId === p.id && !readOnly ? (
+              <input autoFocus type="text" inputMode="decimal" aria-label="修改基准价"
+                value={editingBaseValue}
+                onChange={e => setEditingBaseValue(e.target.value)}
+                onBlur={() => commitBaseEdit(p)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); commitBaseEdit(p); }
+                  if (e.key === 'Escape') {
+                    baseEditActive.current = false;
+                    setEditingBaseId(null);
+                  }
+                }}
+                className="w-full border border-[#141414] bg-white px-1 py-0.5 text-right font-mono text-[11px]"
+              />
+            ) : formatRMB(p.basePrice)}
+          </td>
+        );
       case 20:
         return <td key={index} style={style} className={`px-2 py-1 text-right border-r border-[#141414]/20 font-bold ${p.preMarginalProfit < marginBottomLine ? 'text-red-700' : 'text-green-700'}`}>{formatPercent(p.preMarginalProfit)}</td>;
       case 21:
