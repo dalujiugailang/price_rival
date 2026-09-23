@@ -27,7 +27,7 @@ import { evaluateSmallGapTolerance } from './utils/smallGapTolerance';
 import { applyHandPriceAdjustment, handPriceRowKey, updateHandPriceAdjustments, type HandPriceAction, type HandPriceAdjustments } from './utils/handPriceAlignment';
 import { createWorkspaceDraftStorage } from './utils/workspaceDraftStorage';
 import { createSnapshotSync } from './utils/snapshotSync';
-import { snapshotPricingProducts } from './utils/snapshotPricingDraft';
+import { buildSnapshotRestore, snapshotPricingProducts } from './utils/snapshotPricingDraft';
 import { 
   TrendingDown, 
   Layers, 
@@ -725,7 +725,7 @@ export default function App() {
     }).length;
   };
 
-  const handleBaseProductsLoaded = (products: Product[], fileName: string) => {
+  const handleBaseProductsLoaded = (products: Product[], fileName: string, sourceFileId?: string) => {
     const nextProducts = products.map(product => hydrateThirtyDayVolumes(product, activeChannelId));
     updateActiveState(state => ({
       ...state,
@@ -739,6 +739,7 @@ export default function App() {
           id: `SRC-${Date.now()}`,
           type: 'base',
           fileName,
+          sourceFileId,
           uploadedAt: nowText(),
           rowCount: nextProducts.length,
           matchedCount: nextProducts.length,
@@ -776,7 +777,7 @@ export default function App() {
     }));
   };
 
-  const handleSubsidyRulesLoaded = (rules: SubsidyRule[], fileName: string) => {
+  const handleSubsidyRulesLoaded = (rules: SubsidyRule[], fileName: string, sourceFileId?: string) => {
     const matchedCount = countSubsidyMatches(rules);
     updateActiveState(state => ({
       ...state,
@@ -787,6 +788,7 @@ export default function App() {
           id: `SRC-${Date.now()}`,
           type: 'subsidy',
           fileName,
+          sourceFileId,
           uploadedAt: nowText(),
           rowCount: rules.length,
           matchedCount,
@@ -857,7 +859,17 @@ export default function App() {
         periodEnd: androidRevenueSnapshot.periodEnd,
         syncedAt: androidRevenueSnapshot.syncedAt
       } : undefined,
-      investmentRateMetrics
+      investmentRateMetrics,
+      restorePayload: {
+        version: 1,
+        productsMaster: JSON.parse(JSON.stringify(activeState.productsMaster)),
+        dailyPriceRows: JSON.parse(JSON.stringify(activeState.dailyPriceRows)),
+        subsidyRules: JSON.parse(JSON.stringify(activeState.subsidyRules)),
+        selfSubsidyRules: JSON.parse(JSON.stringify(activeState.selfSubsidyRules)),
+        manualRecommendPrices: { ...activeState.manualRecommendPrices },
+        selectedCompetitionPpvs: [...activeState.selectedCompetitionPpvs],
+        activeSubsidyFileName: activeState.activeSubsidyFileName
+      }
     };
 
     try {
@@ -1005,6 +1017,28 @@ export default function App() {
         manualRecommendPrices: next
       };
     });
+  };
+
+  const handleRestoreBatch = (batch: TrackingBatch) => {
+    if (!canEditWorkspace) return;
+    const restored = buildSnapshotRestore(batch);
+    if (!restored.canRestore) { alert(restored.warnings.join('\n')); return; }
+    if (!window.confirm(`回填 ${batch.date} 快照将替换当前工作台草稿，历史快照不会被修改。继续吗？`)) return;
+    updateActiveState(state => ({
+      ...state,
+      productsMaster: restored.productsMaster!,
+      dailyPriceRows: restored.dailyPriceRows!,
+      subsidyRules: restored.subsidyRules!,
+      selfSubsidyRules: restored.selfSubsidyRules!,
+      manualRecommendPrices: restored.manualRecommendPrices!,
+      handPriceAdjustments: {},
+      selectedCompetitionPpvs: restored.selectedCompetitionPpvs!,
+      sourceUploadRecords: batch.sourceUploadRecords || [],
+      activeSubsidyFileName: restored.activeSubsidyFileName!,
+      lastApiSyncTime: restored.dailyPriceSource?.dataDate ? `沿用 ${restored.dailyPriceSource.dataDate} 快照 API 值` : `沿用 ${batch.date} 快照值`
+    }));
+    setActiveTab('workspace');
+    if (restored.warnings.length) alert(`已回填，但请注意：\n${restored.warnings.join('\n')}`);
   };
 
   const handleApplySmallGapTolerance = (margin: number, pricesByPpv: Record<string, number>) => {
@@ -1368,6 +1402,7 @@ export default function App() {
                   selectedBatchId={selectedHistoryBatchIds[activeChannelId]}
                   onSelectBatch={id => setSelectedHistoryBatchIds(previous => ({ ...previous, [activeChannelId]: id }))}
                   onDeleteBatch={canEdit(user, activeChannelId, 'history') ? handleDeleteBatch : undefined}
+                  onRestoreBatch={canEditWorkspace ? handleRestoreBatch : undefined}
                   channelName={activeChannel.name}
                 />
                 </div>

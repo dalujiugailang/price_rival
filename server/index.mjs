@@ -102,6 +102,31 @@ const requirePage = (channel, page) => (req, res, next) => {
   res.status(403).json({ success: false, error: '当前账号未开通该渠道或页面' });
 };
 
+app.post('/api/source-files', auth.requireEditor, requirePage(requestChannel, 'upload'), (req, res) => {
+  try {
+    const body = req.body || {};
+    if (typeof body.fileBase64 !== 'string' || body.fileBase64.length > 25 * 1024 * 1024) throw Object.assign(new Error('文件编码无效或超过18MB'), { statusCode: 400 });
+    const fileName = path.basename(String(body.fileName || ''));
+    if (!/\.(xlsx|xls|csv)$/i.test(fileName)) throw Object.assign(new Error('仅支持 xlsx、xls 或 csv'), { statusCode: 400 });
+    const result = db.saveSourceFile({ channelId: body.channelId || 'tradeIn', kind: body.kind, fileName, contentType: body.contentType, buffer: Buffer.from(body.fileBase64, 'base64'), actor: req.authUser });
+    db.writeAudit({ ...auth.requestContext(req), action: 'SOURCE_FILE_SAVE', resourceType: 'source_file', resourceId: result.id, details: { channelId: body.channelId || 'tradeIn', kind: body.kind, sha256: result.sha256, reused: result.reused } });
+    res.status(result.reused ? 200 : 201).json({ success: true, ...result });
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, error: error.message || '原文件保存失败' }); }
+});
+
+app.get('/api/source-files/:id/file', (req, res) => {
+  const file = db.getSourceFile(req.params.id);
+  if (!file || !canAccess(req.authUser, file.channel_id, 'history')) return res.status(403).json({ success: false, error: '无权下载该数据源' });
+  db.writeAudit({ ...auth.requestContext(req), action: 'SOURCE_FILE_DOWNLOAD', resourceType: 'source_file', resourceId: file.id, details: { channelId: file.channel_id, kind: file.kind } });
+  res.set('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.file_name)}`).type(file.content_type || 'application/octet-stream').send(Buffer.from(file.original));
+});
+
+app.get('/api/source-files', (req, res) => {
+  const channelId = String(req.query.channelId || 'tradeIn');
+  if (!canAccess(req.authUser, channelId, 'upload') && !canAccess(req.authUser, channelId, 'history')) return res.status(403).json({ success: false, error: '无权查看该数据源' });
+  res.json({ success: true, files: db.listSourceFiles(channelId) });
+});
+
 const auditFailure = (req, action, error, resourceId = null) => {
   db.writeAudit({
     ...auth.requestContext(req),

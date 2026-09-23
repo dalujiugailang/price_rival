@@ -146,7 +146,12 @@ test('raw files and data survive reopening; same hash and period is idempotent',
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'grade-store-'));const file=path.join(dir,'db.sqlite');let store=createGradeStore(file);
   const bytes=volumeFile();const result=store.saveSource({kind:'volume',fileName:'源.xlsx',buffer:bytes,periodStart:'2026-08-17',periodEnd:'2026-09-15'});
   assert.equal(store.saveSource({kind:'volume',fileName:'重复.xlsx',buffer:bytes,periodStart:'2026-08-17',periodEnd:'2026-09-15'}).reused,true);
-  store.close();store=createGradeStore(file);assert.equal(store.listSources().length,1);
+  const summary=store.saveSource({kind:'volume',fileName:'近30天汇总.xlsx',buffer:bytes});
+  assert.equal(summary.source.periodStart,'');
+  assert.equal(summary.source.periodEnd,'');
+  assert.equal(store.saveSource({kind:'volume',fileName:'重复汇总.xlsx',buffer:bytes}).reused,true);
+  assert.throws(()=>store.saveSource({kind:'volume',fileName:'缺截止日.xlsx',buffer:bytes,periodStart:'2026-08-17'}),/近30天数据周期/);
+  store.close();store=createGradeStore(file);assert.equal(store.listSources().length,2);
   assert.equal(store.getSource(result.source.id).data.rows.length,16);
   assert.ok(Buffer.from(store.getFile(result.source.id).original).equals(bytes));store.close();fs.rmSync(dir,{recursive:true});
 });

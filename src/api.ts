@@ -103,6 +103,20 @@ export const saveTrackingBatch = (batch: TrackingBatch) => requestJson<{ success
   { method: 'POST', body: JSON.stringify({ batch }) }
 );
 
+export const saveSourceFile = async (file: File, kind: 'base' | 'subsidy', channelId: string) => {
+  const fileBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('文件读取失败'));
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.readAsDataURL(file);
+  });
+  return requestJson<{ success: true; id: string; fileName: string; sha256: string; reused: boolean }>('/api/source-files', {
+    method: 'POST', body: JSON.stringify({ channelId, kind, fileName: file.name, contentType: file.type, fileBase64 })
+  });
+};
+
+export const sourceFileUrl = (id: string) => `/api/source-files/${encodeURIComponent(id)}/file`;
+
 export const importTrackingBatches = (batches: TrackingBatch[]) => requestJson<{
   success: true;
   requested: number;

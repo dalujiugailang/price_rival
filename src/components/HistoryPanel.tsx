@@ -14,12 +14,14 @@ import {
 import { SnapshotTable } from './MainTable';
 import GradeSnapshotHistory from './GradeSnapshotHistory';
 import {calculateBrandCompetitionInvestmentMetrics} from '../utils/investment';
+import { sourceFileUrl } from '../api';
 
 interface Props {
   historyBatches: TrackingBatch[];
   selectedBatchId?: string;
   onSelectBatch: (id: string) => void;
   onDeleteBatch?: (id: string) => void;
+  onRestoreBatch?: (batch: TrackingBatch) => void;
   channelName?: string;
 }
 
@@ -32,7 +34,7 @@ const marginText = (value: number | null) => value === null ? '—' : formatPerc
 const listTimeLabel = (batch: TrackingBatch) => isImportedSnapshot(batch) ? batch.date : snapshotTimeLabel(batch);
 
 export default function HistoryPanel({
-  historyBatches, selectedBatchId, onSelectBatch, onDeleteBatch, channelName = '京东换新'
+  historyBatches, selectedBatchId, onSelectBatch, onDeleteBatch, onRestoreBatch, channelName = '京东换新'
 }: Props) {
   const batches = useMemo(() => sortSnapshots(historyBatches), [historyBatches]);
   const inspectedBatch = selectSnapshot(batches, selectedBatchId);
@@ -173,9 +175,12 @@ export default function HistoryPanel({
                 </div>
                 <div className="break-all font-mono text-[11px] text-[#777]">{inspectedBatch.id}</div>
               </div>
-              {onDeleteBatch && inspectedBatch.id !== 'TRACK-20260524-INIT' && (
-                <button type="button" onClick={() => onDeleteBatch(inspectedBatch.id)} className="flex items-center gap-1 py-1 text-xs text-[#777] hover:text-red-700"><Trash2 className="h-3.5 w-3.5" /> 删除快照</button>
-              )}
+              <div className="flex items-center gap-3">
+                {onRestoreBatch && hasSnapshotDetails(inspectedBatch) && <button type="button" onClick={() => onRestoreBatch(inspectedBatch)} className={buttonClass}>回填到工作台</button>}
+                {onDeleteBatch && inspectedBatch.id !== 'TRACK-20260524-INIT' && (
+                  <button type="button" onClick={() => onDeleteBatch(inspectedBatch.id)} className="flex items-center gap-1 py-1 text-xs text-[#777] hover:text-red-700"><Trash2 className="h-3.5 w-3.5" /> 删除快照</button>
+                )}
+              </div>
             </div>
             {(inspectedBatch.investmentRateMetrics || inspectedBatch.subsidyFileName) && (
               <details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs">
@@ -189,6 +194,7 @@ export default function HistoryPanel({
                     <span>换新渠道投入费率 <strong>{investmentMetrics.androidJdTradeInRate==null?'-':formatPercent(investmentMetrics.androidJdTradeInRate)}</strong></span>
                   </>}
                   {inspectedBatch.subsidyFileName && <span className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</span>}
+                  {inspectedBatch.sourceUploadRecords?.filter(record => record.sourceFileId && (record.type === 'base' || record.type === 'subsidy')).map(record => <span key={record.id} className="break-all">{record.fileName} <a className="ml-1 text-[#777] underline" href={sourceFileUrl(record.sourceFileId!)}>下载</a></span>)}
                 </div>
               </details>
             )}

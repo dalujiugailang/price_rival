@@ -153,6 +153,7 @@ export interface SourceUploadRecord {
   rowCount: number;
   matchedCount?: number;
   remarks?: string;
+  sourceFileId?: string;
 }
 
 export interface HandPriceAdjustment {
@@ -268,6 +269,17 @@ export interface TrackingBatch {
   isSummaryOnly?: boolean;
   serverCreatedAt?: string;
   serverCreatedBy?: string;
+  restorePayload?: {
+    version: 1;
+    productsMaster: Product[];
+    dailyPriceRows: DailyPriceRow[];
+    subsidyRules: SubsidyRule[];
+    selfSubsidyRules?: SelfOperatedSubsidyRule[];
+    manualRecommendPrices: Record<string, number>;
+    selectedCompetitionPpvs: string[];
+    activeSubsidyFileName: string;
+    dailyPriceSource?: { dataDate?: string; fetchedAt?: string; sourceName?: string };
+  };
 }
 
 export interface OperationsLog {

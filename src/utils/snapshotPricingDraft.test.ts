@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {snapshotPricingProducts} from './snapshotPricingDraft';
+import {buildSnapshotRestore, snapshotPricingProducts} from './snapshotPricingDraft';
 import {runBatchCalculations} from './formulas';
 import type {TrackingBatch} from '../types';
 
@@ -19,4 +19,12 @@ assert.ok(low[0].recommendJdPrice>high[0].recommendJdPrice);
 assert.equal(high[0].quoteVolume,10);
 inputs[0].rawFields.BK_品牌名称='编辑后';
 assert.deepEqual(batch,before);
+const restored=buildSnapshotRestore(batch);
+assert.equal(restored.canRestore,true);
+assert.equal(restored.manualRecommendPrices['A+ phone'],999);
+assert.equal(restored.productsMaster[0].manualBasePrice,undefined);
+const manualBatch={...batch,isSummaryOnly:false,products:[{...batch.products[0],manualBasePrice:88}]} as unknown as TrackingBatch;
+const manualRestore=buildSnapshotRestore(manualBatch);
+assert.equal(manualRestore.productsMaster[0].manualBasePrice,88);
+assert.equal(manualRestore.manualRecommendPrices['A+ phone'],999);
 console.log('Snapshot input reuse and live margin recalculation passed; saved snapshot unchanged.');

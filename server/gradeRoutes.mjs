@@ -61,7 +61,7 @@ export function createGradeWorkbook(run,batch=null) {
   append('数据来源', [['项目','内容'],['测算名称',run.title],['测算ID',run.id],['生成时间',run.createdAt],
     ['关联追价快照',run.trackingBatchId || run.request.trackingBatchId || '-'],['保存时间',run.savedAt || '-'],
     ['工作台版本',run.request.workspaceVersion],['完整底表',run.sources.volume.fileName],['底表版本',run.sources.volume.id],
-    ['数据周期',`${run.sources.volume.periodStart} 至 ${run.sources.volume.periodEnd}`],['模板文件',run.sources.template.fileName],['模板版本',run.sources.template.id],
+    ['数据周期',run.sources.volume.periodStart ? `${run.sources.volume.periodStart} 至 ${run.sources.volume.periodEnd}` : '文件提供的近30天汇总'],['模板文件',run.sources.template.fileName],['模板版本',run.sources.template.id],
     ['Daily Price数据日期',run.dailyPriceDate],['Daily Price查询时间',run.dailyPriceFetchedAt]], [34,105]);
   if(run.pricingVersion>=3)append('未扩展SKU',[['型号','SKU ID','跳过原因'],...(run.skippedSkus||[]).map(s=>[s.model,s.skuId,s.reason])],[32,18,55]);
   if(batch&&run.isFinal&&run.investmentConfirmedAt) {
@@ -158,7 +158,7 @@ export function registerGradeRoutes(app, { store, lookupPrices, getBatch = () =>
     const guarded=applyGradeMarginFloor(plan,subsidyRules,daily.rows);
     const stable=stabilizeGradeOrder(guarded,subsidyRules,daily.rows);
     const result=addGradePresentation(applyGradeStrategyPrices(stable,daily.rows),request,daily.rows);
-    const run=store.createRun({...result,title:String(input.title || `等级推算 ${volume.periodEnd}`).slice(0,100),request,
+    const run=store.createRun({...result,title:String(input.title || `等级推算 ${volume.periodEnd || new Date().toISOString().slice(0,10)}`).slice(0,100),request,
       trackingBatchId:trackingBatchId || undefined,parentRunId:parent?.id,
       sources:{volume:{...volume,data:undefined},template},dailyPriceDate:daily.dataDate,dailyPriceFetchedAt:daily.fetchedAt},req.authUser);
     auditRun(parent?'grade_run_refreshed':'grade_run_generated',run,req.authUser);

@@ -50,7 +50,7 @@ export function createGradeStore(databasePath) {
     getFile: id => db.prepare('SELECT file_name,original FROM grade_sources WHERE id=?').get(id),
     saveSource({ kind, fileName, buffer, periodStart = '', periodEnd = '', actor = '' }) {
       if (!['volume', 'template'].includes(kind)) throw Object.assign(new Error('文件类型无效'), { statusCode: 400 });
-      if (kind === 'volume') validatePeriod(periodStart, periodEnd);
+      if (kind === 'volume' && (periodStart || periodEnd)) validatePeriod(periodStart, periodEnd);
       else { periodStart = ''; periodEnd = ''; }
       if (!buffer.length || buffer.length > 18 * 1024 * 1024) throw Object.assign(new Error('文件需为非空且不超过18MB'), { statusCode: 400 });
       const hash = crypto.createHash('sha256').update(buffer).digest('hex');

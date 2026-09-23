@@ -30,7 +30,6 @@ export default function GradeExpansionPanel({ products, workspaceVersion, canUpl
   const [busy,setBusy]=useState(''); const [error,setError]=useState(''); const [message,setMessage]=useState('');
   const [saveBatchChoice,setSaveBatchChoice]=useState('');
   const [volumeFile,setVolumeFile]=useState<File|null>(null);
-  const [periodStart,setPeriodStart]=useState('');const [periodEnd,setPeriodEnd]=useState('');
 
   const volumeByPpv=useMemo(()=>new Map((volume?.data?.rows||[]).map(r=>[r.ppv,r])),[volume]);
   const prices=useMemo<GradePriceInput[]>(()=>products.map(p=>({id:p.id,ppv:p.ppv,skuId:String(p.skuId),model:p.oldModel,
@@ -95,7 +94,7 @@ export default function GradeExpansionPanel({ products, workspaceVersion, canUpl
   };
   const importVolume=()=>void execute('导入底表',async()=>{
     if(!volumeFile)return;
-    const result=await uploadGradeSource(volumeFile,'volume',periodStart,periodEnd);
+    const result=await uploadGradeSource(volumeFile,'volume');
     setSources((await listGradeSources()).sources);setVolumeId(result.source.id);setVolumeFile(null);
     setMessage(`完整 PPV 底表已保存：${result.source.rowCount} 行，已用于实时推算。`);
   });
@@ -117,10 +116,10 @@ export default function GradeExpansionPanel({ products, workspaceVersion, canUpl
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="text-xs"><label className="font-bold">完整 PPV 底表
         <select aria-label="完整PPV底表版本" className={`${input} mt-2`} value={volumeId} disabled={!!busy} onChange={e=>setVolumeId(e.target.value)}>
-          <option value="">请选择已保存的底表</option>{sources.filter(s=>s.kind==='volume').map(s=><option key={s.id} value={s.id}>{s.fileName} · {s.periodStart}～{s.periodEnd} · {s.rowCount} PPV</option>)}</select></label>
+          <option value="">请选择已保存的底表</option>{sources.filter(s=>s.kind==='volume').map(s=><option key={s.id} value={s.id}>{s.fileName} · {s.periodStart ? `${s.periodStart}～${s.periodEnd}` : '已汇总近30天'} · {s.rowCount} PPV</option>)}</select></label>
         {volume&&<div className="mt-2"><a className="underline" href={gradeSourceUrl(volume.id)}>下载原文件</a></div>}
         {canUpload&&<div className="mt-2 space-y-2"><label className="block">导入完整 PPV 底表 <input aria-label="导入完整PPV底表" type="file" accept=".xlsx,.xls,.csv" disabled={!!busy} onChange={e=>{setVolumeFile(e.target.files?.[0]||null);e.currentTarget.value='';}}/></label>
-          {volumeFile&&<><p>{volumeFile.name}</p><div className="flex flex-wrap items-end gap-2"><label>成交量起始日期<input aria-label="底表成交量起始日期" type="date" className={input} value={periodStart} onChange={e=>setPeriodStart(e.target.value)}/></label><label>成交量截止日期<input aria-label="底表成交量截止日期" type="date" className={input} value={periodEnd} onChange={e=>setPeriodEnd(e.target.value)}/></label><button className={button} disabled={!!busy||!periodStart||!periodEnd} onClick={importVolume}>导入并使用</button></div><p className="text-[#555]">按文件实际统计范围填写，需为完整 30 天。</p></>}
+          {volumeFile&&<><p>{volumeFile.name} · 文件已汇总近30天</p><button className={button} disabled={!!busy} onClick={importVolume}>导入并使用</button></>}
         </div>}
       </div>
       <div className="text-xs"><label className="font-bold">等级模板版本
@@ -149,7 +148,7 @@ export default function GradeExpansionPanel({ products, workspaceVersion, canUpl
     {error&&<div role="alert" className="border border-red-700 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
     {message&&<div role="status" className="text-xs text-green-800">{message}</div>}
     {run&&<>
-      <details className="text-xs text-[#555]"><summary className="cursor-pointer">Daily Price {run.dailyPriceDate} · 成交量周期 {run.sources.volume.periodStart} 至 {run.sources.volume.periodEnd}</summary>
+      <details className="text-xs text-[#555]"><summary className="cursor-pointer">Daily Price {run.dailyPriceDate} · {run.sources.volume.periodStart ? `成交量周期 ${run.sources.volume.periodStart} 至 ${run.sources.volume.periodEnd}` : '成交量为文件提供的近30天汇总'}</summary>
         <div className="mt-2 space-y-1"><p>生成时间：{new Date(run.createdAt).toLocaleString('zh-CN')}</p><p>价格拉取时间：{run.dailyPriceFetchedAt?new Date(run.dailyPriceFetchedAt).toLocaleString('zh-CN'):'-'}</p><p>底表：{run.sources.volume.fileName}</p><p>模板：{run.sources.template.fileName}</p></div>
       </details>
       <div className="flex flex-wrap items-start gap-x-5 gap-y-2 text-xs">

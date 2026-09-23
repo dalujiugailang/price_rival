@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { createAccessStore } from './accessStore.mjs';
 
@@ -39,6 +40,20 @@ export const createDatabase = databasePath => {
       updated_at TEXT NOT NULL,
       deleted_at TEXT,
       deleted_by_open_id TEXT
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS source_files (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      content_type TEXT,
+      sha256 TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      original BLOB NOT NULL,
+      created_by_open_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(channel_id, kind, sha256)
     ) STRICT;
 
     CREATE UNIQUE INDEX IF NOT EXISTS tracking_batches_one_confirmed_date
@@ -200,6 +215,23 @@ export const createDatabase = databasePath => {
   return {
     ...createAccessStore(db, writeAudit),
     close: () => db.close(),
+
+    saveSourceFile({ channelId = 'tradeIn', kind, fileName, contentType, buffer, actor }) {
+      if (!['base', 'subsidy'].includes(kind)) throw Object.assign(new Error('数据源类型不支持'), { statusCode: 400 });
+      if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > 18 * 1024 * 1024) throw Object.assign(new Error('文件为空或超过18MB'), { statusCode: 400 });
+      const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+      const existing = db.prepare('SELECT id,file_name FROM source_files WHERE channel_id=? AND kind=? AND sha256=?').get(channelId, kind, sha256);
+      if (existing) return { id: existing.id, fileName: existing.file_name, sha256, reused: true };
+      const id = `SRCFILE-${crypto.randomUUID()}`;
+      db.prepare('INSERT INTO source_files VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, channelId, kind, fileName, contentType || null, sha256, buffer.length, buffer, actor?.openId || null, nowText());
+      return { id, fileName, sha256, reused: false };
+    },
+
+    getSourceFile(id) { return db.prepare('SELECT * FROM source_files WHERE id=?').get(id); },
+
+    listSourceFiles(channelId) {
+      return db.prepare('SELECT id,channel_id,kind,file_name,size_bytes,created_at FROM source_files WHERE channel_id=? ORDER BY created_at DESC').all(channelId);
+    },
 
     listBatches(channelId = null) {
       return listBatchStatement.all(channelId, channelId).map(rowToBatch);

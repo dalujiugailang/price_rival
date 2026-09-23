@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { AuditLog, listAuditLogs } from '../api';
 
+const beijingTime = (value: string) => new Date(value).toLocaleString('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+});
+
 const ACTION_LABELS: Record<string, string> = {
   grade_investment_confirmed:'确认等级额外投入',
   grade_source_saved: '保存等级数据源',
@@ -57,7 +63,7 @@ export default function AuditLogPanel({ channelId = 'tradeIn', isAdmin = false }
       <div className="max-h-[650px] overflow-auto">
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 bg-[#141414] text-white">
-            <tr><th className="p-3 text-left">时间</th><th className="p-3 text-left">操作</th><th className="p-3 text-left">结果</th><th className="p-3 text-left">操作人</th><th className="p-3 text-left">对象</th><th className="p-3 text-left">详情</th></tr>
+            <tr><th className="p-3 text-left">时间（北京时间）</th><th className="p-3 text-left">操作</th><th className="p-3 text-left">结果</th><th className="p-3 text-left">操作人</th><th className="p-3 text-left">对象</th><th className="p-3 text-left">详情</th></tr>
           </thead>
           <tbody className="divide-y divide-[#141414]/20">
             {loading ? (
@@ -66,7 +72,7 @@ export default function AuditLogPanel({ channelId = 'tradeIn', isAdmin = false }
               <tr><td colSpan={6} className="p-8 text-center">暂无操作日志</td></tr>
             ) : logs.map(log => (
               <tr key={log.id} className="align-top hover:bg-[#F0EFEC]">
-                <td className="whitespace-nowrap p-3 font-mono">{log.createdAt.replace('T', ' ').slice(0, 19)}</td>
+                <td className="whitespace-nowrap p-3 font-mono">{beijingTime(log.createdAt)}</td>
                 <td className="p-3 font-bold">{ACTION_LABELS[log.action] || log.action}</td>
                 <td className="p-3"><span className={`border px-1.5 py-0.5 font-mono ${log.outcome === 'SUCCESS' ? 'border-green-700 text-green-800' : 'border-red-700 text-red-800'}`}>{log.outcome}</span></td>
                 <td className="p-3">{log.actorName || '未识别'}<div className="mt-1 max-w-[160px] truncate font-mono text-[9px] text-[#141414]/50">{log.actorOpenId || ''}</div></td>

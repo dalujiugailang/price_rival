@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ChannelId, DailyPriceRow, Product, SelfOperatedSubsidyRule, SourceUploadRecord, SubsidyRule, TrackingBatch } from '../types';
+import { saveSourceFile, sourceFileUrl } from '../api';
 import { getDailyPriceLookupPpvs } from '../utils/dailyPriceLookup';
 import { gradeSourceUrl, listGradeSources, uploadGradeSource } from '../gradeApi';
 import { GradeSource } from '../gradeTypes';
@@ -54,9 +55,9 @@ interface Props {
   subsidyRules: SubsidyRule[];
   selfSubsidyRules: SelfOperatedSubsidyRule[];
   uploadRecords: SourceUploadRecord[];
-  onBaseProductsLoaded: (products: Product[], fileName: string) => void;
+  onBaseProductsLoaded: (products: Product[], fileName: string, sourceFileId?: string) => void;
   onDailyPricesLoaded: (rows: DailyPriceRow[], fileName: string) => Promise<void>;
-  onSubsidyRulesLoaded: (rows: SubsidyRule[], fileName: string) => void;
+  onSubsidyRulesLoaded: (rows: SubsidyRule[], fileName: string, sourceFileId?: string) => void;
   onSelfSubsidyRulesLoaded: (rows: SelfOperatedSubsidyRule[], sourceName: string) => void;
   onCompetitivenessHistoryLoaded: (rows: TrackingBatch[], fileName: string) => void;
 }
@@ -616,9 +617,19 @@ export default function UploadSection({
   const [error, setError] = useState('');
   const [dailyApiStatus, setDailyApiStatus] = useState('');
   const [ppvAggregationStatus, setPpvAggregationStatus] = useState('');
-  const [ppvPeriodEnd, setPpvPeriodEnd] = useState('');
   const [savedPpvSource, setSavedPpvSource] = useState<GradeSource | null>(null);
-  const ppvPeriodStart = ppvPeriodEnd ? new Date(Date.parse(ppvPeriodEnd) - 29 * 86400000).toISOString().slice(0, 10) : '';
+  const [archivedFiles, setArchivedFiles] = useState<Array<{ id: string; kind: string; file_name: string; size_bytes: number }>>([]);
+  useEffect(() => {
+    let live = true;
+    void fetch(`/api/source-files?channelId=${encodeURIComponent(channelId)}`)
+      .then(async response => {
+        if (!response.ok) throw new Error('原文件列表读取失败');
+        return response.json();
+      })
+      .then(result => { if (live) setArchivedFiles(result.files || []); })
+      .catch(() => { if (live) setArchivedFiles([]); });
+    return () => { live = false; };
+  }, [channelId, uploadRecords]);
   useEffect(() => {
     let live = true;
     if (channelId === 'tradeIn') void listGradeSources().then(result => {
@@ -639,7 +650,7 @@ export default function UploadSection({
     file: File | undefined,
     type: string,
     parser: (file: File) => Promise<T[]>,
-    callback: (rows: T[], fileName: string) => void
+    callback: (rows: T[], fileName: string, sourceFileId?: string) => void
   ) => {
     if (!file) return;
     setBusyType(type);
@@ -649,7 +660,10 @@ export default function UploadSection({
       if (rows.length === 0) {
         throw new Error('没有解析到有效数据行。');
       }
-      callback(rows, file.name);
+      const sourceFileId = type === 'base' || type === 'subsidy'
+        ? (await saveSourceFile(file, type, channelId)).id
+        : undefined;
+      callback(rows, file.name, sourceFileId);
     } catch (err) {
       setError(err instanceof Error ? err.message : '文件解析失败');
     } finally {
@@ -715,8 +729,7 @@ export default function UploadSection({
     setPpvAggregationStatus('');
     try {
       if (channelId === 'tradeIn') {
-        if (!ppvPeriodEnd) throw new Error('请先选择完整底表的近30天统计截止日期');
-        const stored = await uploadGradeSource(file, 'volume', ppvPeriodStart, ppvPeriodEnd);
+        const stored = await uploadGradeSource(file, 'volume');
         setSavedPpvSource(stored.source);
       }
       const result = await buildPpvAggregation(file, channelId);
@@ -887,10 +900,8 @@ export default function UploadSection({
             </div>
           </div>
           {!isSelfOperated && <div className="space-y-2 text-xs">
-            <label className="block font-bold">底表近30天统计截止日期 <input type="date" aria-label="底表统计截止日期" value={ppvPeriodEnd} disabled={!!busyType} onChange={event => setPpvPeriodEnd(event.target.value)} className="ml-2 border border-[#141414] px-2 py-1" /></label>
-            {ppvPeriodStart && <div>{ppvPeriodStart} 至 {ppvPeriodEnd}，含首尾共30天</div>}
             <div className="text-[#555]">上传时先保存原文件和全量PPV，供等级推算匹配成交量。</div>
-            {savedPpvSource && <div className="border border-[#141414] bg-[#F0EFEC] p-2">已保存：{savedPpvSource.fileName} · {savedPpvSource.rowCount} 个完整 PPV<br/>{savedPpvSource.periodStart} 至 {savedPpvSource.periodEnd} · <a className="underline" href={gradeSourceUrl(savedPpvSource.id)}>下载原文件</a></div>}
+            {savedPpvSource && <div className="border border-[#141414] bg-[#F0EFEC] p-2">已保存：{savedPpvSource.fileName} · {savedPpvSource.rowCount} 个完整 PPV<br/>{savedPpvSource.periodStart ? `${savedPpvSource.periodStart} 至 ${savedPpvSource.periodEnd}` : '文件已汇总近30天'} · <a className="underline" href={gradeSourceUrl(savedPpvSource.id)}>下载原文件</a></div>}
           </div>}
           <input
             type="file"
@@ -995,6 +1006,16 @@ export default function UploadSection({
         </div>
       )}
 
+      {archivedFiles.length > 0 && <div className="p-4 border-t border-[#141414] text-xs">
+        <h3 className="text-sm font-bold mb-2">已归档原文件</h3>
+        <p className="mb-2 text-[#666]">这里可下载独立归档文件。文件是否属于某条历史快照，以该快照的来源记录为准。</p>
+        <div className="space-y-1">{archivedFiles.map(file => <div key={file.id} className="flex items-center gap-2 border-b border-[#ddd] py-1">
+          <span className="min-w-14 text-[#666]">{file.kind === 'base' ? '竞争表' : '补贴表'}</span>
+          <span className="min-w-0 flex-1 truncate" title={file.file_name}>{file.file_name}</span>
+          <a className="rounded border border-[#999] px-1.5 py-0.5 text-[#666] hover:bg-[#eee]" href={sourceFileUrl(file.id)} download>下载</a>
+        </div>)}</div>
+      </div>}
+
       <div className="p-4 border-t border-[#141414]">
         <h3 className="text-sm font-bold mb-3">上传记录</h3>
         <div className="overflow-x-auto border border-[#141414] bg-white">
@@ -1013,7 +1034,14 @@ export default function UploadSection({
               {uploadRecords.map(record => (
                 <tr key={record.id} className="border-b border-[#141414]/20">
                   <td className="p-2 border-r border-[#141414]/20 font-bold">{recordTypeLabel(record.type)}</td>
-                  <td className="p-2 border-r border-[#141414]/20">{record.fileName}</td>
+                  <td className="p-2 border-r border-[#141414]/20">
+                    <span>{record.fileName}</span>
+                    {record.sourceFileId ? (
+                      <a className="ml-2 inline-flex rounded border border-[#999] px-1.5 py-0.5 text-[#666] hover:bg-[#eee]" href={sourceFileUrl(record.sourceFileId)} download aria-label={`下载 ${record.fileName}`}>下载</a>
+                    ) : (record.type === 'base' || record.type === 'subsidy') && (
+                      <span className="ml-2 inline-flex cursor-not-allowed rounded border border-[#ccc] px-1.5 py-0.5 text-[#aaa]" title="旧快照未保存原文件，无法下载">下载</span>
+                    )}
+                  </td>
                   <td className="p-2 border-r border-[#141414]/20 font-mono">{record.uploadedAt}</td>
                   <td className="p-2 text-right border-r border-[#141414]/20 font-mono">{record.rowCount}</td>
                   <td className="p-2 text-right border-r border-[#141414]/20 font-mono">{record.matchedCount ?? ''}</td>

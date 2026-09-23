@@ -43,7 +43,7 @@ export default function GradeSnapshotHistory({batchId,children}:{batchId:string;
           {run&&<a className={button} href={gradeExportUrl(run.id)}>导出本版 Excel</a>}
         </div>
         {run?<>
-          <div className="text-xs text-[#555]">{run.rows.length} 个 PPV · Daily Price {run.dailyPriceDate} · 成交量周期 {run.sources.volume.periodStart} 至 {run.sources.volume.periodEnd}</div>
+          <div className="text-xs text-[#555]">{run.rows.length} 个 PPV · Daily Price {run.dailyPriceDate} · {run.sources.volume.periodStart ? `成交量周期 ${run.sources.volume.periodStart} 至 ${run.sources.volume.periodEnd}` : '成交量为文件提供的近30天汇总'}</div>
           <details className="text-xs text-[#555]"><summary className="cursor-pointer">本版数据来源</summary><div className="mt-2 space-y-1"><p>生成于 {time(run.createdAt)} · 保存于 {time(run.savedAt||run.createdAt)}</p><p>底表：{run.sources.volume.fileName}</p><p>模板：{run.sources.template.fileName}</p><p>Daily Price 拉取于 {time(run.dailyPriceFetchedAt)}</p></div></details>
           <div className="flex flex-wrap gap-5 text-xs"><span>等级推算新增投入 <strong>{formatRMB(run.summary.expansionInvestment)}</strong></span><span>待补费用 {run.summary.pendingRows} 行</span><span>无法推算 {run.issues.length} 项</span></div>
           <GradePricingTable key={run.id} run={run}/>
