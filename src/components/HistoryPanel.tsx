@@ -187,17 +187,21 @@ export default function HistoryPanel({
             {(inspectedBatch.investmentRateMetrics || inspectedBatch.subsidyFileName || snapshotSources.length > 0) && (
               <details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs">
                 <summary data-tour="history-sources" className="w-fit cursor-pointer text-[#555]">保存时投入测算与来源</summary>
-                <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-                  {investmentMetrics && <>
+                {investmentMetrics && <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
                     <span>合计预估投入 <strong>{formatRMB(investmentMetrics.estimatedInvestmentAmount)}</strong></span>
                     <span>其中已确认等级新增投入 <strong>{formatRMB(inspectedBatch.gradeInvestment?.amount||0)}</strong></span>
                     {inspectedBatch.gradeInvestmentRevenueDate&&<span>确认时分母数据日 {inspectedBatch.gradeInvestmentRevenueDate}</span>}
                     <span>安卓大盘投入费率 <strong>{investmentMetrics.androidOverallRate==null?'-':formatPercent(investmentMetrics.androidOverallRate)}</strong></span>
                     <span>换新渠道投入费率 <strong>{investmentMetrics.androidJdTradeInRate==null?'-':formatPercent(investmentMetrics.androidJdTradeInRate)}</strong></span>
-                  </>}
-                  {snapshotSources.length === 0 && inspectedBatch.subsidyFileName && <span className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</span>}
-                  {snapshotSources.map(record => <span key={record.id} className="inline-flex items-center gap-1 break-all">{record.type === 'base' ? '竞争表：' : '补贴表：'}{record.fileName} {record.sourceFileId ? <SourceFileDownloadLink sourceFileId={record.sourceFileId} fileName={record.fileName} /> : <span className="text-[#999]">原文件未归档</span>}</span>)}
-                </div>
+                </div>}
+                {(snapshotSources.length > 0 || inspectedBatch.subsidyFileName) && <div className="mt-2 space-y-1">
+                  {snapshotSources.length === 0 && inspectedBatch.subsidyFileName && <div className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</div>}
+                  {snapshotSources.map(record => <div key={record.id} className="flex min-w-0 items-center gap-1">
+                    <span className="shrink-0">{record.type === 'base' ? '竞争表：' : '补贴表：'}</span>
+                    <span className="min-w-0 break-all">{record.fileName}</span>
+                    {record.sourceFileId ? <SourceFileDownloadLink sourceFileId={record.sourceFileId} fileName={record.fileName} /> : <span className="text-[#999]">原文件未归档</span>}
+                  </div>)}
+                </div>}
               </details>
             )}
             {(inspectedBatch.channelId||'tradeIn')==='tradeIn'&&hasSnapshotDetails(inspectedBatch)&&<details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs"><summary className="cursor-pointer">分品牌投入费率</summary>
