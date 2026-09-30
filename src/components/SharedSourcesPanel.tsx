@@ -1,6 +1,6 @@
 import React from 'react';
 import { TrackingBatch } from '../types';
-import { sourceFileUrl } from '../api';
+import SourceFileDownloadLink from './SourceFileDownloadLink';
 
 export default function SharedSourcesPanel({ batch }: { batch?: TrackingBatch }) {
   const sources = new Map<string, number>();
@@ -14,7 +14,7 @@ export default function SharedSourcesPanel({ batch }: { batch?: TrackingBatch })
     <table className="w-full text-left text-xs"><thead className="bg-[#F0EFEC]"><tr><th className="p-3">源工作表</th><th className="p-3">明细行数</th></tr></thead><tbody>
       {[...sources].map(([name, count]) => <tr className="border-b border-[#141414]/20" key={name}><td className="p-3">{name}</td><td className="p-3">{count}</td></tr>)}
     </tbody></table>
-    {!!batch?.sourceUploadRecords?.length && <div className="text-xs space-y-2">{batch.sourceUploadRecords.map(record => <div key={record.id}>{record.fileName} · {record.rowCount} 行 · {record.uploadedAt} {record.sourceFileId && <a className="ml-2 text-[#777] underline" href={sourceFileUrl(record.sourceFileId)}>下载</a>}</div>)}</div>}
+    {!!batch?.sourceUploadRecords?.length && <div className="text-xs space-y-2">{batch.sourceUploadRecords.map(record => <div key={record.id}>{record.fileName} · {record.rowCount} 行 · {record.uploadedAt} {record.sourceFileId && <SourceFileDownloadLink sourceFileId={record.sourceFileId} fileName={record.fileName} className="ml-2 align-middle" />}</div>)}</div>}
     <p className="text-xs text-[#555]">显示已共享快照的来源；上传操作仅对具备编辑权限的成员开放。</p>
   </section>;
 }

@@ -14,7 +14,7 @@ import {
 import { SnapshotTable } from './MainTable';
 import GradeSnapshotHistory from './GradeSnapshotHistory';
 import {calculateBrandCompetitionInvestmentMetrics} from '../utils/investment';
-import { sourceFileUrl } from '../api';
+import SourceFileDownloadLink from './SourceFileDownloadLink';
 
 interface Props {
   historyBatches: TrackingBatch[];
@@ -194,7 +194,7 @@ export default function HistoryPanel({
                     <span>换新渠道投入费率 <strong>{investmentMetrics.androidJdTradeInRate==null?'-':formatPercent(investmentMetrics.androidJdTradeInRate)}</strong></span>
                   </>}
                   {inspectedBatch.subsidyFileName && <span className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</span>}
-                  {inspectedBatch.sourceUploadRecords?.filter(record => record.sourceFileId && (record.type === 'base' || record.type === 'subsidy')).map(record => <span key={record.id} className="break-all">{record.fileName} <a className="ml-1 text-[#777] underline" href={sourceFileUrl(record.sourceFileId!)}>下载</a></span>)}
+                  {inspectedBatch.sourceUploadRecords?.filter(record => record.sourceFileId && (record.type === 'base' || record.type === 'subsidy')).map(record => <span key={record.id} className="inline-flex items-center gap-1 break-all">{record.fileName} <SourceFileDownloadLink sourceFileId={record.sourceFileId!} fileName={record.fileName} /></span>)}
                 </div>
               </details>
             )}

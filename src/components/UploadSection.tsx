@@ -5,8 +5,10 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { ArrowBigDownDash } from 'lucide-react';
 import { ChannelId, DailyPriceRow, Product, SelfOperatedSubsidyRule, SourceUploadRecord, SubsidyRule, TrackingBatch } from '../types';
-import { saveSourceFile, sourceFileUrl } from '../api';
+import { saveSourceFile } from '../api';
+import SourceFileDownloadLink from './SourceFileDownloadLink';
 import { getDailyPriceLookupPpvs } from '../utils/dailyPriceLookup';
 import { gradeSourceUrl, listGradeSources, uploadGradeSource } from '../gradeApi';
 import { GradeSource } from '../gradeTypes';
@@ -55,6 +57,7 @@ interface Props {
   subsidyRules: SubsidyRule[];
   selfSubsidyRules: SelfOperatedSubsidyRule[];
   uploadRecords: SourceUploadRecord[];
+  restoredSnapshotFiles: { batchId: string; uploadRecords: SourceUploadRecord[] } | null;
   onBaseProductsLoaded: (products: Product[], fileName: string, sourceFileId?: string) => void;
   onDailyPricesLoaded: (rows: DailyPriceRow[], fileName: string) => Promise<void>;
   onSubsidyRulesLoaded: (rows: SubsidyRule[], fileName: string, sourceFileId?: string) => void;
@@ -607,6 +610,7 @@ export default function UploadSection({
   subsidyRules,
   selfSubsidyRules,
   uploadRecords,
+  restoredSnapshotFiles,
   onBaseProductsLoaded,
   onDailyPricesLoaded,
   onSubsidyRulesLoaded,
@@ -618,18 +622,9 @@ export default function UploadSection({
   const [dailyApiStatus, setDailyApiStatus] = useState('');
   const [ppvAggregationStatus, setPpvAggregationStatus] = useState('');
   const [savedPpvSource, setSavedPpvSource] = useState<GradeSource | null>(null);
-  const [archivedFiles, setArchivedFiles] = useState<Array<{ id: string; kind: string; file_name: string; size_bytes: number }>>([]);
-  useEffect(() => {
-    let live = true;
-    void fetch(`/api/source-files?channelId=${encodeURIComponent(channelId)}`)
-      .then(async response => {
-        if (!response.ok) throw new Error('原文件列表读取失败');
-        return response.json();
-      })
-      .then(result => { if (live) setArchivedFiles(result.files || []); })
-      .catch(() => { if (live) setArchivedFiles([]); });
-    return () => { live = false; };
-  }, [channelId, uploadRecords]);
+  const snapshotFiles = (['base', 'subsidy'] as const)
+    .map(type => restoredSnapshotFiles?.uploadRecords.find(record => record.type === type))
+    .filter((record): record is SourceUploadRecord => Boolean(record?.sourceFileId));
   useEffect(() => {
     let live = true;
     if (channelId === 'tradeIn') void listGradeSources().then(result => {
@@ -1006,20 +1001,30 @@ export default function UploadSection({
         </div>
       )}
 
-      {archivedFiles.length > 0 && <div className="p-4 border-t border-[#141414] text-xs">
+      {restoredSnapshotFiles && <div className="p-4 border-t border-[#141414] text-xs">
         <h3 className="text-sm font-bold mb-2">已归档原文件</h3>
-        <p className="mb-2 text-[#666]">这里可下载独立归档文件。文件是否属于某条历史快照，以该快照的来源记录为准。</p>
-        <div className="space-y-1">{archivedFiles.map(file => <div key={file.id} className="flex items-center gap-2 border-b border-[#ddd] py-1">
-          <span className="min-w-14 text-[#666]">{file.kind === 'base' ? '竞争表' : '补贴表'}</span>
-          <span className="min-w-0 flex-1 truncate" title={file.file_name}>{file.file_name}</span>
-          <a className="rounded border border-[#999] px-1.5 py-0.5 text-[#666] hover:bg-[#eee]" href={sourceFileUrl(file.id)} download>下载</a>
+        <p className="mb-2 text-[#666]">本次回填快照 {restoredSnapshotFiles.batchId} 最后使用的原文件。</p>
+        <div className="space-y-1">{snapshotFiles.map(file => <div key={file.id} className="flex items-center gap-2 border-b border-[#ddd] py-1">
+          <span className="min-w-14 text-[#666]">{file.type === 'base' ? '竞争表' : '补贴表'}</span>
+          <span className="min-w-0 flex-1 truncate" title={file.fileName}>{file.fileName}</span>
+          <SourceFileDownloadLink sourceFileId={file.sourceFileId!} fileName={file.fileName} />
         </div>)}</div>
+        {snapshotFiles.length === 0 && <p className="text-[#777]">这条快照没有保存可下载的竞争表或补贴表原文件。</p>}
       </div>}
 
       <div className="p-4 border-t border-[#141414]">
         <h3 className="text-sm font-bold mb-3">上传记录</h3>
         <div className="overflow-x-auto border border-[#141414] bg-white">
-          <table className="w-full min-w-[880px] text-xs">
+          <table className="w-full min-w-[1120px] table-fixed text-xs">
+            <colgroup>
+              <col className="w-[110px]" />
+              <col className="w-[280px]" />
+              <col className="w-[165px]" />
+              <col className="w-[75px]" />
+              <col className="w-[90px]" />
+              <col />
+              <col className="w-24" />
+            </colgroup>
             <thead className="bg-[#E4E3E0] border-b border-[#141414]">
               <tr>
                 <th className="p-2 text-left border-r border-[#141414]">数据源</th>
@@ -1027,7 +1032,8 @@ export default function UploadSection({
                 <th className="p-2 text-left border-r border-[#141414]">上传时间</th>
                 <th className="p-2 text-right border-r border-[#141414]">行数</th>
                 <th className="p-2 text-right border-r border-[#141414]">匹配行数</th>
-                <th className="p-2 text-left">匹配说明</th>
+                <th className="p-2 text-left border-r border-[#141414]">匹配说明</th>
+                <th className="p-2 text-center">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1035,17 +1041,19 @@ export default function UploadSection({
                 <tr key={record.id} className="border-b border-[#141414]/20">
                   <td className="p-2 border-r border-[#141414]/20 font-bold">{recordTypeLabel(record.type)}</td>
                   <td className="p-2 border-r border-[#141414]/20">
-                    <span>{record.fileName}</span>
-                    {record.sourceFileId ? (
-                      <a className="ml-2 inline-flex rounded border border-[#999] px-1.5 py-0.5 text-[#666] hover:bg-[#eee]" href={sourceFileUrl(record.sourceFileId)} download aria-label={`下载 ${record.fileName}`}>下载</a>
-                    ) : (record.type === 'base' || record.type === 'subsidy') && (
-                      <span className="ml-2 inline-flex cursor-not-allowed rounded border border-[#ccc] px-1.5 py-0.5 text-[#aaa]" title="旧快照未保存原文件，无法下载">下载</span>
-                    )}
+                    <span className="block truncate" title={record.fileName}>{record.fileName}</span>
                   </td>
                   <td className="p-2 border-r border-[#141414]/20 font-mono">{record.uploadedAt}</td>
                   <td className="p-2 text-right border-r border-[#141414]/20 font-mono">{record.rowCount}</td>
                   <td className="p-2 text-right border-r border-[#141414]/20 font-mono">{record.matchedCount ?? ''}</td>
-                  <td className="p-2">{record.remarks || ''}</td>
+                  <td className="p-2 border-r border-[#141414]/20">{record.remarks || ''}</td>
+                  <td className="p-2 text-center align-middle">
+                    {record.sourceFileId ? (
+                      <SourceFileDownloadLink sourceFileId={record.sourceFileId} fileName={record.fileName} showLabel />
+                    ) : (
+                      <button type="button" disabled className="inline-flex h-7 cursor-not-allowed items-center justify-center gap-1 px-2 text-[#bbb]" title={record.type === 'base' || record.type === 'subsidy' ? '旧快照未保存原文件，无法下载' : '这条记录没有可下载的原文件'} aria-label={`${record.fileName} 无原文件可下载`}><ArrowBigDownDash className="h-4 w-4" aria-hidden="true" />下载</button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

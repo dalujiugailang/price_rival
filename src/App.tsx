@@ -172,6 +172,11 @@ export default function App() {
   const firstPage = (channel: ChannelId) => ACCESS_PAGES.find(page => canAccess(user, channel, page.id))?.id as ViewTab || 'workspace';
   const [activeChannelId, setActiveChannelId] = useState<ChannelId>(channelOrder[0] || DEFAULT_CHANNEL_ID);
   const [activeTab, setActiveTab] = useState<ViewTab>(() => firstPage(channelOrder[0] || DEFAULT_CHANNEL_ID));
+  const [restoredSnapshotFiles, setRestoredSnapshotFiles] = useState<{
+    channelId: ChannelId;
+    batchId: string;
+    uploadRecords: SourceUploadRecord[];
+  } | null>(null);
   const [selectedHistoryBatchIds, setSelectedHistoryBatchIds] = useState<Partial<Record<ChannelId, string>>>({});
   const [draftStorage] = useState(() => createWorkspaceDraftStorage<ChannelWorkspaceState>({
     getItem: key => localStorage.getItem(key),
@@ -726,6 +731,7 @@ export default function App() {
   };
 
   const handleBaseProductsLoaded = (products: Product[], fileName: string, sourceFileId?: string) => {
+    setRestoredSnapshotFiles(null);
     const nextProducts = products.map(product => hydrateThirtyDayVolumes(product, activeChannelId));
     updateActiveState(state => ({
       ...state,
@@ -778,6 +784,7 @@ export default function App() {
   };
 
   const handleSubsidyRulesLoaded = (rules: SubsidyRule[], fileName: string, sourceFileId?: string) => {
+    setRestoredSnapshotFiles(null);
     const matchedCount = countSubsidyMatches(rules);
     updateActiveState(state => ({
       ...state,
@@ -1037,6 +1044,7 @@ export default function App() {
       activeSubsidyFileName: restored.activeSubsidyFileName!,
       lastApiSyncTime: restored.dailyPriceSource?.dataDate ? `沿用 ${restored.dailyPriceSource.dataDate} 快照 API 值` : `沿用 ${batch.date} 快照值`
     }));
+    setRestoredSnapshotFiles({ channelId: activeChannelId, batchId: batch.id, uploadRecords: batch.sourceUploadRecords || [] });
     setActiveTab('workspace');
     if (restored.warnings.length) alert(`已回填，但请注意：\n${restored.warnings.join('\n')}`);
   };
@@ -1142,6 +1150,7 @@ export default function App() {
                     onClick={() => {
                       setActiveChannelId(channelId);
                       if (!selected) {
+                        setRestoredSnapshotFiles(null);
                         setTourOpen(false);
                         setTourStepIndex(0);
                         setActiveTab(firstPage(channelId));
@@ -1387,6 +1396,7 @@ export default function App() {
                   subsidyRules={activeState.subsidyRules}
                   selfSubsidyRules={activeState.selfSubsidyRules}
                   uploadRecords={activeState.sourceUploadRecords}
+                  restoredSnapshotFiles={restoredSnapshotFiles?.channelId === activeChannelId ? restoredSnapshotFiles : null}
                   onBaseProductsLoaded={handleBaseProductsLoaded}
                   onDailyPricesLoaded={handleDailyPricesLoaded}
                   onSubsidyRulesLoaded={handleSubsidyRulesLoaded}
