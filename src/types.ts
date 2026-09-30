@@ -252,6 +252,7 @@ export interface TrackingBatch {
   subsidyFileName?: string;
   subsidyUploadTime?: string;
   sourceUploadRecords?: SourceUploadRecord[];
+  snapshotSourceFiles?: SourceUploadRecord[];
   isCompetitivenessConfirmed?: boolean;
   competitivenessDate?: string;
   pricingTimestamp?: string;

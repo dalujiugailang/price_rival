@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as XLSX from 'xlsx';
-import { CalculatedProduct, TrackingBatch } from '../types';
+import { CalculatedProduct, SourceUploadRecord, TrackingBatch } from '../types';
 import { SnapshotTable } from '../components/MainTable';
 import HistoryPanel from '../components/HistoryPanel';
+import { getSnapshotSourceFiles, selectSnapshotSourceFiles } from './snapshotSourceFiles';
 import {
   compareSnapshotProducts, createSnapshotWorkbook, selectSnapshot, snapshotRemark,
   snapshotTimeLabel, sortSnapshots
@@ -83,4 +84,26 @@ assert.match(emptyHtml, /暂无快照/);
 const summaryHtml = renderToStaticMarkup(<HistoryPanel historyBatches={[summary]} onSelectBatch={() => {}} />);
 assert.match(summaryHtml, /本期仅保存了竞争力汇总/);
 assert.doesNotMatch(summaryHtml, /导出快照/);
+const sourceRecord = (id: string, type: SourceUploadRecord['type'], uploadedAt: string, sourceFileId?: string): SourceUploadRecord => ({
+  id, type, uploadedAt, sourceFileId, fileName: `${id}.xlsx`, rowCount: 1
+});
+const sourceHistory = [
+  sourceRecord('old-base', 'base', '2026-09-28 10:00:00', 'file-old-base'),
+  sourceRecord('latest-subsidy', 'subsidy', '2026-09-30 10:00:00', 'file-latest-subsidy'),
+  sourceRecord('old-subsidy', 'subsidy', '2026-09-29 10:00:00', 'file-old-subsidy'),
+  sourceRecord('latest-base', 'base', '2026-09-30 11:00:00', 'file-latest-base'),
+  sourceRecord('daily-price', 'dailyPrice', '2026-09-30 12:00:00')
+];
+assert.deepEqual(selectSnapshotSourceFiles(sourceHistory).map(record => record.id), ['latest-base', 'latest-subsidy']);
+const sourcedBatch = batch({ sourceUploadRecords: sourceHistory, subsidyFileName: 'latest-subsidy.xlsx' });
+const sourceHtml = renderToStaticMarkup(<HistoryPanel historyBatches={[sourcedBatch]} onSelectBatch={() => {}} />);
+assert.match(sourceHtml, /下载 latest-base.xlsx/);
+assert.match(sourceHtml, /下载 latest-subsidy.xlsx/);
+assert.doesNotMatch(sourceHtml, /old-base.xlsx|old-subsidy.xlsx|daily-price.xlsx/);
+assert.equal((sourceHtml.match(/\/api\/source-files\//g) || []).length, 2, 'history shows at most two downloads');
+assert.equal(sourcedBatch.sourceUploadRecords?.length, 5, 'the full upload history stays available');
+const boundBatch = batch({ sourceUploadRecords: sourceHistory, snapshotSourceFiles: [sourceHistory[0], sourceHistory[2]] });
+assert.deepEqual(getSnapshotSourceFiles(boundBatch).map(record => record.id), ['old-base', 'old-subsidy'], 'explicit snapshot binding wins over later upload history');
+const missingLatest = batch({ sourceUploadRecords: [sourceRecord('missing-base', 'base', '2026-10-01 10:00:00'), ...sourceHistory] });
+assert.equal(getSnapshotSourceFiles(missingLatest)[0].sourceFileId, undefined, 'missing latest original must not fall back to an older file');
 console.log('Snapshot history: selection, historical values, row identity, export and sparse rendering passed.');

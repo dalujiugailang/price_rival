@@ -15,6 +15,7 @@ import { SnapshotTable } from './MainTable';
 import GradeSnapshotHistory from './GradeSnapshotHistory';
 import {calculateBrandCompetitionInvestmentMetrics} from '../utils/investment';
 import SourceFileDownloadLink from './SourceFileDownloadLink';
+import { getSnapshotSourceFiles } from '../utils/snapshotSourceFiles';
 
 interface Props {
   historyBatches: TrackingBatch[];
@@ -38,6 +39,7 @@ export default function HistoryPanel({
 }: Props) {
   const batches = useMemo(() => sortSnapshots(historyBatches), [historyBatches]);
   const inspectedBatch = selectSnapshot(batches, selectedBatchId);
+  const snapshotSources = inspectedBatch ? getSnapshotSourceFiles(inspectedBatch) : [];
   const inspectedId = inspectedBatch?.id;
   const investmentMetrics=inspectedBatch?.totalInvestmentRateMetrics || inspectedBatch?.investmentRateMetrics;
   const brandInvestments=useMemo(()=>inspectedBatch?calculateBrandCompetitionInvestmentMetrics(inspectedBatch.products,inspectedBatch.investmentBrandSalesAmounts30d||[],inspectedBatch.gradeInvestment):[],[inspectedBatch]);
@@ -182,7 +184,7 @@ export default function HistoryPanel({
                 )}
               </div>
             </div>
-            {(inspectedBatch.investmentRateMetrics || inspectedBatch.subsidyFileName) && (
+            {(inspectedBatch.investmentRateMetrics || inspectedBatch.subsidyFileName || snapshotSources.length > 0) && (
               <details className="mt-3 border-t border-[#141414]/15 pt-2 text-xs">
                 <summary data-tour="history-sources" className="w-fit cursor-pointer text-[#555]">保存时投入测算与来源</summary>
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
@@ -193,8 +195,8 @@ export default function HistoryPanel({
                     <span>安卓大盘投入费率 <strong>{investmentMetrics.androidOverallRate==null?'-':formatPercent(investmentMetrics.androidOverallRate)}</strong></span>
                     <span>换新渠道投入费率 <strong>{investmentMetrics.androidJdTradeInRate==null?'-':formatPercent(investmentMetrics.androidJdTradeInRate)}</strong></span>
                   </>}
-                  {inspectedBatch.subsidyFileName && <span className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</span>}
-                  {inspectedBatch.sourceUploadRecords?.filter(record => record.sourceFileId && (record.type === 'base' || record.type === 'subsidy')).map(record => <span key={record.id} className="inline-flex items-center gap-1 break-all">{record.fileName} <SourceFileDownloadLink sourceFileId={record.sourceFileId!} fileName={record.fileName} /></span>)}
+                  {snapshotSources.length === 0 && inspectedBatch.subsidyFileName && <span className="break-all">补贴文件：{inspectedBatch.subsidyFileName}</span>}
+                  {snapshotSources.map(record => <span key={record.id} className="inline-flex items-center gap-1 break-all">{record.type === 'base' ? '竞争表：' : '补贴表：'}{record.fileName} {record.sourceFileId ? <SourceFileDownloadLink sourceFileId={record.sourceFileId} fileName={record.fileName} /> : <span className="text-[#999]">原文件未归档</span>}</span>)}
                 </div>
               </details>
             )}

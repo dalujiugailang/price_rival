@@ -28,6 +28,7 @@ import { applyHandPriceAdjustment, handPriceRowKey, updateHandPriceAdjustments, 
 import { createWorkspaceDraftStorage } from './utils/workspaceDraftStorage';
 import { createSnapshotSync } from './utils/snapshotSync';
 import { buildSnapshotRestore, snapshotPricingProducts } from './utils/snapshotPricingDraft';
+import { getSnapshotSourceFiles, selectSnapshotSourceFiles } from './utils/snapshotSourceFiles';
 import { 
   TrendingDown, 
   Layers, 
@@ -849,6 +850,7 @@ export default function App() {
       pricingMode: activeState.pricingMode,
       products: JSON.parse(JSON.stringify(activeCalculatedItems)),
       sourceUploadRecords: activeState.sourceUploadRecords,
+      snapshotSourceFiles: selectSnapshotSourceFiles(activeState.sourceUploadRecords),
       remarks: `${remarks || ''}${remarks ? '；' : ''}${activeState.pricingMode === 'fullCompetition' ? '100%竞争力模式' : `边际底线${formatPercent(activeState.marginBottomLine)}`}；${activeChannel.name}；测算行 ${activeCalculatedItems.length} 条`,
       subsidyFileName: activeState.activeSubsidyFileName,
       subsidyUploadTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
@@ -1044,7 +1046,7 @@ export default function App() {
       activeSubsidyFileName: restored.activeSubsidyFileName!,
       lastApiSyncTime: restored.dailyPriceSource?.dataDate ? `沿用 ${restored.dailyPriceSource.dataDate} 快照 API 值` : `沿用 ${batch.date} 快照值`
     }));
-    setRestoredSnapshotFiles({ channelId: activeChannelId, batchId: batch.id, uploadRecords: batch.sourceUploadRecords || [] });
+    setRestoredSnapshotFiles({ channelId: activeChannelId, batchId: batch.id, uploadRecords: getSnapshotSourceFiles(batch) });
     setActiveTab('workspace');
     if (restored.warnings.length) alert(`已回填，但请注意：\n${restored.warnings.join('\n')}`);
   };
