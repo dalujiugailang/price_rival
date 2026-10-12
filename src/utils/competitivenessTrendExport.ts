@@ -43,7 +43,8 @@ export const buildCompetitivenessTrendExportPayload = ({
   currentCalculatedItems,
   brandOptions,
   trendRange,
-  channelId
+  channelId,
+  scopeLabel = ''
 }: {
   overallTimeline: TimelinePoint[];
   historyBatches: TrackingBatch[];
@@ -51,10 +52,11 @@ export const buildCompetitivenessTrendExportPayload = ({
   brandOptions: string[];
   trendRange: TrendRange;
   channelId: ChannelId;
+  scopeLabel?: string;
 }): CompetitivenessTrendExportPayload => {
   const sheets: CompetitivenessTrendExportSheet[] = [{
     sheetName: '总盘走势',
-    chartTitle: '总盘竞争力波动走势',
+    chartTitle: `${scopeLabel ? scopeLabel + ' · ' : ''}总盘竞争力波动走势`,
     points: mapPoints(getTrendRangeData(overallTimeline, trendRange))
   }];
 
@@ -68,7 +70,7 @@ export const buildCompetitivenessTrendExportPayload = ({
     if (points.length === 0) return;
     sheets.push({
       sheetName: brand,
-      chartTitle: `${brand} 竞争力波动走势`,
+      chartTitle: `${scopeLabel ? scopeLabel + ' · ' : ''}${brand} 竞争力波动走势`,
       points: mapPoints(points)
     });
   });

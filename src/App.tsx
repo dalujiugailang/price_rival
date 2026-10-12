@@ -1,3 +1,4 @@
+import { batchScopeKey } from './utils/batchScope';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -114,6 +115,7 @@ const DEFAULT_INVESTMENT_RATE_INPUTS: InvestmentRateInputs = {
 };
 
 type SaveBatchOptions = {
+  batchType: 'regular' | 'launch';
   confirmCompetitiveness: boolean;
   competitivenessDate: string;
   pricingTimestamp: string;
@@ -841,6 +843,7 @@ export default function App() {
 
     const newBatch: TrackingBatch = {
       id: newBatchId,
+      batchType: options?.batchType || 'regular',
       channelId: activeChannelId,
       channelName: activeChannel.name,
       date: todayStr,
@@ -888,7 +891,7 @@ export default function App() {
         historyBatches: [
           result.batch,
           ...state.historyBatches.map(batch => (
-            confirmCompetitiveness && batch.isCompetitivenessConfirmed && (batch.competitivenessDate || batch.date) === competitivenessDate
+            confirmCompetitiveness && batchScopeKey(batch) === batchScopeKey(newBatch) && batch.isCompetitivenessConfirmed && (batch.competitivenessDate || batch.date) === competitivenessDate
               ? { ...batch, isCompetitivenessConfirmed: false }
               : batch
           ))
@@ -915,13 +918,13 @@ export default function App() {
       channelId: activeChannelId,
       channelName: activeChannel.name
     }));
-    const confirmedDates = new Set(normalizedBatches.map(batch => batch.competitivenessDate || batch.date));
+    const confirmedDates = new Set(normalizedBatches.filter(batch => batch.isCompetitivenessConfirmed).map(batch => `${batch.competitivenessDate || batch.date}:${batchScopeKey(batch)}`));
     updateActiveState(state => ({
       ...state,
       historyBatches: [
         ...normalizedBatches,
         ...state.historyBatches.map(batch => (
-          batch.isCompetitivenessConfirmed && confirmedDates.has(batch.competitivenessDate || batch.date)
+          batch.isCompetitivenessConfirmed && confirmedDates.has(`${batch.competitivenessDate || batch.date}:${batchScopeKey(batch)}`)
             ? { ...batch, isCompetitivenessConfirmed: false }
             : batch
         ))

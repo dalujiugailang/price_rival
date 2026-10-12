@@ -1,17 +1,18 @@
+import { batchTypeLabel, filterBatchScope } from '../utils/batchScope';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { 
-  ResponsiveContainer, 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   Legend,
   ReferenceLine,
   ReferenceDot
@@ -84,14 +85,21 @@ const isTrendMetricKey = (dataKey: LegendPayload['dataKey']): dataKey is TrendMe
   typeof dataKey === 'string' && TREND_METRIC_KEYS.has(dataKey as TrendMetricKey)
 );
 
-export default function CompetitivenessSummary({ 
-  historyBatches, 
-  currentCalculatedItems,
+export default function CompetitivenessSummary({
+  historyBatches: allHistoryBatches,
+  currentCalculatedItems: allCurrentCalculatedItems,
   activeSubsidyFileName,
   channelId = 'tradeIn',
   channelName = '京东换新',
   revealIssueDetails = false
 }: Props) {
+  const [batchTypeFilter, setBatchTypeFilter] = useState(() => allHistoryBatches.some(batch => batch.batchType === 'regular') ? 'regular' : 'unclassified');
+  const [launchFilter, setLaunchFilter] = useState('');
+  const launchActivities = [...new Set(allHistoryBatches.filter(batch => (batch.channelId || 'tradeIn') === channelId && batch.batchType === 'launch').map(batch => (batch.launchActivity || '').trim()))].sort();
+  const effectiveLaunch = launchActivities.includes(launchFilter) ? launchFilter : launchActivities[0] || '';
+  const historyBatches = useMemo(() => filterBatchScope(allHistoryBatches, batchTypeFilter, effectiveLaunch), [allHistoryBatches, batchTypeFilter, effectiveLaunch]);
+  // The live workspace has no saved batch classification, so it follows the unclassified scope automatically.
+  const currentCalculatedItems = batchTypeFilter === 'unclassified' ? allCurrentCalculatedItems : [];
   const isSelfOperated = channelId === 'selfOperated';
   const quoteWeightFieldLabel = isSelfOperated ? 'ppv近30天报价访客数' : 'ppv近30天报价量';
   const quoteWeightShortLabel = isSelfOperated ? '报价访客数加权' : '报价量加权';
@@ -142,13 +150,13 @@ export default function CompetitivenessSummary({
       })
       .map(batch => {
       const computed = batch.competitivenessMetrics || calculateCompetitivenessMetrics(batch.products, channelId);
-      
+
       // format date nicely for chart labels
       const sourceDate = batch.competitivenessDate || batch.date;
       const dateLabel = sourceDate.slice(5) || sourceDate; // e.g. 05-25
       return {
         date: dateLabel,
-        batchName: `${batch.id.slice(-8)} ${batch.remarks ? `(${batch.remarks.slice(0, 8)}...)` : ''}`,
+        batchName: `${batchTypeLabel(batch)} · ${batch.id.slice(-8)} ${batch.remarks ? `(${batch.remarks.slice(0, 8)}...)` : ''}`,
         ...computed
       };
     });
@@ -195,7 +203,7 @@ export default function CompetitivenessSummary({
   ), [view.timeline, trendRange, selectedBatchDetails?.batchId]);
   const displayedTimelineData = displayedRange.points;
   const selectedPoint = displayedTimelineData.find(point => point.batchId === selectedBatchDetails?.batchId);
-  const scopeLabel = [view.brand === ALL_BRANDS ? '全部品牌' : view.brand,
+  const scopeLabel = [batchTypeFilter === 'launch' ? `发新期 · ${effectiveLaunch}` : batchTypeFilter === 'regular' ? '常规期' : '未分类', view.brand === ALL_BRANDS ? '全部品牌' : view.brand,
     isSelfOperated ? '' : view.newSeries === ALL_SERIES ? '全部新机系列' : view.newSeries].filter(Boolean).join(' / ');
   const sourceLabel = selectedBatchDetails
     ? `${selectedBatchDetails.name} · ${selectedBatchDetails.date} · ${selectedBatchDetails.isDraft ? '实时草稿' : selectedBatchDetails.isConfirmed ? '正式落数' : '未确认快照'}`
@@ -213,7 +221,8 @@ export default function CompetitivenessSummary({
         currentCalculatedItems,
         brandOptions: listCompetitivenessBrands(historyBatches, currentCalculatedItems),
         trendRange: displayedRange.range,
-        channelId
+        channelId,
+        scopeLabel: batchTypeFilter === 'launch' ? `发新期 · ${effectiveLaunch}` : batchTypeFilter === 'regular' ? '常规期' : '未分类'
       });
       const { blob, fileName } = await exportCompetitivenessTrends(payload);
       const objectUrl = URL.createObjectURL(blob);
@@ -404,34 +413,36 @@ export default function CompetitivenessSummary({
               横坐标为每次批次更新节点，纵坐标为“{quoteWeightFormulaLabel}”。
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex max-w-full items-center gap-2 text-xs font-bold text-stone-700">
+          <div className="flex flex-nowrap items-center gap-2 overflow-hidden">
+            <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold">批次类型 <select aria-label="走势批次类型" value={batchTypeFilter} onChange={event => { setBatchTypeFilter(event.target.value); setSelectedBatchId(ALL_BATCHES); }} className="w-28 border border-[#141414] bg-white px-1.5 py-1.5"><option value="regular">常规期</option><option value="launch">发新期</option><option value="unclassified">未分类（历史）</option></select></label>
+            {batchTypeFilter === 'launch' && <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold">发新活动 <select aria-label="走势发新活动" value={effectiveLaunch} onChange={event => { setLaunchFilter(event.target.value); setSelectedBatchId(ALL_BATCHES); }} className="w-28 border border-[#141414] bg-white px-1.5 py-1.5">{launchActivities.map(activity => <option key={activity} value={activity}>{activity || '未填写活动'}</option>)}</select></label>}
+            <label className="flex min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-xs font-bold text-stone-700">
               <span className="shrink-0">数据范围</span>
               <select
                 data-tour="trend-batch" aria-label="竞争力数据范围"
                 value={view.sourceId}
                 onChange={event => setSelectedBatchId(event.target.value)}
-                className="min-w-0 w-80 max-w-full border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none"
+                className="min-w-0 flex-1 border border-[#141414] bg-white px-2 py-1.5 text-xs font-bold focus:outline-none"
               >
                 <option value={ALL_BATCHES}>{currentCalculatedItems.length ? '全量查看（历史＋实时）' : '全量历史'}</option>
                 {currentCalculatedItems.length > 0 && <option value={LIVE_DRAFT}>实时工作台</option>}
                 <optgroup label="历史 TRACK 批次">
                   {view.batches.map(batch => (
                     <option key={batch.id} value={batch.id}>
-                      {batch.competitivenessDate || batch.date} · {batch.remarks || '无备注'} · {batch.id} · {batch.isCompetitivenessConfirmed ? '正式落数' : '未确认快照'}{batch.isSummaryOnly ? '（仅汇总）' : ''}
+                      {batch.competitivenessDate || batch.date} · {batchTypeLabel(batch)} · {batch.remarks || '无备注'} · {batch.id} · {batch.isCompetitivenessConfirmed ? '正式落数' : '未确认快照'}{batch.isSummaryOnly ? '（仅汇总）' : ''}
                     </option>
                   ))}
                 </optgroup>
               </select>
             </label>
-            <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
+            <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold text-stone-700">
               品牌
               <select
                 data-tour="trend-brand" aria-label="品牌筛选"
                 value={view.brand}
                 disabled={view.sourceId !== ALL_BATCHES && !!selectedBatchDetails?.isSummaryOnly}
                 onChange={event => setSelectedBrand(event.target.value)}
-                className="min-w-36 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none disabled:bg-stone-100 disabled:text-stone-400"
+                className="w-24 border border-[#141414] bg-white px-1.5 py-1.5 text-xs font-bold focus:outline-none disabled:bg-stone-100 disabled:text-stone-400"
               >
                 <option value={ALL_BRANDS}>全部品牌</option>
                 {brandOptions.map(brand => (
@@ -440,14 +451,14 @@ export default function CompetitivenessSummary({
               </select>
             </label>
             {!isSelfOperated && (
-              <label className="flex items-center gap-2 text-xs font-bold text-stone-700">
+              <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold text-stone-700">
                 新机系列
                 <select
                   data-tour="trend-series" aria-label="新机系列筛选"
                   value={view.newSeries}
                   disabled={view.sourceId !== ALL_BATCHES && !!selectedBatchDetails?.isSummaryOnly}
                   onChange={event => setSelectedSeries(event.target.value)}
-                  className="min-w-40 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold focus:outline-none disabled:bg-stone-100 disabled:text-stone-400"
+                  className="w-28 border border-[#141414] bg-white px-1.5 py-1.5 text-xs font-bold focus:outline-none disabled:bg-stone-100 disabled:text-stone-400"
                 >
                   <option value={ALL_SERIES}>全部新机系列</option>
                   {seriesOptions.map(series => (
@@ -460,13 +471,13 @@ export default function CompetitivenessSummary({
               type="button"
               data-tour="trend-export" onClick={handleExport}
               disabled={isExporting || timelineData.length === 0}
-              className="inline-flex items-center gap-1.5 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold text-[#141414] hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold text-[#141414] hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
-              {isExporting ? '导出中...' : '导出全量走势Excel'}
+              {isExporting ? '导出中...' : '导出Excel'}
             </button>
-            {exportError && <span className="text-[11px] font-bold text-red-700">{exportError}</span>}
           </div>
+          {exportError && <p className="text-[11px] font-bold text-red-700">{exportError}</p>}
         </div>
 
         {selectedBatchDetails?.isSummaryOnly && (
@@ -493,17 +504,17 @@ export default function CompetitivenessSummary({
               margin={{ top: 10, right: 30, left: -10, bottom: 5 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e0deda" />
-              <XAxis 
+              <XAxis
                 dataKey="batchId"
                 tickFormatter={batchId => displayedTimelineData.find(point => point.batchId === batchId)?.date || batchId}
-                tick={{ fill: '#141414', fontSize: 11, fontWeight: 'bold' }} 
+                tick={{ fill: '#141414', fontSize: 11, fontWeight: 'bold' }}
               />
-              <YAxis 
-                domain={[0, 100]} 
+              <YAxis
+                domain={[0, 100]}
                 tickFormatter={(val) => `${val}%`}
                 tick={{ fill: '#141414', fontSize: 11 }}
               />
-              <Tooltip 
+              <Tooltip
                 content={({ active, payload }) => {
                   if (active && payload && payload.length) {
                     const data = payload[0].payload as CompetitivenessViewPoint;
@@ -526,9 +537,9 @@ export default function CompetitivenessSummary({
                   return null;
                 }}
               />
-              <Legend 
-                verticalAlign="bottom" 
-                height={36} 
+              <Legend
+                verticalAlign="bottom"
+                height={36}
                 iconType="rect"
                 itemSorter={() => 0}
                 onClick={handleTrendLegendClick}
@@ -577,13 +588,13 @@ export default function CompetitivenessSummary({
                 stroke="#134E4A"
                 strokeWidth={2}
               />
-              <Line 
-                type="monotone" 
-                dataKey="ahsVsZzDirectScore" 
+              <Line
+                type="monotone"
+                dataKey="ahsVsZzDirectScore"
                 name="物品价+ahs补贴 vs 转转到手价"
                 hide={hiddenTrendMetrics.has('ahsVsZzDirectScore')}
                 stroke="#059669"
-                strokeWidth={3} 
+                strokeWidth={3}
                 activeDot={{ r: 8 }}
               />
               {!isSelfOperated && <Line
@@ -778,7 +789,7 @@ export default function CompetitivenessSummary({
 	                          <td className="p-3 font-mono text-stone-500">{p.tmPrice > 0 ? formatRMB(p.tmPrice) : 'N/A'}</td>
 	                          <td className="p-3 font-mono text-stone-500">{p.tmPrice > 0 ? formatRMB(p.tmRecyclerSubsidy) : 'N/A'}</td>
 	                          <td className="p-3 font-mono text-stone-500">{p.tmRecyclerQuotedPrice > 0 ? formatRMB(p.tmRecyclerQuotedPrice) : 'N/A'}</td>
-                          
+
                           {/* Target 1 */}
                           <td className={`p-3 font-bold text-center ${isTmItemBetter ? 'bg-green-50 text-green-700' : 'bg-rose-50 text-rose-700'}`}>
                             {isTmItemBetter ? '✔ 胜出' : '❌ 报价低'}

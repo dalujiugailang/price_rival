@@ -48,6 +48,7 @@ interface Props {
     remarks: string,
     operator: string,
     options?: {
+      batchType: 'regular' | 'launch';
       confirmCompetitiveness: boolean;
       competitivenessDate: string;
       pricingTimestamp: string;
@@ -109,6 +110,7 @@ export default function MainTable({
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [batchRemarks, setBatchRemarks] = useState('');
   const [operatorName, setOperatorName] = useState('定价运营');
+  const [batchType, setBatchType] = useState<'regular' | 'launch'>('regular');
   const [confirmCompetitiveness, setConfirmCompetitiveness] = useState(true);
   const [competitivenessDate, setCompetitivenessDate] = useState(currentLocalDate);
   const [pricingTimestamp, setPricingTimestamp] = useState(currentLocalDateTime);
@@ -226,6 +228,7 @@ export default function MainTable({
     setSavingBatch(true);
     try {
       const result = await onSaveBatch(batchRemarks, operatorName, {
+        batchType,
         confirmCompetitiveness,
         competitivenessDate,
         pricingTimestamp: pricingTimestamp.replace('T', ' ')
@@ -1045,6 +1048,10 @@ export default function MainTable({
             </div>
               <div className="p-5 space-y-4">
                 <input type="text" value={operatorName} onChange={(e) => setOperatorName(e.target.value)} className="w-full bg-[#F0EFEC] border border-[#141414] p-2 text-xs font-bold" placeholder="操作人" />
+                <label className="block text-xs font-bold">批次类型
+                  <select aria-label="批次类型" value={batchType} onChange={e => setBatchType(e.target.value as 'regular' | 'launch')} className="mt-1 w-full border p-2"><option value="regular">常规期</option><option value="launch">发新期</option></select>
+                </label>
+                <p className="text-xs text-stone-500">本批次 {products.length} 行；同日仅替换相同类型的正式落数。</p>
                 <label className="flex items-center gap-2 border border-[#141414] bg-[#F9F9F8] p-2 text-xs font-bold">
                   <input
                     type="checkbox"

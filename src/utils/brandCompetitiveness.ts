@@ -1,3 +1,4 @@
+import { batchTypeLabel } from './batchScope';
 import { CalculatedProduct, ChannelId, CompetitivenessMetrics, TrackingBatch } from '../types';
 import { calculateCompetitivenessMetrics } from './competitiveness';
 
@@ -144,7 +145,7 @@ export const buildFilteredCompetitivenessTimeline = ({
       const sourceDate = batch.competitivenessDate || batch.date;
       return [{
         date: sourceDate.slice(5) || sourceDate,
-        batchName: `${batch.id.slice(-8)} ${batch.remarks ? `(${batch.remarks.slice(0, 8)}...)` : ''}`,
+        batchName: `${batchTypeLabel(batch)} · ${batch.id.slice(-8)} ${batch.remarks ? `(${batch.remarks.slice(0, 8)}...)` : ''}`,
         ...calculateCompetitivenessMetrics(products, channelId)
       }];
     });

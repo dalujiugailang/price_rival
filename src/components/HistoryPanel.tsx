@@ -1,3 +1,4 @@
+import { batchTypeLabel } from '../utils/batchScope';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -59,7 +60,7 @@ export default function HistoryPanel({
       : []
   ), [showComparison, canCompare, inspectedBatch, comparisonBatch]);
   const filteredBatches = batches.filter(batch => (
-    [batch.id, batch.date, snapshotTimeLabel(batch), batch.operator, batch.remarks, snapshotStatus(batch)]
+    [batch.id, batch.date, snapshotTimeLabel(batch), batch.operator, batch.remarks, batchTypeLabel(batch), snapshotStatus(batch)]
       .some(value => value?.toLowerCase().includes(search.trim().toLowerCase()))
   ));
 
@@ -126,7 +127,7 @@ export default function HistoryPanel({
               {filteredBatches.map(batch => (
                 <button key={batch.id} type="button" aria-pressed={batch.id === inspectedId} onClick={() => inspect(batch.id)} className={`flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-[#141414]/15 px-3 py-2.5 text-left text-xs hover:bg-[#F0EFEC] ${batch.id === inspectedId ? 'bg-[#E4E3E0]' : 'bg-white'}`}>
                   <span><strong>{listTimeLabel(batch)}</strong><span className="ml-3">{snapshotRemark(batch) || '未填写备注'}</span></span>
-                  <span className="text-[#555]">{batch.operator} · {snapshotStatus(batch)} · {batch.products.length} 行</span>
+                  <span className="text-[#555]">{batch.operator} · {batchTypeLabel(batch)} · {snapshotStatus(batch)} · {batch.products.length} 行</span>
                 </button>
               ))}
               {filteredBatches.length === 0 && <div className="p-6 text-center text-xs text-[#555]">没有找到匹配的快照。</div>}
@@ -140,7 +141,7 @@ export default function HistoryPanel({
             <div ref={stripRef} data-tour="history-tabs" role="tablist" aria-label={`${channelName}快照 Sheet`} className="relative flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto">
               {batches.map((batch, index) => {
                 const selected = batch.id === inspectedId;
-                const title = snapshotRemark(batch) || '未填写备注';
+                const title = batchTypeLabel(batch) + ' · ' + snapshotRemark(batch) || '未填写备注';
                 return (
                   <button
                     key={batch.id}
@@ -172,7 +173,7 @@ export default function HistoryPanel({
                 <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#555]" aria-live="polite">
                   {isImportedSnapshot(inspectedBatch) && <span>历史日期：{inspectedBatch.date}</span>}
                   <span>{isImportedSnapshot(inspectedBatch) ? '入库于' : '保存于'} {snapshotTimeLabel(inspectedBatch)}</span><span>操作人：{inspectedBatch.operator}</span>
-                  <span>{snapshotStatus(inspectedBatch)} · {inspectedBatch.products.length} 行</span>
+                  <span>批次类型：{batchTypeLabel(inspectedBatch)}</span><span>{snapshotStatus(inspectedBatch)} · {inspectedBatch.products.length} 行</span>
                   {inspectedBatch.isCompetitivenessConfirmed && <span>落数日期：{inspectedBatch.competitivenessDate || inspectedBatch.date}</span>}
                 </div>
                 <div className="break-all font-mono text-[11px] text-[#777]">{inspectedBatch.id}</div>

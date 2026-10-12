@@ -4,6 +4,9 @@ import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { createAccessStore } from './accessStore.mjs';
 
+const batchScope = batch => JSON.stringify([batch.batchType || 'unclassified', batch.batchType === 'launch' ? (batch.launchActivity || '').trim() : '']);
+const scopeSql = "COALESCE(json_extract(payload_json, '$.batchType'), 'unclassified'), CASE WHEN json_extract(payload_json, '$.batchType') = 'launch' THEN trim(COALESCE(json_extract(payload_json, '$.launchActivity'), '')) ELSE '' END";
+
 const nowText = () => new Date().toISOString();
 const jsonText = value => JSON.stringify(value ?? null);
 
@@ -56,8 +59,9 @@ export const createDatabase = databasePath => {
       UNIQUE(channel_id, kind, sha256)
     ) STRICT;
 
-    CREATE UNIQUE INDEX IF NOT EXISTS tracking_batches_one_confirmed_date
-      ON tracking_batches(channel_id, competitiveness_date)
+    DROP INDEX IF EXISTS tracking_batches_one_confirmed_date;
+    CREATE UNIQUE INDEX IF NOT EXISTS tracking_batches_one_confirmed_scope
+      ON tracking_batches(channel_id, competitiveness_date, ${scopeSql})
       WHERE is_confirmed = 1 AND deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS tracking_batches_channel_date
       ON tracking_batches(channel_id, batch_date DESC);
@@ -150,10 +154,12 @@ export const createDatabase = databasePath => {
   const getConfirmedStatement = db.prepare(`
     SELECT id, confirmed_at FROM tracking_batches
     WHERE channel_id = ? AND competitiveness_date = ? AND is_confirmed = 1 AND deleted_at IS NULL
+      AND json_array(${scopeSql}) = ?
   `);
   const downgradeConfirmedStatement = db.prepare(`
     UPDATE tracking_batches SET is_confirmed = 0, updated_at = ?
     WHERE channel_id = ? AND competitiveness_date = ? AND is_confirmed = 1 AND deleted_at IS NULL
+      AND json_array(${scopeSql}) = ?
   `);
   const insertBatchStatement = db.prepare(`
     INSERT INTO tracking_batches (
@@ -195,6 +201,8 @@ export const createDatabase = databasePath => {
   const validateBatch = batch => {
     if (!batch || typeof batch !== 'object') return '缺少批次数据';
     if (!batch.id || !batch.date || !batch.operator) return '批次编号、日期和操作人不能为空';
+    if (batch.batchType !== undefined && !['regular', 'launch'].includes(batch.batchType)) return '批次类型无效';
+    if (batch.batchType === 'launch' && batch.launchActivity !== undefined && (typeof batch.launchActivity !== 'string' || batch.launchActivity.trim().length > 100)) return '发新活动名称不能超过100个字符';
     if (!Array.isArray(batch.products)) return '批次明细格式错误';
     if (batch.isCompetitivenessConfirmed && !batch.competitivenessDate) return '正式落数必须包含落数日期';
     return '';
@@ -249,7 +257,7 @@ export const createDatabase = databasePath => {
 
       return withTransaction(() => {
         if (batch.isCompetitivenessConfirmed) {
-          downgradeConfirmedStatement.run(nowText(), batch.channelId || 'tradeIn', batch.competitivenessDate);
+          downgradeConfirmedStatement.run(nowText(), batch.channelId || 'tradeIn', batch.competitivenessDate, batchScope(batch));
         }
         insertBatch(batch, context.actor);
         writeAudit({
@@ -290,12 +298,12 @@ export const createDatabase = databasePath => {
           let importAsConfirmed = Boolean(batch.isCompetitivenessConfirmed);
           if (importAsConfirmed) {
             const channelId = batch.channelId || 'tradeIn';
-            const current = getConfirmedStatement.get(channelId, batch.competitivenessDate);
+            const current = getConfirmedStatement.get(channelId, batch.competitivenessDate, batchScope(batch));
             const incomingTime = batch.confirmedAt || batch.pricingTimestamp || batch.date;
             if (current && (current.confirmed_at || '') > incomingTime) {
               importAsConfirmed = false;
             } else {
-              downgradeConfirmedStatement.run(nowText(), channelId, batch.competitivenessDate);
+              downgradeConfirmedStatement.run(nowText(), channelId, batch.competitivenessDate, batchScope(batch));
             }
           }
           insertBatch(batch, context.actor, importAsConfirmed);

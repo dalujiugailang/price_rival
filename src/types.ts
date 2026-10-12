@@ -238,7 +238,11 @@ export interface CalculatedProduct extends Product {
   tmSubsidy: number;
 }
 
+export type BatchType = 'regular' | 'launch';
+
 export interface TrackingBatch {
+  batchType?: BatchType;
+  launchActivity?: string;
   id: string;
   channelId?: ChannelId;
   channelName?: string;
