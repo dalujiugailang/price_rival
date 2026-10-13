@@ -8,7 +8,7 @@ import HistoryPanel from '../components/HistoryPanel';
 import { getSnapshotSourceFiles, selectSnapshotSourceFiles } from './snapshotSourceFiles';
 import {
   compareSnapshotProducts, createSnapshotWorkbook, selectSnapshot, snapshotRemark,
-  snapshotTimeLabel, sortSnapshots
+  snapshotTimeLabel, snapshotPricingTimeLabel, sortSnapshots
 } from './snapshotHistory';
 
 // Sparse products reproduce older saved payloads which lack recently added fields.
@@ -37,6 +37,12 @@ assert.equal(selectSnapshot(sorted, 'deleted')?.id, newer.id);
 assert.equal(selectSnapshot([]), undefined);
 assert.equal(snapshotTimeLabel(newer), '2026-09-08 18:00');
 assert.equal(snapshotTimeLabel(batch(), true), '09/08 17:00');
+const edited = batch({ pricingTimestamp: '2026-09-07 16:18', serverCreatedAt: '2026-09-08T10:00:00Z' });
+assert.equal(snapshotPricingTimeLabel(edited, true), '09/07 16:18');
+assert.equal(snapshotPricingTimeLabel({ ...edited, serverCreatedAt: '2026-09-10T10:00:00Z' }, true), '09/07 16:18');
+assert.equal(snapshotPricingTimeLabel(batch(), true), '09/08 17:00');
+assert.equal(snapshotPricingTimeLabel(batch({ pricingTimestamp: 'invalid' }), true), '09/08 17:00');
+assert.equal(snapshotPricingTimeLabel(batch({ pricingTimestamp: '2026-09-07T08:18:00Z' }), true), '09/07 16:18');
 assert.equal(snapshotRemark(batch({ remarks: '华为+小米；边际底线3.00%；京东换新；测算行 1 条' })), '华为+小米');
 
 const rows = compareSnapshotProducts(

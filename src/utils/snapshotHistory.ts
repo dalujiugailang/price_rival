@@ -43,6 +43,21 @@ export const snapshotTimeLabel = (batch: TrackingBatch, short = false) => {
   return short ? label.slice(5).replaceAll('-', '/') : label;
 };
 
+// Business time stays independent of when the snapshot was saved.
+export const snapshotPricingTimeLabel = (batch: TrackingBatch, short = false) => {
+  const value = batch.pricingTimestamp?.trim();
+  if (!value) return snapshotTimeLabel(batch, short);
+  const normalized = value.replace(' ', 'T');
+  const timestamp = Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(normalized)
+    ? `${normalized}+08:00` : normalized);
+  if (!Number.isFinite(timestamp)) return snapshotTimeLabel(batch, short);
+  const label = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).format(timestamp);
+  return short ? label.slice(5).replaceAll('-', '/') : label;
+};
+
 export const snapshotRemark = (batch: TrackingBatch) => {
   const parts = (batch.remarks || '').split('；');
   if (parts.length >= 3

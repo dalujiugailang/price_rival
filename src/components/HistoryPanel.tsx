@@ -10,7 +10,7 @@ import { TrackingBatch } from '../types';
 import { formatPercent, formatRMB } from '../utils/formulas';
 import {
   compareSnapshotProducts, hasSnapshotDetails, isImportedSnapshot, selectSnapshot, snapshotRemark,
-  snapshotStatus, snapshotTimeLabel, sortSnapshots
+  snapshotStatus, snapshotTimeLabel, snapshotPricingTimeLabel, sortSnapshots
 } from '../utils/snapshotHistory';
 import { SnapshotTable } from './MainTable';
 import GradeSnapshotHistory from './GradeSnapshotHistory';
@@ -147,11 +147,11 @@ export default function HistoryPanel({
                     key={batch.id}
                     ref={element => { if (element) tabRefs.current.set(batch.id, element); else tabRefs.current.delete(batch.id); }}
                     type="button" role="tab" id={`snapshot-tab-${batch.id}`} aria-controls="snapshot-detail" aria-selected={selected} tabIndex={selected ? 0 : -1}
-                    title={`${snapshotTimeLabel(batch)} · ${title}\n${batch.id}`}
+                    title={`追价时间：${snapshotPricingTimeLabel(batch)} · ${title}\n${batch.id}`}
                     onClick={() => inspect(batch.id)} onKeyDown={event => moveTab(event, index)}
                     className={`flex w-[212px] shrink-0 flex-col gap-1 border border-b-0 border-[#141414] px-3 py-2.5 text-left ${selected ? 'bg-[#141414] text-white' : 'bg-white text-[#141414] hover:bg-[#E4E3E0]'}`}
                   >
-                    <span className="flex w-full items-center justify-between gap-3 text-xs"><strong className="font-mono">{snapshotTimeLabel(batch, true)}</strong><span className={selected ? 'text-white/80' : 'text-[#555]'}>{snapshotStatus(batch)}</span></span>
+                    <span className="flex w-full items-center justify-between gap-3 text-xs"><strong className="font-mono">{snapshotPricingTimeLabel(batch, true)}</strong><span className={selected ? 'text-white/80' : 'text-[#555]'}>{snapshotStatus(batch)}</span></span>
                     <span className={`w-full truncate text-[11px] ${selected ? 'text-white/80' : 'text-[#555]'}`}>{title}</span>
                   </button>
                 );
