@@ -1,10 +1,14 @@
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { canAccess } from '../shared/accessPolicy.mjs';
 import { riskSeed } from './tradeInRiskSeed.mjs';
-export function registerRiskRoutes(app, { databasePath, writeAudit = () => {} }) {
+export function registerRiskRoutes(app, { databasePath }) {
+ fs.mkdirSync(path.dirname(databasePath), { recursive: true });
  const db = new DatabaseSync(databasePath);
  db.exec(`CREATE TABLE IF NOT EXISTS tradein_risk_strategies(id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at TEXT NOT NULL);`);
+ db.exec('CREATE TABLE IF NOT EXISTS tradein_risk_audit(id INTEGER PRIMARY KEY, strategy_id TEXT NOT NULL, actor_id TEXT, created_at TEXT NOT NULL)');
  const insert=db.prepare('INSERT OR IGNORE INTO tradein_risk_strategies VALUES(?,?,?)');
  db.exec('BEGIN');
  try { for(const item of riskSeed) insert.run(item.id,JSON.stringify(item),new Date().toISOString()); db.exec('COMMIT'); } catch(e){db.exec('ROLLBACK');throw e;}
@@ -21,7 +25,7 @@ export function registerRiskRoutes(app, { databasePath, writeAudit = () => {} })
   const id=typeof s.id==='string'?s.id:crypto.randomUUID();
   const item={id,name:s.name.trim(),models:s.models,ratio:s.ratio,start:s.start,end:s.end,note:String(s.note||''),brand:String(s.brand||''),link:String(s.link||''),fields:s.fields&&typeof s.fields==='object'?s.fields:{},screenshot:s.screenshot||null,ocrText:String(s.ocrText||'')};
   db.prepare('INSERT INTO tradein_risk_strategies VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at').run(id,JSON.stringify(item),new Date().toISOString());
-  writeAudit({actor:req.authUser,action:'TRADEIN_RISK_SAVE',resourceType:'tradein_risk_strategy',resourceId:id,details:{}});
+  db.prepare('INSERT INTO tradein_risk_audit(strategy_id,actor_id,created_at) VALUES(?,?,?)').run(id,req.authUser.openId||null,new Date().toISOString());
   res.json({strategy:item});
  });
 }

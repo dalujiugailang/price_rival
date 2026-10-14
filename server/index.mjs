@@ -94,7 +94,7 @@ const requireSameOrigin = (req, res, next) => {
 
 app.use('/api', auth.requireAuth, requireSameOrigin);
 registerAccessRoutes(app, { db, auth });
-registerRiskRoutes(app, { databasePath: DATABASE_PATH, writeAudit: event => db.writeAudit(event) });
+registerRiskRoutes(app, { databasePath: path.resolve(process.env.TRADEIN_RISK_DATABASE_PATH || path.join(path.dirname(DATABASE_PATH), 'tradein-risk.sqlite')) });
 registerGradeRoutes(app, { store: gradeStore, getBatch: id => db.getBatch(id), writeAudit: details => db.writeAudit(details),
   lookupRevenue:()=>androidRevenue.getLatest(),
   lookupPrices: createGradePriceClient({ url: DAILY_PRICE_LOOKUP_URL, token: DAILY_PRICE_TOKEN }) });
