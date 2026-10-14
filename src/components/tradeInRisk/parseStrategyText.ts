@@ -14,7 +14,9 @@ export function parseStrategyText(text: string) {
     } else if (current) sections[current].push(line);
   }
   const single = (key: string) => {
-    const values = (sections[key] || []).filter(x => !/请选择|添加一行|^%$/.test(x));
+    const values = (sections[key] || []).filter(x => !/请选择|待核对|添加一行|^%$/.test(x));
+    if (key === '策略范围' && values.join(' ').includes('非全局') && values.join(' ').replaceAll('非全局','').includes('全局')) return undefined;
+    if (key === '适用范围' && values.join(' ').includes('品牌') && values.join(' ').includes('型号')) return undefined;
     return values.length === 1 ? values[0] : undefined;
   };
   const models: string[] = [], ids: string[] = [], brands: string[] = [];
@@ -41,14 +43,15 @@ export function parseStrategyText(text: string) {
   if ((sections['SKU属性'] || []).some(x => x !== '添加一行')) warnings.push('SKU属性需人工核对，未自动填入');
   const time = (keys: string[]) => {
     for (const key of keys) {
-      const v = single(key)?.match(/\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/)?.[0];
+      const match = single(key)?.match(/(\d{4}-\d{2}-\d{2})[ T]?(\d{2}:\d{2}:\d{2})/);
+      const v = match ? match[1]+' '+match[2] : undefined;
       if (v && Number.isFinite(Date.parse(v.replace(' ','T')+'+08:00'))) return v.replace('T',' ');
     }
     return undefined;
   };
   if (!models.length) warnings.push('未找到带编号的具体型号，请核对适用型号');
   if (ratio === undefined) warnings.push('未找到明确压价比例');
-  const validTimes = (sections['有效时间'] || []).filter(x => /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(x) && Number.isFinite(Date.parse(x.replace(' ','T')+'+08:00')));
+  const validTimes = (sections['有效时间'] || []).map(x => x.replace(/^(\d{4}-\d{2}-\d{2})(\d{2}:\d{2}:\d{2})$/, '$1 $2')).filter(x => /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(x) && Number.isFinite(Date.parse(x.replace(' ','T')+'+08:00')));
   if ((sections['有效时间'] || []).length && validTimes.length !== 2) warnings.push('有效时间未找到明确的两行日期，请人工核对');
   const name = single('策略名称');
   return {name, models, brand:brands.join('；'), ratio, note:single('备注'), start:time(['开始时间','生效开始时间']) || (validTimes.length === 2 ? validTimes[0].replace('T',' ') : undefined), end:time(['结束时间','生效结束时间']) || (validTimes.length === 2 ? validTimes[1].replace('T',' ') : undefined), fields, warnings};

@@ -17,7 +17,11 @@ services:
       ANDROID_REVENUE_SUPABASE_PUBLISHABLE_KEY: ${ANDROID_REVENUE_SUPABASE_PUBLISHABLE_KEY:-}
       ANDROID_REVENUE_METRICS_API_KEY: ${ANDROID_REVENUE_METRICS_API_KEY:-}
       APP_URL: ${APP_URL:-http://localhost:3000}
+      RISK_OCR_URL: http://risk-ocr:8080
       DATABASE_PATH: /app/data/price-rival.sqlite
+    networks:
+      - default
+      - ocr-internal
       FEISHU_APP_ID: ${FEISHU_APP_ID:-}
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
       FEISHU_REDIRECT_URI: ${FEISHU_REDIRECT_URI:-}
@@ -29,3 +33,28 @@ services:
       FEISHU_ALLOWED_TENANT_KEYS: ${FEISHU_ALLOWED_TENANT_KEYS:-}
     volumes:
       - ./data:/app/data
+
+  risk-ocr:
+    build:
+      context: ./ocr
+      network: host
+    image: price-rival-ocr:latest
+    container_name: price-rival-ocr
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    networks:
+      - ocr-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
+networks:
+  ocr-internal:
+    internal: true

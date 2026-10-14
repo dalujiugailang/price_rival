@@ -1,3 +1,4 @@
+import { registerRiskOcr } from './riskOcr.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -14,6 +15,7 @@ export function registerRiskRoutes(app, { databasePath }) {
  db.exec('BEGIN');
  try { if(!db.prepare("SELECT key FROM tradein_risk_meta WHERE key='seed-v1'").get()){for(const item of riskSeed) insert.run(item.id,JSON.stringify(item),new Date().toISOString());db.prepare('INSERT INTO tradein_risk_meta VALUES(?,?)').run('seed-v1',new Date().toISOString());} db.exec('COMMIT'); } catch(e){db.exec('ROLLBACK');throw e;}
  const access=(req,res,next)=>canAccess(req.authUser,'tradeIn','riskLedger')?next():res.status(403).json({error:'未开通旧机压价台账权限'});
+ registerRiskOcr(app,access);
  app.get('/api/tradein-risk',access,(_req,res)=>res.json({strategies:db.prepare("SELECT payload FROM tradein_risk_strategies ORDER BY CASE WHEN id LIKE 'initial-%' THEN 1 ELSE 0 END, CASE WHEN id LIKE 'initial-%' THEN rowid END ASC, rowid DESC").all().map(x=>JSON.parse(x.payload))}));
  app.delete('/api/tradein-risk/:id',access,(req,res)=>{
   if(req.authUser.role!=='admin') return res.status(403).json({error:'仅管理员可以删除策略'});
@@ -31,7 +33,7 @@ export function registerRiskRoutes(app, { databasePath }) {
   if(s.screenshot&&!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(s.screenshot)) return res.status(400).json({error:'截图格式不支持'});
   if(s.screenshot?.length>14000000) return res.status(400).json({error:'截图请小于10MB'});
   const id=typeof s.id==='string'?s.id:crypto.randomUUID();
-  const item={id,name:s.name.trim(),models:s.models,ratio:s.ratio,start:s.start,end:s.end,note:String(s.note||''),brand:String(s.brand||''),link:String(s.link||''),fields:s.fields&&typeof s.fields==='object'?s.fields:{},screenshot:s.screenshot||null,ocrText:String(s.ocrText||'')};
+  const item={id,name:s.name.trim(),models:s.models,ratio:s.ratio,start:s.start,end:s.end,note:String(s.note||''),brand:String(s.brand||''),link:String(s.link||''),fields:s.fields&&typeof s.fields==='object'?s.fields:{},screenshot:s.screenshot||null,ocrText:String(s.ocrText||''),ocrLines:Array.isArray(s.ocrLines)?s.ocrLines.slice(0,2000):[]};
   db.prepare('INSERT INTO tradein_risk_strategies VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at').run(id,JSON.stringify(item),new Date().toISOString());
   db.prepare('INSERT INTO tradein_risk_audit(strategy_id,actor_id,created_at) VALUES(?,?,?)').run(id,req.authUser.openId||null,new Date().toISOString());
   res.json({strategy:item});
