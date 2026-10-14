@@ -7,9 +7,9 @@ import {registerRiskRoutes} from './tradeInRiskRoutes.mjs';
 import {riskSeed} from './tradeInRiskSeed.mjs';
 test('seed, protected reads, administrator writes and persistence',()=>{
  const dir=mkdtempSync(join(tmpdir(),'risk-test-'));const routes={};
- const app={get:(p,...h)=>routes['GET'+p]=h,post:(p,...h)=>routes['POST'+p]=h};
+ const app={get:(p,...h)=>routes['GET'+p]=h,post:(p,...h)=>routes['POST'+p]=h,delete:(p,...h)=>routes['DELETE'+p]=h};
  registerRiskRoutes(app,{databasePath:join(dir,'test.sqlite')});
- const run=(method,user,body)=>{let status=200,result;const req={authUser:user,body};const res={status(n){status=n;return this;},json(x){result=x;return this;}};let i=0;const next=()=>routes[method+'/api/tradein-risk'][i++]?.(req,res,next);next();return {status,result};};
+ const run=(method,user,body)=>{let status=200,result;const req={authUser:user,body,params:{id:body?.id}};const res={status(n){status=n;return this;},json(x){result=x;return this;}};let i=0;const next=()=>routes[method+'/api/tradein-risk'+(method==='DELETE'?'/'+':id':'')][i++]?.(req,res,next);next();return {status,result};};
  const viewer={role:'viewer',scopes:['tradeIn.riskLedger']},admin={role:'admin'};
  assert.equal(run('GET',{}).status,403);
  const seed=run('GET',viewer).result.strategies;
@@ -26,5 +26,9 @@ test('seed, protected reads, administrator writes and persistence',()=>{
  assert.equal(run('GET',viewer).result.strategies[0].id,added.id);
  run('POST',admin,{...riskSeed[1],note:'修改旧策略'});
  assert.equal(run('GET',viewer).result.strategies[0].id,added.id);
+ assert.equal(run('DELETE',viewer,{id:riskSeed[0].id}).status,403);
+ assert.equal(run('DELETE',admin,{id:riskSeed[0].id}).status,200);
+ registerRiskRoutes(app,{databasePath:join(dir,'test.sqlite')});
+ assert.ok(!run('GET',viewer).result.strategies.some(s=>s.id===riskSeed[0].id));
  rmSync(dir,{recursive:true,force:true});
 });

@@ -38,3 +38,7 @@
 .risk-list article:focus-visible{outline:2px solid #141414;outline-offset:3px}
 
 .risk-note-highlight{color:#141414;font-weight:700;background:linear-gradient(transparent 52%,#ffe875 52%,#ffe875 94%,transparent 94%);padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone;line-height:1.8}
+
+.risk-card-footer a.risk-link-button{display:inline-flex;align-items:center;border:1px solid #141414;padding:7px 12px;font-size:12px;font-weight:700;text-decoration:none;background:white;color:#141414}
+.risk-card-footer a.risk-link-button:hover{background:#F0EFEC}
+.risk-ledger button.risk-delete{color:#b42318;border-color:#b42318}
