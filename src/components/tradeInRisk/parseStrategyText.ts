@@ -1,10 +1,10 @@
-export function parseStrategyText(text: string) {
-  const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+function parseFields(text: string) {
+  const lines = text.split(/\r?\n/).map(x => x.trim().replace(/^[*＊]\s*/, '')).filter(Boolean);
   const labels = ['策略名称','策略分组','类别','策略范围','类型','策略标识','价位段','A级价位段','适用范围','适用型号','SKU属性','等级','策略','策略金额','备注','开始时间','结束时间','生效开始时间','生效结束时间','后台策略链接','有效时间'];
   const sections: Record<string,string[]> = {};
   let current = '';
   for (const line of lines) {
-    if (current === '适用型号' && ['类别','品牌','型号','操作'].includes(line)) continue;
+    if (current === '适用型号' && ['类别','品牌','型号','操作'].includes(line.replace(/[:：]$/, ''))) continue;
     const match = line.match(/^([^:：]+)[:：](.*)$/);
     if (match && labels.includes(match[1].trim())) {
       current = match[1].trim(); sections[current] = [];
@@ -15,6 +15,7 @@ export function parseStrategyText(text: string) {
   }
   const single = (key: string) => {
     const values = (sections[key] || []).filter(x => !/请选择|待核对|添加一行|^%$/.test(x));
+    if (key === '策略分组' && (values.join(' ').match(/爱回收|分城定价|策略分组-/g)||[]).length > 1) return undefined;
     if (key === '策略范围' && values.join(' ').includes('非全局') && values.join(' ').replaceAll('非全局','').includes('全局')) return undefined;
     if (key === '适用范围' && values.join(' ').includes('品牌') && values.join(' ').includes('型号')) return undefined;
     return values.length === 1 ? values[0] : undefined;
@@ -27,7 +28,7 @@ export function parseStrategyText(text: string) {
     if (!m || /^(手机|华为|小米|荣耀|三星|华硕|努比亚|vivo|OPPO)$/.test(m[1].trim())) continue;
     const name = m[1].trim();
     if (!models.includes(name)) { models.push(name); ids.push(`${name}：${m[2]}`); }
-    const brand = name.match(/^(华为|小米|荣耀|三星|华硕|努比亚|vivo|OPPO)/i)?.[1];
+    const brand = (cells.length >= 3 ? cells[1].match(/^(.+?)[（(]\d+[）)]$/)?.[1]?.trim() : undefined) || name.match(/^(华为|小米|荣耀|三星|华硕|努比亚|一加|realme|红米|vivo|OPPO)/i)?.[1];
     if (brand && !brands.includes(brand)) brands.push(brand);
   }
   const value = single('策略');
@@ -56,3 +57,12 @@ export function parseStrategyText(text: string) {
   const name = single('策略名称');
   return {name, models, brand:brands.join('；'), ratio, note:single('备注'), start:time(['开始时间','生效开始时间']) || (validTimes.length === 2 ? validTimes[0].replace('T',' ') : undefined), end:time(['结束时间','生效结束时间']) || (validTimes.length === 2 ? validTimes[1].replace('T',' ') : undefined), fields, warnings};
 }
+
+// Copy mode preserves source text and table cells without OCR substitutions.
+export function parseCopiedStrategyText(text:string){return parseFields(text);}
+// OCR mode normalizes recognition artifacts, without guessing selected choices.
+export function parseOcrStrategyText(text:string){
+ const normalized=text.split(/\r?\n/).map(line=>line.replace(/^[\s*＊]+/,'').replace(/[−﹣]/g,'-').replace(/％/g,'%').replace(/^(\d{4}-\d{2}-\d{2})(\d{2}:\d{2}:\d{2})$/,'$1 $2')).join('\n');
+ return parseFields(normalized);
+}
+export const parseStrategyText=parseCopiedStrategyText;
