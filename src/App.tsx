@@ -1,3 +1,4 @@
+import TradeInRiskPanel from './components/tradeInRisk/TradeInRiskPanel';
 import { batchScopeKey } from './utils/batchScope';
 /**
  * @license
@@ -121,7 +122,7 @@ type SaveBatchOptions = {
   pricingTimestamp: string;
 };
 
-type ViewTab = 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions' | 'tutorial';
+type ViewTab = 'riskLedger' | 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions' | 'tutorial';
 
 type ChannelWorkspaceState = {
   productsMaster: Product[];
@@ -174,7 +175,7 @@ export default function App() {
   const channelOrder = accessibleChannels(user).map(channel => channel.id) as ChannelId[];
   const firstPage = (channel: ChannelId) => ACCESS_PAGES.find(page => canAccess(user, channel, page.id))?.id as ViewTab || 'workspace';
   const [activeChannelId, setActiveChannelId] = useState<ChannelId>(channelOrder[0] || DEFAULT_CHANNEL_ID);
-  const [activeTab, setActiveTab] = useState<ViewTab>(() => firstPage(channelOrder[0] || DEFAULT_CHANNEL_ID));
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => (new URLSearchParams(location.search).get('tab') === 'riskLedger' && canAccess(user, 'tradeIn', 'riskLedger') ? 'riskLedger' : firstPage(channelOrder[0] || DEFAULT_CHANNEL_ID)));
   const [restoredSnapshotFiles, setRestoredSnapshotFiles] = useState<{
     channelId: ChannelId;
     batchId: string;
@@ -1129,7 +1130,7 @@ export default function App() {
     .map(page => ({ id: page.id as ViewTab, label: page.id === 'history' ? `历史 (${activeState.historyBatches.length})`
       : isSelfOperated && page.selfName ? page.selfName : page.name }));
   if (isAdmin && activeChannelId === 'tradeIn') viewButtons.push({ id: 'permissions', label: '权限管理' });
-  const showWorkspaceControls = canViewWorkspace && !['permissions', 'history', 'tutorial'].includes(activeTab);
+  const showWorkspaceControls = canViewWorkspace && !['riskLedger', 'permissions', 'history', 'tutorial'].includes(activeTab);
   const hasPausedTour = !tourOpen && tourStepIndex > 0;
   const channelTargetLabel = (channelId: ChannelId) => (
     CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价×103%' : '天猫裸机价×103%'
@@ -1137,8 +1138,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans overflow-x-hidden selection:bg-[#141414] selection:text-[#E4E3E0]">
-      <div className={`flex min-h-screen ${activeTab === 'tutorial' ? 'flex-col md:flex-row' : ''}`}>
-        <aside className={`${activeTab === 'tutorial' ? 'w-full md:w-[260px]' : 'w-[260px]'} shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col`}>
+      <div className={`flex min-h-screen ${['tutorial', 'riskLedger'].includes(activeTab) ? 'flex-col md:flex-row' : ''}`}>
+        <aside className={`${['tutorial', 'riskLedger'].includes(activeTab) ? 'w-full md:w-[260px]' : 'w-[260px]'} shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col`}>
           <div className="p-5 border-b border-[#141414] bg-[#E4E3E0]">
             <h1 className="text-lg font-black leading-tight">线上竞争追价系统</h1>
           </div>
@@ -1177,7 +1178,7 @@ export default function App() {
                   </button>
 
                   {selected && (
-                    <nav className={`${activeTab === 'tutorial' ? 'grid grid-cols-2 gap-2 md:block md:ml-6 md:space-y-2' : 'ml-6 space-y-2'} text-sm font-bold`}>
+                    <nav className={`${['tutorial', 'riskLedger'].includes(activeTab) ? 'grid grid-cols-2 gap-2 md:block md:ml-6 md:space-y-2' : 'ml-6 space-y-2'} text-sm font-bold`}>
                       {viewButtons.map((button, index) => {
                         const active = activeTab === button.id;
                         const marker = index === viewButtons.length - 1 ? '└' : '├';
@@ -1246,9 +1247,9 @@ export default function App() {
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-xs font-black text-white">{activeChannel.name}</span>
-                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'tutorial' ? '产品教程' : activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
+                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'riskLedger' ? '旧机压价台账' : activeTab === 'tutorial' ? '产品教程' : activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
               </div>
-              {activeTab !== 'permissions' && <div className="flex flex-wrap gap-4 mt-1">
+              {!['permissions', 'riskLedger'].includes(activeTab) && <div className="flex flex-wrap gap-4 mt-1">
                 {activeTab !== 'history' && <div className="flex items-center gap-2 text-xs text-[#141414]/70">
                   <span>
                     数据版本：{useSharedSnapshot
@@ -1323,6 +1324,7 @@ export default function App() {
             />}
 
             <div className={activeTab === 'history' ? 'min-w-0' : 'border border-[#141414] bg-white p-1'}>
+              {activeTab === 'riskLedger' && canAccess(user, activeChannelId, 'riskLedger') && <TradeInRiskPanel admin={isAdmin} />}
               {activeTab === 'permissions' && isAdmin && <PermissionPanel />}
               {activeTab === 'tutorial' && canAccess(user, activeChannelId, 'tutorial') && <ProductTutorial tourTarget={tourOpen ? tourSteps[tourStepIndex]?.target : undefined} onStartTour={() => {
                 setTourStepIndex(0);

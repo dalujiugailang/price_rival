@@ -1,0 +1,40 @@
+.risk-ledger{padding:24px;background:#fff;color:#141414;border:0;border-radius:0;font-family:inherit}.risk-ledger header,.risk-heading,.risk-card-footer,.risk-month,.risk-detail{display:flex;align-items:center;justify-content:space-between;gap:12px}.risk-ledger h1{font-size:22px;font-weight:900}.risk-ledger h2{font-size:16px;font-weight:900}.risk-ledger h3{font-size:15px;font-weight:700}.risk-ledger p{color:#666;font-size:14px;margin:8px 0}.risk-ledger small{color:#666;font-size:12px}.risk-ledger button{border:1px solid #141414;border-radius:0;padding:4px 14px;font-size:13px;background:white;cursor:pointer}.risk-ledger button:disabled{opacity:.5;cursor:default}.risk-ledger button:focus-visible,.risk-ledger input:focus-visible,.risk-ledger textarea:focus-visible{outline:2px solid #568fea;outline-offset:2px}.risk-ledger>.risk-heading{margin:20px 0 12px}.risk-count{background:#F0EFEC;border-radius:0;padding:3px 10px;font-size:12px;white-space:nowrap}.risk-list{display:grid;gap:12px}.risk-list article{border:1px solid #141414;border-radius:0;padding:14px}.risk-ledger strong{color:#dc2626;font-size:19px}.risk-status{font-size:12px;border-radius:0;background:#eee;padding:2px 8px;margin-right:8px;color:#555}.risk-status.active{background:#dff4e4;color:#28a357}.risk-card-footer{margin-top:12px;align-items:flex-end}.risk-card-footer>div{display:flex;gap:8px;flex-shrink:0}.risk-card-footer a{font-size:13px;text-decoration:underline}.risk-calendar{border-top:1px solid #141414;margin-top:24px;padding-top:20px}.risk-heading input{width:170px;padding:4px 8px;border:1px solid #141414;border-radius:0;font-size:13px}.risk-month{margin:14px 0}.risk-month button{border:0;font-size:24px;color:#888}.risk-weekdays,.risk-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));text-align:center}.risk-weekdays{color:#888;font-size:13px;margin-bottom:8px}.risk-week{border:1px solid #141414;border-radius:0;margin-bottom:5px;padding:5px 12px 12px}.risk-days button{border:0;border-radius:0;padding:3px 0;font-size:13px}.risk-days .muted{color:#aaa}.risk-days .selected{background:#F0EFEC;font-weight:700}.risk-bars{margin:8px 10px 0}.risk-track{height:7px;position:relative}.risk-track span{position:absolute;height:2px;border-radius:1px}.risk-details{margin-top:25px;padding:0 10px}.risk-detail{padding:7px 0;font-size:14px}.risk-detail span{border-left:4px solid;padding-left:8px}.risk-detail strong{font-size:15px}.risk-form{display:grid;gap:16px}.risk-form label{display:grid;gap:6px;color:#555;font-size:14px}.risk-form input,.risk-form textarea,.risk-ocr textarea{border:1px solid #141414;border-radius:0;padding:10px 16px;width:100%;color:#222;background:#fff}.risk-form textarea,.risk-ocr textarea{border-radius:0;min-height:80px}.risk-form footer{display:flex;justify-content:flex-end;gap:8px}.risk-ledger .risk-primary{background:#141414;color:white;padding:10px 20px}.risk-ocr{border:1px solid #141414;border-radius:0;padding:20px;margin:15px 0 20px}.risk-preview{max-height:400px;max-width:100%;object-fit:contain}.risk-error{color:#b42318!important;background:#fff1f0;padding:10px}.risk-overlay{position:fixed;inset:0;background:#000b;z-index:100;display:flex;flex-direction:column;align-items:center;padding:20px;gap:10px}.risk-overlay img{max-width:95vw;max-height:85vh;object-fit:contain}@media(max-width:640px){.risk-ledger{padding:12px}.risk-ledger h1{font-size:20px}.risk-card-footer{flex-wrap:wrap}.risk-card-footer>div{flex-wrap:wrap}.risk-ledger strong{font-size:17px}.risk-calendar>.risk-heading{flex-wrap:wrap}.risk-week{padding-left:3px;padding-right:3px}.risk-bars{margin-left:4px;margin-right:4px}}
+
+/* Match the existing monochrome console, keeping the approved content layout. */
+.risk-ledger header{padding-bottom:20px;border-bottom:1px solid #141414}
+.risk-ledger button{font-weight:700;padding:7px 12px;font-size:12px;transition:background .15s,color .15s}
+.risk-ledger button:hover:not(:disabled){background:#F0EFEC}
+.risk-ledger .risk-primary:hover:not(:disabled){background:#333}
+.risk-count{border:1px solid #141414;font-weight:700;padding:4px 8px}
+.risk-list article{padding:16px;background:#fff}
+.risk-list article>.risk-heading{padding-bottom:10px;border-bottom:1px solid #14141420}
+.risk-status{border:1px solid #14141430;font-weight:700;display:inline-block}
+.risk-status.active{background:#ecfdf5;color:#047857;border-color:#04785740}
+.risk-month{background:#F0EFEC;border:1px solid #141414;padding:4px 8px}
+.risk-month button{font-size:22px;color:#141414}
+.risk-weekdays{color:#141414;font-weight:700;background:#F0EFEC;padding:8px 0;border:1px solid #141414;margin-bottom:5px}
+.risk-days button{font-weight:500;padding:5px 0}
+.risk-days .selected{background:#141414;color:white;font-weight:700}
+.risk-days .selected:hover:not(:disabled){background:#333;color:white}
+.risk-details{padding:16px;border:1px solid #141414}
+.risk-detail{border-bottom:1px solid #14141415;padding:10px 0}
+.risk-detail:last-child{border-bottom:0}
+.risk-form label{font-size:12px;font-weight:700;color:#141414}
+.risk-form input,.risk-form textarea,.risk-ocr textarea{font-size:14px;font-weight:400;padding:10px 12px}
+.risk-ocr{background:#F0EFEC}
+.risk-ledger input:focus-visible,.risk-ledger textarea:focus-visible,.risk-ledger button:focus-visible{outline-color:#141414}
+@media(max-width:640px){.risk-ledger header{align-items:flex-start}.risk-list article{padding:12px}.risk-details{padding:12px}.risk-card-footer>div{gap:6px}}
+
+.risk-calendar{border-top:0;margin-top:20px;padding-top:0}
+.risk-details+.risk-heading{border-top:1px solid #141414;padding-top:20px;margin-top:24px}
+
+.risk-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;font-size:12px;color:#666}.risk-pagination>div{display:flex;gap:8px}
+@media(max-width:640px){.risk-pagination{flex-wrap:wrap}}
+
+.risk-ledger button.risk-detail{width:100%;text-align:left;border:0;border-bottom:1px solid #14141415;border-radius:0;padding:10px 0;font-size:14px;font-weight:400;background:transparent}
+.risk-ledger button.risk-detail:hover{background:#F0EFEC}
+.risk-ledger button.risk-detail:last-child{border-bottom:0}
+.risk-list article.risk-card-target{background:#F0EFEC;box-shadow:inset 4px 0 0 #141414;scroll-margin-top:24px}
+.risk-list article:focus-visible{outline:2px solid #141414;outline-offset:3px}
+
+.risk-note-highlight{color:#141414;font-weight:700;background:linear-gradient(transparent 52%,#ffe875 52%,#ffe875 94%,transparent 94%);padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone;line-height:1.8}

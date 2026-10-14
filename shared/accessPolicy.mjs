@@ -6,6 +6,7 @@ export const ACCESS_PAGES = [
   { id: 'workspace', name: '追价工作台' }, { id: 'upload', name: '数据源' },
   { id: 'history', name: '历史' }, { id: 'competitiveness', name: '竞争力走势' },
   { id: 'tmHandGap', name: '追后到手高出TM', selfName: '追后AHS高出ZZ' },
+  { id: 'riskLedger', name: '旧机压价台账', channelId: 'tradeIn' },
   { id: 'audit', name: '操作日志' },
   { id: 'tutorial', name: '产品教程', channelId: 'tradeIn' }
 ];

@@ -1,3 +1,4 @@
+import { registerRiskRoutes } from './tradeInRiskRoutes.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,6 +94,7 @@ const requireSameOrigin = (req, res, next) => {
 
 app.use('/api', auth.requireAuth, requireSameOrigin);
 registerAccessRoutes(app, { db, auth });
+registerRiskRoutes(app, { databasePath: DATABASE_PATH, writeAudit: event => db.writeAudit(event) });
 registerGradeRoutes(app, { store: gradeStore, getBatch: id => db.getBatch(id), writeAudit: details => db.writeAudit(details),
   lookupRevenue:()=>androidRevenue.getLatest(),
   lookupPrices: createGradePriceClient({ url: DAILY_PRICE_LOOKUP_URL, token: DAILY_PRICE_TOKEN }) });

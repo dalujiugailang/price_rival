@@ -1,0 +1,26 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {registerRiskRoutes} from './tradeInRiskRoutes.mjs';
+import {riskSeed} from './tradeInRiskSeed.mjs';
+test('seed, protected reads, administrator writes and persistence',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'risk-test-'));const routes={};
+ const app={get:(p,...h)=>routes['GET'+p]=h,post:(p,...h)=>routes['POST'+p]=h};
+ registerRiskRoutes(app,{databasePath:join(dir,'test.sqlite')});
+ const run=(method,user,body)=>{let status=200,result;const req={authUser:user,body};const res={status(n){status=n;return this;},json(x){result=x;return this;}};let i=0;const next=()=>routes[method+'/api/tradein-risk'][i++]?.(req,res,next);next();return {status,result};};
+ const viewer={role:'viewer',scopes:['tradeIn.riskLedger']},admin={role:'admin'};
+ assert.equal(run('GET',{}).status,403);
+ const seed=run('GET',viewer).result.strategies;
+ assert.equal(seed.length,6);assert.equal(seed.flatMap(s=>s.models).length,12);assert.equal(new Set(seed.flatMap(s=>s.models)).size,11);
+ assert.equal(run('POST',viewer,riskSeed[0]).status,403);
+ assert.equal(run('POST',{role:'editor',scopes:viewer.scopes},riskSeed[0]).status,403);
+ assert.equal(run('POST',admin,{...riskSeed[0],end:riskSeed[0].start}).status,400);
+ assert.equal(run('POST',admin,{...riskSeed[0],screenshot:'data:text/html;base64,abc'}).status,400);
+ assert.equal(run('POST',admin,{...riskSeed[0],note:'核对后的备注'}).status,200);
+ assert.equal(run('GET',viewer).result.strategies[0].note,'核对后的备注');
+ registerRiskRoutes(app,{databasePath:join(dir,'test.sqlite')});
+ assert.equal(run('GET',viewer).result.strategies[0].note,'核对后的备注');
+ rmSync(dir,{recursive:true,force:true});
+});
