@@ -13,7 +13,7 @@ export function registerRiskRoutes(app, { databasePath }) {
  db.exec('BEGIN');
  try { for(const item of riskSeed) insert.run(item.id,JSON.stringify(item),new Date().toISOString()); db.exec('COMMIT'); } catch(e){db.exec('ROLLBACK');throw e;}
  const access=(req,res,next)=>canAccess(req.authUser,'tradeIn','riskLedger')?next():res.status(403).json({error:'未开通旧机压价台账权限'});
- app.get('/api/tradein-risk',access,(_req,res)=>res.json({strategies:db.prepare('SELECT payload FROM tradein_risk_strategies ORDER BY rowid').all().map(x=>JSON.parse(x.payload))}));
+ app.get('/api/tradein-risk',access,(_req,res)=>res.json({strategies:db.prepare("SELECT payload FROM tradein_risk_strategies ORDER BY CASE WHEN id LIKE 'initial-%' THEN 1 ELSE 0 END, CASE WHEN id LIKE 'initial-%' THEN rowid END ASC, rowid DESC").all().map(x=>JSON.parse(x.payload))}));
  app.post('/api/tradein-risk',access,(req,res)=>{
   if(req.authUser.role!=='admin') return res.status(403).json({error:'仅管理员可以保存策略'});
   const s=req.body;

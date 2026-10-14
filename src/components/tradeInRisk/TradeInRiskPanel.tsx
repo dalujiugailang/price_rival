@@ -25,7 +25,7 @@ export default function TradeInRiskPanel({admin}:{admin:boolean}){
  const first=new Date(month+'-01T00:00:00Z');const offset=(first.getUTCDay()+6)%7;const last=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0));const weeks=Math.ceil((offset+last.getUTCDate())/7);
  const change=(n:number)=>{const d=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+n,1));setMonth(day(d).slice(0,7));};
  const update=(key:keyof Strategy,value:unknown)=>setDraft(d=>d?{...d,[key]:value}:d);
- const save=async()=>{if(!draft)return;setSaving(true);setError('');try{await request('/api/tradein-risk',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(draft)});setDraft(null);await load();}catch(e){setError((e as Error).message);}finally{setSaving(false);}};
+ const save=async()=>{if(!draft)return;setSaving(true);setError('');try{await request('/api/tradein-risk',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(draft)});if(!draft.id)setPage(1);setDraft(null);await load();}catch(e){setError((e as Error).message);}finally{setSaving(false);}};
  const upload=(file?:File)=>{if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>10*1024*1024){setError('请选择10MB以内的PNG、JPG或WebP图片');return;}const reader=new FileReader();reader.onload=()=>update('screenshot',String(reader.result));reader.readAsDataURL(file);};
  const rows=filtered.filter(s=>covers(s,selected));
  return <section className="risk-ledger"><header><div><h1>旧机压价台账</h1><p>京东换新 · 回收策略报价</p></div><span className="risk-count">{strategies.length}条策略</span></header>{error&&<p role="alert" className="risk-error">{error}</p>}

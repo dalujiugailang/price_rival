@@ -22,5 +22,9 @@ test('seed, protected reads, administrator writes and persistence',()=>{
  assert.equal(run('GET',viewer).result.strategies[0].note,'核对后的备注');
  registerRiskRoutes(app,{databasePath:join(dir,'test.sqlite')});
  assert.equal(run('GET',viewer).result.strategies[0].note,'核对后的备注');
+ const added=run('POST',admin,{...riskSeed[0],id:undefined,name:'新增策略'}).result.strategy;
+ assert.equal(run('GET',viewer).result.strategies[0].id,added.id);
+ run('POST',admin,{...riskSeed[1],note:'修改旧策略'});
+ assert.equal(run('GET',viewer).result.strategies[0].id,added.id);
  rmSync(dir,{recursive:true,force:true});
 });
