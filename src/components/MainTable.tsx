@@ -882,6 +882,13 @@ export default function MainTable({
             className="w-24 px-2 py-1 border border-[#141414] text-xs font-bold disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:text-[#555]"
           />
           <span className="text-xs">%</span>
+          {!isSelfOperated && pricingMode === 'margin' && (
+            <p className="basis-full text-xs leading-relaxed text-[#555]">
+              自动补追：追前边际利润率&gt;0%、第一轮物品价≥天猫且到手价落后不超过30元时，
+              以最低可达报价追平到手价；追后边际利润率不得低于当前底线减2个百分点
+              （当前为{formatPercent(marginBottomLine - 0.02)}）。无法达标则保留第一轮价。
+            </p>
+          )}
           {!readOnly && !isSelfOperated && onHandPriceAction && (
             <RepricingControlsPopover>
               <div className="font-bold">筛选 {filteredProducts.length} 行</div>
