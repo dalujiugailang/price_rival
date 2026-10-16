@@ -165,6 +165,13 @@ export interface HandPriceAdjustment {
 }
 
 export interface CalculatedProduct extends Product {
+  automaticHandTopUp?: {
+    firstRoundPrice: number;
+    firstRoundHandPrice: number;
+    handGap: number;
+    marginFloor: number;
+    applied: boolean;
+  };
   handPriceAdjustment?: HandPriceAdjustment;
   ahsQuotedPrice: number;       // L = J + K
   jdHandPrice: number;          // N = J + M

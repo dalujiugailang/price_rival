@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Product } from '../types';
+import { CHANNELS } from '../config/channels';
 import {
   applyManualRecommendedPrice,
   calculateProductPrice,
@@ -127,5 +128,61 @@ assert.equal(manuallyApplied.postTmHandWin, true);
 assert.equal(manuallyApplied.postZzItemWin, true);
 assert.equal(manuallyApplied.postAhsZzHandWin, true);
 assert.equal(manuallyApplied.postJdZzHandWin, false);
+
+const topUpProduct: Product = {
+  ...equalPriceProduct, jdPrice: 1700, tmPrice: 1700, ahsInput: 0,
+  jdSubsidy: 0, tmSubsidyManual: 30, basePrice: 2000
+};
+const topUp = calculateProductPrice(topUpProduct, 0.05);
+assert.equal(topUp.recommendJdPrice, 1730);
+assert.equal(topUp.postTmHandWin, true);
+assert.ok(topUp.postMarginalProfit < 0.05 && topUp.postMarginalProfit >= 0.03);
+assert.equal(topUp.riskWarning, 'WARNING');
+assert.equal(topUp.isBelowBottomLine, false);
+assert.equal(topUp.automaticHandTopUp?.firstRoundPrice, 1700);
+assert.equal(topUp.automaticHandTopUp?.applied, true);
+// First-round fallback can also qualify (not only an initially competitive item).
+const fallbackTopUp = calculateProductPrice({ ...topUpProduct, jdPrice: 1600, tmPrice: 1690, tmSubsidyManual: 35 }, 0.05);
+assert.equal(fallbackTopUp.automaticHandTopUp?.applied, true);
+assert.equal(fallbackTopUp.recommendJdPrice, 1725);
+for (const gap of [0, -10, 30.01, 31]) {
+  const result = calculateProductPrice({ ...topUpProduct, tmSubsidyManual: gap }, 0.05);
+  assert.equal(result.recommendJdPrice, 1700, `gap ${gap} must not qualify`);
+  assert.equal(result.automaticHandTopUp, undefined);
+}
+const unaffordable = calculateProductPrice(topUpProduct, 0.06);
+assert.equal(unaffordable.recommendJdPrice, 1700);
+assert.equal(unaffordable.automaticHandTopUp?.applied, false);
+const exactFloor = calculateProductPrice(topUpProduct, topUp.postMarginalProfit + 0.02);
+assert.equal(exactFloor.recommendJdPrice, 1730, 'exact relaxed floor is accepted');
+const zeroProfit = calculateProductPrice({ ...topUpProduct, basePrice: 1900 }, -0.03);
+assert.equal(zeroProfit.recommendJdPrice, 1700);
+assert.equal(zeroProfit.automaticHandTopUp, undefined);
+const missingTm = calculateProductPrice({ ...topUpProduct, tmPrice: 0 }, 0.05);
+assert.equal(missingTm.recommendJdPrice, 1700);
+assert.equal(missingTm.automaticHandTopUp, undefined);
+const itemBehind = calculateProductPrice({ ...topUpProduct, tmPrice: 1800 }, 0.05);
+assert.equal(itemBehind.automaticHandTopUp, undefined);
+// A JD subsidy threshold means ¥10 item uplift closes the ¥30 hand-price gap.
+const thresholdRules = [
+  { newSeries: topUpProduct.newSeries, threshold: 0, ahsInput: 0, jdSubsidy: 0, rawFields: {} },
+  { newSeries: topUpProduct.newSeries, threshold: 1710, ahsInput: 0, jdSubsidy: 20, rawFields: {} }
+];
+assert.equal(calculateProductPrice(topUpProduct, 0.05, thresholdRules).recommendJdPrice, 1710);
+// AHS subsidy jumps can make every competitive price unaffordable.
+const costlyRules = thresholdRules.map(rule => ({ ...rule, ahsInput: rule.threshold ? 100 : 0 }));
+assert.equal(calculateProductPrice(topUpProduct, 0.05, costlyRules).recommendJdPrice, 1700);
+// Continue searching after a failed margin candidate when a later tier lowers cost.
+const recoveryRules = [
+  ...costlyRules,
+  { newSeries: topUpProduct.newSeries, threshold: 1720, ahsInput: 0, jdSubsidy: 20, rawFields: {} }
+];
+assert.equal(calculateProductPrice(topUpProduct, 0.05, recoveryRules).recommendJdPrice, 1720);
+assert.equal(calculateProductPrice(topUpProduct, 0.05, [], 'fullCompetition').recommendJdPrice, 1700);
+const selfOnly = calculateProductPrice({ ...topUpProduct, zzPrice: 1700 }, 0.05, [], 'margin', { channel: CHANNELS.selfOperated });
+assert.equal(selfOnly.recommendJdPrice, 1700);
+assert.equal(selfOnly.automaticHandTopUp, undefined);
+assert.equal(applyManualRecommendedPrice(topUp, 1700, 0.05).automaticHandTopUp, undefined);
+assert.ok(!applyManualRecommendedPrice(topUp, 1700, 0.05).pricingRemark.includes('补追达标'));
 
 console.log('pricing logic checks passed');

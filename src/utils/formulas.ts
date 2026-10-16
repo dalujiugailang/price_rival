@@ -246,6 +246,39 @@ export function calculateProductPrice(
     }
   }
 
+  // Fixed trade-in policy: close a first-round hand-price gap of at most ¥30,
+  // using the lowest uploadable price within a two-percentage-point relaxation.
+  const firstRoundPrice = recommendJdPrice;
+  const firstRoundHandPrice = firstRoundPrice + jdSubsidyAtPrice(firstRoundPrice, activeRules, currentJdSubsidy);
+  const handGap = round2(tmHandPrice - firstRoundHandPrice);
+  let automaticHandTopUp: CalculatedProduct['automaticHandTopUp'];
+  if (channel.id === 'tradeIn' && pricingMode === 'margin' && preMarginalProfit > 0
+    && product.tmPrice > 0 && firstRoundPrice >= product.tmPrice && handGap > 0 && handGap <= 30) {
+    const floor = targetMargin - 0.02;
+    const minSubsidy = Math.min(0, currentSubsidy, ...activeRules.map(rule => rule.ahsInput));
+    const upper = (product.basePrice * (1 - floor - 0.0218) - 81) / 1.0466 - minSubsidy;
+    const checked = new Set<number>();
+    let matched = false;
+    // Do not stop on an intermediate failure: subsidy thresholds can change
+    // both the hand price and the cost at a later candidate.
+    for (let raw = Math.floor(firstRoundPrice); raw <= Math.ceil(upper) + 10; raw++) {
+      const candidate = roundUploadPrice(raw);
+      if (candidate <= firstRoundPrice || candidate > upper + 1e-9 || checked.has(candidate)) continue;
+      checked.add(candidate);
+      const subsidy = subsidyAtPrice(candidate, activeRules, currentSubsidy);
+      const handPrice = candidate + jdSubsidyAtPrice(candidate, activeRules, currentJdSubsidy);
+      if (handPrice + 1e-9 < tmHandPrice || calcMarginalProfit(candidate, subsidy, product.basePrice, channel) + 1e-9 < floor) continue;
+      recommendJdPrice = candidate;
+      ahsSubsidyAfter = subsidy;
+      matched = true;
+      break;
+    }
+    automaticHandTopUp = { firstRoundPrice, firstRoundHandPrice, handGap, marginFloor: floor, applied: matched };
+    pricingRemark = `第一轮：${pricingRemark}` + (matched
+      ? `；到手价补追达标（原缺口${handGap}元，利润下限${formatPercent(floor)}）`
+      : '；到手价补追无法在利润下限内达标，保留第一轮价');
+  }
+
   const recommendAdjustment = round2(recommendJdPrice - product.jdPrice);
   const postAhsPrice = recommendJdPrice + ahsSubsidyAfter;
   const postLinearCost = calcLinearCost(recommendJdPrice, ahsSubsidyAfter, product.basePrice, channel);
@@ -269,7 +302,9 @@ export function calculateProductPrice(
   const hasSpace = recommendAdjustment > 0;
 
   let riskWarning: 'SAFE' | 'WARNING' | 'CRITICAL' = 'SAFE';
-  if (postMarginalProfit < targetMargin) {
+  if (automaticHandTopUp?.applied && postMarginalProfit < targetMargin) {
+    riskWarning = 'WARNING';
+  } else if (postMarginalProfit < targetMargin) {
     riskWarning = 'CRITICAL';
   } else if (postMarginalProfit < targetMargin + 0.02) {
     riskWarning = 'WARNING';
@@ -277,6 +312,7 @@ export function calculateProductPrice(
 
   return {
     ...product,
+    automaticHandTopUp,
     ahsInput: currentSubsidy,
     jdSubsidy: currentJdSubsidy,
     ahsQuotedPrice,
@@ -374,11 +410,13 @@ export function applyManualRecommendedPrice(
     riskWarning = 'WARNING';
   }
 
-  const originalRemark = product.pricingRemark.replace(/^手动改价：[^；]+；?/, '');
+  const originalRemark = product.pricingRemark.replace(/^手动改价：[^；]+；?/, '')
+    .replace(/^第一轮：/, '').replace(/；到手价补追.*$/, '');
   const pricingRemark = `手动改价：${round2(product.recommendJdPrice)}→${recommendJdPrice}${originalRemark ? `；${originalRemark}` : ''}`;
 
   return {
     ...product,
+    automaticHandTopUp: undefined,
     recommendJdPrice,
     recommendAdjustment,
     ahsSubsidyAfter,
