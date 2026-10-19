@@ -883,11 +883,14 @@ export default function MainTable({
           />
           <span className="text-xs">%</span>
           {!isSelfOperated && pricingMode === 'margin' && (
-            <p className="basis-full text-xs leading-relaxed text-[#555]">
-              自动补追：追前边际利润率&gt;0%、第一轮物品价≥天猫且到手价落后不超过30元时，
-              以最低可达报价追平到手价；追后边际利润率不得低于当前底线减2个百分点
-              （当前为{formatPercent(marginBottomLine - 0.02)}）。无法达标则保留第一轮价。
-            </p>
+            <button
+              type="button"
+              aria-label="自动补追规则说明"
+              title={`自动补追：追前边际利润率>0%、第一轮物品价≥天猫且到手价落后不超过30元时，以最低可达报价追平到手价；追后边际利润率不得低于当前底线减2个百分点（当前为${formatPercent(marginBottomLine - 0.02)}）。无法达标则保留第一轮价。`}
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#777] text-[10px] font-bold leading-none text-[#555] hover:border-[#141414] hover:text-[#141414] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              ?
+            </button>
           )}
           {!readOnly && !isSelfOperated && onHandPriceAction && (
             <RepricingControlsPopover>
