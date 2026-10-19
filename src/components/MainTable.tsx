@@ -15,7 +15,7 @@ import { handPriceRowKey, type HandPriceAction } from '../utils/handPriceAlignme
 import { getTmPriceGaps } from '../utils/tmPriceGaps';
 import { createSnapshotWorkbook } from '../utils/snapshotHistory';
 import {
-  ColumnFilters,
+  ColumnFilters, NumericColumnFilters, matchesNumericColumnFilters,
   EMPTY_COLUMN_FILTER_VALUE,
   getColumnFilterOptions,
   matchesColumnFilters,
@@ -115,6 +115,28 @@ export default function MainTable({
   const [competitivenessDate, setCompetitivenessDate] = useState(currentLocalDate);
   const [pricingTimestamp, setPricingTimestamp] = useState(currentLocalDateTime);
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
+  const [numericFilters, setNumericFilters] = useState<NumericColumnFilters>({});
+  const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
+  const clearCrosshair = (table: HTMLTableElement) => {
+    selectedRowRef.current?.removeAttribute('data-hover-row');
+    selectedRowRef.current = null;
+    table.removeAttribute('data-hover-column');
+    table.querySelector('[data-hover-cell]')?.removeAttribute('data-hover-cell');
+  };
+  const updateCrosshair = (event: React.MouseEvent<HTMLTableElement>) => {
+    const cell = (event.target as HTMLElement).closest<HTMLTableCellElement>('td, th');
+    const table = event.currentTarget;
+    if (!cell || cell.closest('table') !== table || cell.colSpan > 1) return;
+    const row = cell.parentElement as HTMLTableRowElement;
+    if (selectedRowRef.current !== row) {
+      selectedRowRef.current?.removeAttribute('data-hover-row');
+      row.setAttribute('data-hover-row', '');
+      selectedRowRef.current = row;
+    }
+    table.setAttribute('data-hover-column', String(cell.cellIndex));
+    const previous = table.querySelector('[data-hover-cell]');
+    if (previous !== cell) { previous?.removeAttribute('data-hover-cell'); cell.setAttribute('data-hover-cell', ''); }
+  };
   const [tableSearch, setTableSearch] = useState('');
   const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
   const [editingRecommendPpv, setEditingRecommendPpv] = useState<string | null>(null);
@@ -478,6 +500,7 @@ export default function MainTable({
   ];
   const filteredProducts = products.filter(product => (
     matchesColumnFilters(product, columnFilters, getColumnFilterValue)
+    && matchesNumericColumnFilters(product, numericFilters, getColumnFilterValue)
     && matchesTableSearch(product, tableSearch, getTableSearchValues)
   ));
   const parsedHandMargin = /^-?\d+(\.\d*)?$/.test(handPriceMarginInput) ? Number(handPriceMarginInput) / 100 : NaN;
@@ -489,7 +512,7 @@ export default function MainTable({
     onHandPriceAction(action, filteredProducts.map(handPriceRowKey), action === 'rollback' ? parsedHandMargin : handPriceMargin);
     setHandPriceStatus(`${action === 'align' ? '①追至TM 103%' : '②底线回调'}已处理${filteredProducts.length}行；原因见小差额提醒。`);
   };
-  const activeColumnFilterCount = Object.keys(columnFilters).length;
+  const activeColumnFilterCount = new Set([...Object.keys(columnFilters), ...Object.keys(numericFilters)]).size;
   const hasTableSearch = tableSearch.trim().length > 0;
   const moneyColumnIndexes = new Set([9, 11, 13, 14, 16, 18, 19, 21, 22, 27, 29, 31, 32, 33, 35, 36]);
   const percentColumnIndexes = new Set([20, 34]);
@@ -503,7 +526,7 @@ export default function MainTable({
     return value;
   };
   const getFilterButtonOptions = (columnKey: string) => (
-    getColumnFilterOptions(products, columnKey, columnFilters, getColumnFilterValue).map(option => ({
+    getColumnFilterOptions(products.filter(p => matchesNumericColumnFilters(p, numericFilters, getColumnFilterValue, columnKey)), columnKey, columnFilters, getColumnFilterValue).map(option => ({
       ...option,
       label: formatColumnFilterOption(columnKey, option.value)
     }))
@@ -515,6 +538,14 @@ export default function MainTable({
         label={label}
         options={isOpen ? getFilterButtonOptions(columnKey) : []}
         activeValues={columnFilters[columnKey] || []}
+        numeric={![0, 1, 2, 3, 4, 28, 30, 37, 39, 44].includes(Number(columnKey.slice(6)))}
+        numericScale={percentColumnIndexes.has(Number(columnKey.slice(6))) ? 100 : 1}
+        activeNumeric={numericFilters[columnKey]}
+        onApplyNumeric={filter => setNumericFilters(current => {
+          const next = { ...current };
+          if (filter) next[columnKey] = filter; else delete next[columnKey];
+          return next;
+        })}
         isOpen={isOpen}
         onToggle={() => setOpenColumnFilter(current => current === columnKey ? null : columnKey)}
         onClose={() => setOpenColumnFilter(current => current === columnKey ? null : current)}
@@ -952,6 +983,7 @@ export default function MainTable({
             type="button"
             onClick={() => {
               setColumnFilters({});
+              setNumericFilters({});
               setTableSearch('');
               setOpenColumnFilter(null);
             }}
@@ -963,7 +995,14 @@ export default function MainTable({
       )}
 
       <div className="tracking-table-scroll">
-        <table className="table-fixed text-[11px] leading-tight" style={{ width: tableWidth, minWidth: tableWidth }}>
+        <style>{`
+          .pricing-crosshair [data-hover-row] > td, .pricing-crosshair [data-hover-row] > th { box-shadow: inset 0 0 0 9999px rgba(56,189,248,.16); }
+          .pricing-crosshair [data-hover-cell] { outline: 1px solid #38bdf8; outline-offset: -1px; }
+          ${fixedCodes.map((_, index) => `.pricing-crosshair[data-hover-column="${index}"] tr > :nth-child(${index + 1}) { box-shadow: inset 0 0 0 9999px rgba(56,189,248,.16); }`).join('\n')}
+        `}</style>
+        <table className="pricing-crosshair table-fixed text-[11px] leading-tight" onClick={updateCrosshair}
+          onKeyDown={event => { if (event.key === 'Escape') clearCrosshair(event.currentTarget); }}
+          style={{ width: tableWidth, minWidth: tableWidth }}>
           <colgroup>
             {fixedColumnWidths.map((width, index) => (
               <col key={`fixed-${index}`} style={isFixedColumnVisible(index) ? { width } : { display: 'none', width: 0 }} />
