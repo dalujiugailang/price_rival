@@ -258,9 +258,9 @@ export default function HistoryPanel({
                     ['天猫到手价竞争力', inspectedBatch.competitivenessMetrics.tmDirectScore],
                     ['转转物品价竞争力', inspectedBatch.competitivenessMetrics.zzItemScore],
                     ['AHS补贴后 vs 转转到手价', inspectedBatch.competitivenessMetrics.ahsVsZzDirectScore],
-                    ['AHS补贴后 vs TM回收商补贴后', inspectedBatch.competitivenessMetrics.ahsVsTmRecyclerScore],
+                    ['AHS补贴后 vs TM回收商补贴后', null],
                     ['京东到手价 vs 转转到手价', inspectedBatch.competitivenessMetrics.jdVsZzDirectScore]
-                  ].map(([label, value]) => <div key={String(label)} className="border border-[#141414]/30 bg-[#F0EFEC] p-3"><div className="text-xs text-[#555]">{label}</div><div className="mt-1 font-mono text-lg font-bold">{scoreText(value as number | null | undefined)}</div></div>)}
+                  ].map(([label, value]) => <div key={String(label)} className="border border-[#141414]/30 bg-[#F0EFEC] p-3"><div className="text-xs text-[#555]">{label}</div><div className="mt-1 font-mono text-lg font-bold">{label === 'AHS补贴后 vs TM回收商补贴后' ? '' : scoreText(value as number | null | undefined)}</div></div>)}
                 </div>
               )}
             </div>

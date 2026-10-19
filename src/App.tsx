@@ -1429,7 +1429,7 @@ export default function App() {
                 <CompetitivenessSummary
                   revealIssueDetails={tourOpen && tourSteps[tourStepIndex]?.target === 'audit-issue-details'}
                   historyBatches={activeState.historyBatches}
-                  currentCalculatedItems={useSharedSnapshot ? [] : activeCalculatedItems}
+                  currentCalculatedItems={activeCalculatedItems}
                   activeSubsidyFileName={activeState.activeSubsidyFileName}
                   channelId={activeChannelId}
                   channelName={activeChannel.name}

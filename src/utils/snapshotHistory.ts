@@ -127,7 +127,7 @@ export const createSnapshotWorkbook = (
     ['保存时天猫到手价竞争力(%)', metrics?.tmDirectScore ?? null],
     ['保存时转转物品价竞争力(%)', metrics?.zzItemScore ?? null],
     ['保存时AHS补贴后 vs 转转到手价(%)', metrics?.ahsVsZzDirectScore ?? null],
-    ['保存时AHS补贴后 vs TM回收商补贴后(%)', metrics?.ahsVsTmRecyclerScore ?? null],
+    ['保存时AHS补贴后 vs TM回收商补贴后(%)', null],
     ['保存时京东到手价 vs 转转到手价(%)', metrics?.jdVsZzDirectScore ?? null],
     ['本次竞争调整预估投入', batch.investmentRateMetrics?.estimatedInvestmentAmount ?? null],
     ['手机安卓大盘竞争投入费率', batch.investmentRateMetrics?.androidOverallRate ?? null],

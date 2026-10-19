@@ -10,7 +10,7 @@ export const emptyCompetitivenessMetrics = (): CompetitivenessMetrics => ({
   tmDirectScore: 0,
   zzItemScore: 0,
   ahsVsZzDirectScore: 0,
-  ahsVsTmRecyclerScore: 0,
+  ahsVsTmRecyclerScore: null,
   jdVsZzDirectScore: 0
 });
 
@@ -53,7 +53,7 @@ export const calculateCompetitivenessMetrics = (products: CalculatedProduct[], c
       tmDirectScore: 0,
       zzItemScore,
       ahsVsZzDirectScore,
-      ahsVsTmRecyclerScore: 0,
+      ahsVsTmRecyclerScore: null,
       jdVsZzDirectScore
     };
   }
@@ -69,11 +69,7 @@ export const calculateCompetitivenessMetrics = (products: CalculatedProduct[], c
       p => p.tmHandPrice > 0,
       p => p.postTmHandWin
     ),
-    ahsVsTmRecyclerScore: weightedScore(
-      products,
-      p => p.tmRecyclerQuotedPrice > 0,
-      p => p.postAhsTmRecyclerWin
-    ),
+    ahsVsTmRecyclerScore: null,
     zzItemScore,
     ahsVsZzDirectScore,
     jdVsZzDirectScore

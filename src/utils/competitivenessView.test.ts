@@ -121,7 +121,7 @@ const regressionBefore = JSON.stringify(regressionInput);
 const regression = buildCompetitivenessView(regressionInput);
 assert.deepEqual(regression.timeline.map(p => p.batchId), ['AUG-11', 'SEP-04', 'SEP-08']);
 for (const key of Object.keys(score(0)) as (keyof ReturnType<typeof score>)[]) {
-  assert.deepEqual(regression.timeline.map(p => p[key]), [30, 100, 0], `saved weights and flags for ${key}`);
+  assert.deepEqual(regression.timeline.map(p => p[key]), key === 'ahsVsTmRecyclerScore' ? [null, null, null] : [30, 100, 0], `saved weights and flags for ${key}`);
 }
 assert.deepEqual(regression.omittedSnapshots.map(p => p.batchId), ['SEP-07']);
 assert.equal(JSON.stringify(regressionInput), regressionBefore);
@@ -133,3 +133,7 @@ const missingPriceRegression = buildCompetitivenessView({ ...regressionInput,
 assert.equal(missingPriceRegression.timeline[1].tmItemScore, null, 'an observed brand with missing price remains a real metric gap');
 assert.equal(missingPriceRegression.timeline[1].zzItemScore, 100);
 console.log('legacy brand and partial-batch trend regressions passed');
+
+assert.equal(saved.metrics.ahsVsTmRecyclerScore, null);
+assert.equal(summary.metrics.ahsVsTmRecyclerScore, null);
+assert.ok(all.timeline.every(point => point.ahsVsTmRecyclerScore === null));

@@ -29,7 +29,7 @@ const metrics = calculateCompetitivenessMetrics([
   product(100, 0, true, 0, true)
 ]);
 
-assert.equal(metrics.ahsVsTmRecyclerScore, 30);
+assert.equal(metrics.ahsVsTmRecyclerScore, null);
 assert.equal(metrics.jdVsZzDirectScore, 70);
 
 console.log('competitiveness metric checks passed');

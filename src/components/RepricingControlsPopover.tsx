@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function RepricingControlsPopover({ children }: { children: React.ReactNode }) {
+export default function RepricingControlsPopover({ children, variant = 'actions' }: { children: React.ReactNode; variant?: 'actions' | 'help' }) {
   const [expanded, setExpanded] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -48,14 +48,15 @@ export default function RepricingControlsPopover({ children }: { children: React
 
   return <>
     <button ref={triggerRef} type="button" aria-expanded={expanded} aria-controls={panelId}
-      onClick={() => setExpanded(value => !value)}
-      className={`flex shrink-0 items-center gap-2 border border-[#141414] px-3 py-1 text-xs font-bold ${expanded ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#141414] hover:text-white'}`}>
-      到手追价 <span aria-hidden="true">{expanded ? '▴' : '▾'}</span>
+      aria-label={variant === 'help' ? '自动补追规则说明' : undefined}
+      aria-haspopup="dialog" onClick={() => setExpanded(value => !value)}
+      className={variant === 'help' ? 'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#777] text-[10px] font-bold leading-none text-[#555] hover:border-[#141414] hover:text-[#141414] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2' : `flex shrink-0 items-center gap-2 border border-[#141414] px-3 py-1 text-xs font-bold ${expanded ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#141414] hover:text-white'}`}>
+      {variant === 'help' ? '?' : <>到手追价 <span aria-hidden="true">{expanded ? '▴' : '▾'}</span></>}
     </button>
     {expanded && createPortal(
-      <aside ref={panelRef} id={panelId} aria-label="到手价两步追价"
+      <aside ref={panelRef} id={panelId} role="dialog" aria-label={variant === 'help' ? '自动补追规则' : '到手价两步追价'}
         className="fixed z-50 w-60 max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-auto space-y-2 border border-[#141414] bg-[#F0EFEC] p-3 text-[11px] shadow-[3px_3px_0_#14141430]"
-        style={position}>
+        style={{ ...position, ...(variant === 'help' ? { width: 320 } : {}) }}>
         {children}
       </aside>, document.body
     )}
