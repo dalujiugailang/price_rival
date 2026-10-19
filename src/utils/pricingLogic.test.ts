@@ -115,7 +115,7 @@ assert.equal(calculated.ahsZzHandWin, true);
 assert.equal(calculated.postTmItemWin, true);
 assert.equal(calculated.tmRecyclerSubsidy, 180);
 assert.equal(calculated.tmRecyclerQuotedPrice, 1180);
-assert.equal(calculated.postAhsTmRecyclerWin, false);
+assert.equal(calculated.postAhsTmRecyclerWin, null);
 assert.equal(calculated.postTmHandWin, true);
 assert.equal(calculated.postZzItemWin, true);
 assert.equal(calculated.postAhsZzHandWin, true);
@@ -123,7 +123,7 @@ assert.equal(calculated.postJdZzHandWin, false);
 
 const manuallyApplied = applyManualRecommendedPrice(calculated, 1000, 0.03);
 assert.equal(manuallyApplied.postTmItemWin, true);
-assert.equal(manuallyApplied.postAhsTmRecyclerWin, false);
+assert.equal(manuallyApplied.postAhsTmRecyclerWin, null);
 assert.equal(manuallyApplied.postTmHandWin, true);
 assert.equal(manuallyApplied.postZzItemWin, true);
 assert.equal(manuallyApplied.postAhsZzHandWin, true);

@@ -73,3 +73,5 @@ assert.equal(allPayload.sheets[0].chartTitle, '总盘竞争力波动走势');
 assert.equal(allPayload.sheets[3].chartTitle, '小米 竞争力波动走势');
 
 console.log('competitiveness trend export model checks passed');
+
+assert.ok(allPayload.sheets.every(sheet => sheet.points.every(point => point.ahsVsTmRecyclerScore === null)));

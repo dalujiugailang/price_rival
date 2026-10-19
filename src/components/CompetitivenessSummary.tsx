@@ -93,13 +93,10 @@ export default function CompetitivenessSummary({
   channelName = '京东换新',
   revealIssueDetails = false
 }: Props) {
-  const [batchTypeFilter, setBatchTypeFilter] = useState(() => allHistoryBatches.some(batch => batch.batchType === 'regular') ? 'regular' : 'unclassified');
-  const [launchFilter, setLaunchFilter] = useState('');
-  const launchActivities = [...new Set(allHistoryBatches.filter(batch => (batch.channelId || 'tradeIn') === channelId && batch.batchType === 'launch').map(batch => (batch.launchActivity || '').trim()))].sort();
-  const effectiveLaunch = launchActivities.includes(launchFilter) ? launchFilter : launchActivities[0] || '';
-  const historyBatches = useMemo(() => filterBatchScope(allHistoryBatches, batchTypeFilter, effectiveLaunch), [allHistoryBatches, batchTypeFilter, effectiveLaunch]);
-  // The live workspace has no saved batch classification, so it follows the unclassified scope automatically.
-  const currentCalculatedItems = batchTypeFilter === 'unclassified' ? allCurrentCalculatedItems : [];
+  const [batchTypeFilter, setBatchTypeFilter] = useState('regular');
+  const historyBatches = useMemo(() => filterBatchScope(allHistoryBatches, batchTypeFilter), [allHistoryBatches, batchTypeFilter]);
+  // Batch type filters saved history only; keep the live workspace as the comparison endpoint.
+  const currentCalculatedItems = allCurrentCalculatedItems;
   const isSelfOperated = channelId === 'selfOperated';
   const quoteWeightFieldLabel = isSelfOperated ? 'ppv近30天报价访客数' : 'ppv近30天报价量';
   const quoteWeightShortLabel = isSelfOperated ? '报价访客数加权' : '报价量加权';
@@ -203,7 +200,8 @@ export default function CompetitivenessSummary({
   ), [view.timeline, trendRange, selectedBatchDetails?.batchId]);
   const displayedTimelineData = displayedRange.points;
   const selectedPoint = displayedTimelineData.find(point => point.batchId === selectedBatchDetails?.batchId);
-  const scopeLabel = [batchTypeFilter === 'launch' ? `发新期 · ${effectiveLaunch}` : batchTypeFilter === 'regular' ? '常规期' : '未分类', view.brand === ALL_BRANDS ? '全部品牌' : view.brand,
+  const livePoint = displayedTimelineData.find(point => point.isDraft);
+  const scopeLabel = [batchTypeFilter === 'launch' ? '发新期' : batchTypeFilter === 'regular' ? '常规期' : '未分类', view.brand === ALL_BRANDS ? '全部品牌' : view.brand,
     isSelfOperated ? '' : view.newSeries === ALL_SERIES ? '全部新机系列' : view.newSeries].filter(Boolean).join(' / ');
   const sourceLabel = selectedBatchDetails
     ? `${selectedBatchDetails.name} · ${selectedBatchDetails.date} · ${selectedBatchDetails.isDraft ? '实时草稿' : selectedBatchDetails.isConfirmed ? '正式落数' : '未确认快照'}`
@@ -222,7 +220,7 @@ export default function CompetitivenessSummary({
         brandOptions: listCompetitivenessBrands(historyBatches, currentCalculatedItems),
         trendRange: displayedRange.range,
         channelId,
-        scopeLabel: batchTypeFilter === 'launch' ? `发新期 · ${effectiveLaunch}` : batchTypeFilter === 'regular' ? '常规期' : '未分类'
+        scopeLabel: batchTypeFilter === 'launch' ? '发新期' : batchTypeFilter === 'regular' ? '常规期' : '未分类'
       });
       const { blob, fileName } = await exportCompetitivenessTrends(payload);
       const objectUrl = URL.createObjectURL(blob);
@@ -306,15 +304,13 @@ export default function CompetitivenessSummary({
                 <div>
                   <div className="mb-1 flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-500">Benchmark 2</span>
-                    <span className={`border px-1.5 text-[9px] font-bold ${getScoreRating(latestMetric.ahsVsTmRecyclerScore).color}`}>
-                      {getScoreRating(latestMetric.ahsVsTmRecyclerScore).label}
-                    </span>
+
                   </div>
                   <h5 className="text-xs font-bold text-[#141414]">AHS补贴后 vs TM回收商补贴后</h5>
                   <p className="mt-0.5 text-[10px] text-slate-500">追后含AHS补贴报价 ≥ TM裸机价+回收商投入</p>
                 </div>
                 <div className="mt-4 flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-black tracking-tight text-[#141414]">{formatScore(latestMetric.ahsVsTmRecyclerScore)}</span>
+                  <span className="font-mono text-2xl font-black tracking-tight text-[#141414]">——</span>
                   <span className="font-mono text-[10px] opacity-70">{quoteWeightShortLabel}</span>
                 </div>
               </div>
@@ -414,8 +410,7 @@ export default function CompetitivenessSummary({
             </p>
           </div>
           <div className="flex flex-nowrap items-center gap-2 overflow-hidden">
-            <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold">批次类型 <select aria-label="走势批次类型" value={batchTypeFilter} onChange={event => { setBatchTypeFilter(event.target.value); setSelectedBatchId(ALL_BATCHES); }} className="w-28 border border-[#141414] bg-white px-1.5 py-1.5"><option value="regular">常规期</option><option value="launch">发新期</option><option value="unclassified">未分类（历史）</option></select></label>
-            {batchTypeFilter === 'launch' && <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold">发新活动 <select aria-label="走势发新活动" value={effectiveLaunch} onChange={event => { setLaunchFilter(event.target.value); setSelectedBatchId(ALL_BATCHES); }} className="w-28 border border-[#141414] bg-white px-1.5 py-1.5">{launchActivities.map(activity => <option key={activity} value={activity}>{activity || '未填写活动'}</option>)}</select></label>}
+            <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold">批次类型 <select aria-label="走势批次类型" value={batchTypeFilter} onChange={event => { setBatchTypeFilter(event.target.value); setSelectedBatchId(ALL_BATCHES); }} className="w-28 border border-[#141414] bg-white px-1.5 py-1.5"><option value="regular">常规期</option><option value="launch">发新期</option></select></label>
             <label className="flex min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-xs font-bold text-stone-700">
               <span className="shrink-0">数据范围</span>
               <select
@@ -611,7 +606,14 @@ export default function CompetitivenessSummary({
                 stroke="#141414"
                 strokeWidth={2}
                 strokeDasharray="4 3"
-                label={{ value: selectedPoint.isSnapshot ? '选定快照' : '选定批次', position: 'insideTopRight', fill: '#141414', fontSize: 10 }}
+                label={{ value: selectedPoint.isDraft ? '实时工作台' : selectedPoint.isSnapshot ? '选定快照' : '选定批次', position: 'insideTopRight', fill: '#141414', fontSize: 10 }}
+              />}
+              {livePoint && livePoint.batchId !== selectedPoint?.batchId && <ReferenceLine
+                x={livePoint.batchId}
+                stroke="#141414"
+                strokeWidth={2}
+                strokeDasharray="4 3"
+                label={{ value: '实时工作台', position: 'insideTopRight', fill: '#141414', fontSize: 10 }}
               />}
               {selectedPoint && ([
                 ['tmItemScore', '#C2410C'], ['ahsVsTmRecyclerScore', '#DC2626'],
@@ -691,7 +693,7 @@ export default function CompetitivenessSummary({
                     </div>
                     {!isSelfOperated && <div className="bg-white border border-[#141414]/20 p-2">
                       <div className="text-[10px] text-stone-500">Benchmark 2 · AHS vs TM回收商补贴后</div>
-                      <div className="font-mono font-bold">{formatScore(selectedBatchDetails.metrics.ahsVsTmRecyclerScore, 2)}</div>
+                      <div className="font-mono font-bold">{null}</div>
                     </div>}
                     <div className="bg-white border border-[#141414]/20 p-2">
                       <div className="text-[10px] text-stone-500">Benchmark 3 · 天猫到手价</div>
@@ -795,9 +797,7 @@ export default function CompetitivenessSummary({
                             {isTmItemBetter ? '✔ 胜出' : '❌ 报价低'}
                           </td>
 
-                          <td className={`p-3 font-bold text-center ${p.tmRecyclerQuotedPrice > 0 ? (isAhsBetterThanTmRecycler ? 'bg-green-50 text-green-700' : 'bg-rose-50 text-rose-700') : 'text-slate-400 font-mono'}`}>
-                            {p.tmRecyclerQuotedPrice > 0 ? (isAhsBetterThanTmRecycler ? '✔ 胜出' : '❌ 报价低') : '无数据'}
-                          </td>
+                          <td className="p-3 text-center" />
 
                           <td className="p-3 font-mono text-stone-500">{p.tmHandPrice > 0 ? formatRMB(tmHandPrice) : 'N/A'}</td>
 

@@ -455,7 +455,7 @@ export default function MainTable({
     gaps.postHandGap ?? '',
     snapshot && p.maxPriceByMargin == null ? null : `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
     booleanValue(p.postTmItemWin),
-    booleanValue(p.postAhsTmRecyclerWin),
+    '',
     booleanValue(p.postTmHandWin),
     booleanValue(p.postZzItemWin),
     booleanValue(p.postAhsZzHandWin),
@@ -751,7 +751,7 @@ export default function MainTable({
       case 38:
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>;
       case 39:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsTmRecyclerWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{null}</td>;
       case 40:
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>;
       case 41:
@@ -883,14 +883,11 @@ export default function MainTable({
           />
           <span className="text-xs">%</span>
           {!isSelfOperated && pricingMode === 'margin' && (
-            <button
-              type="button"
-              aria-label="自动补追规则说明"
-              title={`自动补追：追前边际利润率>0%、第一轮物品价≥天猫且到手价落后不超过30元时，以最低可达报价追平到手价；追后边际利润率不得低于当前底线减2个百分点（当前为${formatPercent(marginBottomLine - 0.02)}）。无法达标则保留第一轮价。`}
-              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#777] text-[10px] font-bold leading-none text-[#555] hover:border-[#141414] hover:text-[#141414] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-            >
-              ?
-            </button>
+            <RepricingControlsPopover variant="help">
+              <div className="font-bold">自动补追规则</div>
+              <p className="leading-relaxed">追前边际利润率&gt;0%、第一轮物品价≥天猫且到手价落后不超过30元时，以最低可达报价追平到手价。</p>
+              <p className="leading-relaxed">追后边际利润率不得低于当前底线减2个百分点（当前为{formatPercent(marginBottomLine - 0.02)}）。无法达标则保留第一轮价。</p>
+            </RepricingControlsPopover>
           )}
           {!readOnly && !isSelfOperated && onHandPriceAction && (
             <RepricingControlsPopover>
