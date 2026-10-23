@@ -31,6 +31,7 @@ interface Props {
   readOnly?: boolean;
   strategyReadOnly?: boolean;
   snapshot?: TrackingBatch;
+  focusPpv?: string;
   products: CalculatedProduct[];
   marginBottomLine: number;
   pricingMode: PricingMode;
@@ -87,6 +88,7 @@ export default function MainTable({
   readOnly: requestedReadOnly = false,
   strategyReadOnly: requestedStrategyReadOnly = requestedReadOnly,
   snapshot,
+  focusPpv,
   products,
   marginBottomLine,
   pricingMode,
@@ -105,6 +107,8 @@ export default function MainTable({
   onManualRecommendPriceChange,
   onManualBasePriceChange,
 }: Props) {
+  const focusedRowRef=useRef<HTMLTableRowElement>(null);
+  useEffect(()=>{if(focusPpv)focusedRowRef.current?.scrollIntoView({block:'center',inline:'start'});},[focusPpv,snapshot?.id]);
   const readOnly = requestedReadOnly || Boolean(snapshot);
   const strategyReadOnly = requestedStrategyReadOnly || Boolean(snapshot);
   const isSelfOperated = channelId === 'selfOperated';
@@ -1093,7 +1097,7 @@ export default function MainTable({
             {filteredProducts.map((p, rowIndex) => {
               const savedValues = snapshot ? getFixedExportValues(p) : undefined;
               return (
-                <tr key={`${p.id}-${rowIndex}`} className={`border-b border-[#141414]/20 ${p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
+                <tr ref={p.ppv===focusPpv?focusedRowRef:undefined} aria-label={p.ppv===focusPpv?`已定位 PPV：${p.ppv}`:undefined} key={`${p.id}-${rowIndex}`} className={`border-b border-[#141414]/20 ${p.ppv===focusPpv?'bg-sky-100 [&>td]:!bg-sky-100 outline outline-2 outline-inset outline-sky-300':p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
                   {fixedCodes.map((_, index) => renderFixedCell(p, index, savedValues))}
                 </tr>
               );
@@ -1177,11 +1181,12 @@ const emptySnapshotSubsidies: SubsidyRule[] = [];
 const emptySelfSnapshotSubsidies: SelfOperatedSubsidyRule[] = [];
 const emptySnapshotSelection: string[] = [];
 
-export function SnapshotTable({ batch }: { batch: TrackingBatch }) {
+export function SnapshotTable({ batch, focusPpv }: { batch: TrackingBatch; focusPpv?: string }) {
   return (
     <MainTable
       readOnly
       snapshot={batch}
+      focusPpv={focusPpv}
       products={batch.products}
       channelId={batch.channelId || 'tradeIn'}
       marginBottomLine={batch.marginBottomLine}

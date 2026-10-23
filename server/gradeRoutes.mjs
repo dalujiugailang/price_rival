@@ -1,3 +1,4 @@
+import { resolveGradeVolume } from '../shared/gradeVolumeFallback.mjs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { canAccess, canEdit } from '../shared/accessPolicy.mjs';
@@ -63,6 +64,7 @@ export function createGradeWorkbook(run,batch=null) {
     ['工作台版本',run.request.workspaceVersion],['完整底表',run.sources.volume.fileName],['底表版本',run.sources.volume.id],
     ['数据周期',run.sources.volume.periodStart ? `${run.sources.volume.periodStart} 至 ${run.sources.volume.periodEnd}` : '文件提供的近30天汇总'],['模板文件',run.sources.template.fileName],['模板版本',run.sources.template.id],
     ['Daily Price数据日期',run.dailyPriceDate],['Daily Price查询时间',run.dailyPriceFetchedAt]], [34,105]);
+  if (run.sources.volumeFallbacks) append('成交量匹配来源', [['SKU ID','等级','成交量','底表文件','匹配方式'], ...run.rows.map(row => [row.skuId,row.level,row.soldVolume,row.activitySourceName || run.sources.volume.fileName,row.activityFallback ? '历史版本补用' : row.activitySourceId ? '所选版本' : '三版均未匹配，按0处理'])], [18,14,16,65,30]);
   if(run.pricingVersion>=3)append('未扩展SKU',[['型号','SKU ID','跳过原因'],...(run.skippedSkus||[]).map(s=>[s.model,s.skuId,s.reason])],[32,18,55]);
   if(batch&&run.isFinal&&run.investmentConfirmedAt) {
     const saved=withGradeInvestment(batch,run), contribution=saved.gradeInvestment;
@@ -153,14 +155,18 @@ export function registerGradeRoutes(app, { store, lookupPrices, getBatch = () =>
     if (parent && ['volumeId','templateId','prices','skuIds','priceChoices','subsidyRules'].some(key => JSON.stringify(parent.request[key] || (key==='subsidyRules'?[]:null)) !== JSON.stringify(request[key]))) throw new Error('更新价格必须沿用原测算输入');
     const trackingBatchId = parent?.trackingBatchId || gradeSourceBatchId(input);
     if (trackingBatchId) { requireBatch(trackingBatchId,request); request.trackingBatchId=trackingBatchId; }
-    const plan=buildGradePlan({volume:volume.data,template:template.data,...request});
+    const olderIds = parent?.sources?.volumeFallbacks
+      ? parent.sources.volumeFallbacks.map(source => source.id)
+      : store.listSources().filter(source => source.kind === 'volume' && source.createdAt < volume.createdAt).slice(0, 2).map(source => source.id);
+    const resolvedVolume = resolveGradeVolume(volume, olderIds.map(id => requireSource(id, 'volume')));
+    const plan=buildGradePlan({volume:resolvedVolume.data,template:template.data,...request});
     const daily=plan.rows.length ? await lookupPrices(plan.rows.map(r=>r.ppv)) : {rows:[],dataDate:'未查询',fetchedAt:new Date().toISOString()};
     const guarded=applyGradeMarginFloor(plan,subsidyRules,daily.rows);
     const stable=stabilizeGradeOrder(guarded,subsidyRules,daily.rows);
     const result=addGradePresentation(applyGradeStrategyPrices(stable,daily.rows),request,daily.rows);
     const run=store.createRun({...result,title:String(input.title || `等级推算 ${volume.periodEnd || new Date().toISOString().slice(0,10)}`).slice(0,100),request,
       trackingBatchId:trackingBatchId || undefined,parentRunId:parent?.id,
-      sources:{volume:{...volume,data:undefined},template},dailyPriceDate:daily.dataDate,dailyPriceFetchedAt:daily.fetchedAt},req.authUser);
+      sources:{volume:{...volume,data:undefined},volumeFallbacks:resolvedVolume.used,volumeFallbackConflicts:resolvedVolume.conflicts,template},dailyPriceDate:daily.dataDate,dailyPriceFetchedAt:daily.fetchedAt},req.authUser);
     auditRun(parent?'grade_run_refreshed':'grade_run_generated',run,req.authUser);
     res.status(201).json({run});
   }));

@@ -51,6 +51,9 @@ const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> =
       ...(options?.headers || {})
     }
   });
+  if (response.ok && !response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('服务接口返回了页面，当前前端与本地服务版本不一致，请刷新页面后重试。');
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && !url.includes('/api/auth/')) {
@@ -180,3 +183,21 @@ export const exportCompetitivenessTrends = async (payload: CompetitivenessTrendE
     fileName: fileNameFromDisposition(response.headers.get('content-disposition'))
   };
 };
+
+export const listPriceAnalysisBatches = () => requestJson<{success:boolean;batches:TrackingBatch[]}>('/api/price-analysis/batches');
+
+export interface FeishuTarget { id: string; name: string; type: 'user' | 'chat'; department?: string; nameVerified?: boolean; nameSource?: 'feishu' | 'access_member' }
+export interface FeishuReport {
+  batchId: string; channelId: string; channelName: string; date: string; title: string; typeLabel: string;
+  scope: { brand: string; newSeries: string }; scopeLabel: string; count: number;
+  metrics: Array<{ key: string; label: string; value: number | null; weight: number }>;
+  url: string; weightLabel: string; brands: string[]; series: string[];
+}
+export interface FeishuDelivery { target: FeishuTarget; status: string; messageId?: string; error?: string; reused?: boolean }
+export const feishuPushConfig = (channelId: string) => requestJson<{ configured: boolean; trialName: string; defaultRecipient: FeishuTarget | null }>(`/api/feishu-push/config?channelId=${channelId}`);
+export const searchFeishuTargets = (channelId: string, type: string, q: string) => requestJson<{ targets: FeishuTarget[]; requiresLogin?: boolean }>(`/api/feishu-push/targets?${new URLSearchParams({ channelId, type, q })}`);
+export const prepareFeishuPush = (channelId: string, batchId: string, scope: FeishuReport['scope']) => requestJson<{ report: FeishuReport & { digest: string }; batches: TrackingBatch[] }>('/api/feishu-push/prepare', { method: 'POST', body: JSON.stringify({ channelId, batchId, scope }) });
+export const previewFeishuPush = (channelId: string, batchId: string, scope: FeishuReport['scope'], digest: string, imageBase64: string) => requestJson<{ previewId: string; report: FeishuReport; imageUrl: string }>('/api/feishu-push/preview', { method: 'POST', body: JSON.stringify({ channelId, batchId, scope, digest, imageBase64 }) });
+export const sendFeishuPush = (channelId: string, previewId: string, targets: FeishuTarget[]) => requestJson<{ results: FeishuDelivery[] }>('/api/feishu-push/send', { method: 'POST', body: JSON.stringify({ channelId, previewId, targets }) });
+export const feishuPushHistory = (channelId: string) => requestJson<{ deliveries: Array<FeishuDelivery & { id: string; batchId: string; scopeLabel: string; createdAt: string }> }>(`/api/feishu-push/history?channelId=${channelId}`);
+export const getFeishuReport = (id: string) => requestJson<{ report: FeishuReport }>(`/api/feishu-push/reports/${encodeURIComponent(id)}`);

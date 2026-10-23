@@ -43,6 +43,8 @@ interface Props {
   channelId?: ChannelId;
   channelName?: string;
   revealIssueDetails?: boolean;
+  exportState?: { batchId: string; brand: string; newSeries: string };
+  exportMode?: boolean;
 }
 
 interface CompetitivenessDataPoint extends CompetitivenessMetrics {
@@ -63,6 +65,12 @@ const ZZ_TREND_METRIC_KEYS: TrendMetricKey[] = [
   'zzItemScore',
   'ahsVsZzDirectScore',
   'jdVsZzDirectScore'
+];
+
+// Shared by the interactive tracker and its push screenshot rendering.
+const DEFAULT_HIDDEN_TRADE_IN_METRICS: TrendMetricKey[] = [
+  'ahsVsTmRecyclerScore',
+  ...ZZ_TREND_METRIC_KEYS
 ];
 
 const TREND_METRIC_KEYS = new Set<TrendMetricKey>([
@@ -91,11 +99,17 @@ export default function CompetitivenessSummary({
   activeSubsidyFileName,
   channelId = 'tradeIn',
   channelName = '京东换新',
-  revealIssueDetails = false
+  revealIssueDetails = false,
+  exportState, exportMode = false
 }: Props) {
-  const [batchTypeFilter, setBatchTypeFilter] = useState('regular');
+  const linked = new URLSearchParams(location.search);
+  const linkedId = exportState?.batchId || (linked.get('channel') === channelId ? linked.get('batchId') : null);
+  const linkedBatch = allHistoryBatches.find(batch => batch.id === linkedId);
+  const [batchTypeFilter, setBatchTypeFilter] = useState(() => linkedBatch?.batchType || (linkedBatch ? 'unclassified' : allHistoryBatches.some(batch => batch.batchType === 'regular') ? 'regular' : 'unclassified'));
+  const linkedApplied = React.useRef(!!linkedBatch);
+  useEffect(() => { if (linkedApplied.current || !linkedBatch) return; linkedApplied.current = true; setBatchTypeFilter(linkedBatch.batchType || 'unclassified'); setSelectedBatchId(linkedBatch.id); }, [linkedBatch]);
   const historyBatches = useMemo(() => filterBatchScope(allHistoryBatches, batchTypeFilter), [allHistoryBatches, batchTypeFilter]);
-  // Batch type filters saved history only; keep the live workspace as the comparison endpoint.
+  // Saved batch-type filters must not hide the live workspace endpoint (PR #5).
   const currentCalculatedItems = allCurrentCalculatedItems;
   const isSelfOperated = channelId === 'selfOperated';
   const quoteWeightFieldLabel = isSelfOperated ? 'ppv近30天报价访客数' : 'ppv近30天报价量';
@@ -103,18 +117,18 @@ export default function CompetitivenessSummary({
   const quoteWeightFormulaLabel = isSelfOperated
     ? '有竞争力PPV的近30天报价访客数 / 有效竞品PPV的近30天报价访客数'
     : '有竞争力PPV的近30天报价量 / 有效竞品PPV的近30天报价量';
-  const [selectedBatchId, setSelectedBatchId] = useState<string>(ALL_BATCHES);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>(linkedId || ALL_BATCHES);
   const [trendRange, setTrendRange] = useState<TrendRange>('recent15');
   const [hiddenTrendMetrics, setHiddenTrendMetrics] = useState<Set<TrendMetricKey>>(
-    () => new Set(isSelfOperated ? [] : ZZ_TREND_METRIC_KEYS)
+    () => new Set(isSelfOperated ? [] : DEFAULT_HIDDEN_TRADE_IN_METRICS)
   );
-  const [selectedBrand, setSelectedBrand] = useState(ALL_BRANDS);
-  const [selectedSeries, setSelectedSeries] = useState(ALL_SERIES);
+  const [selectedBrand, setSelectedBrand] = useState(exportState?.brand || (linkedId ? linked.get('brand') || ALL_BRANDS : ALL_BRANDS));
+  const [selectedSeries, setSelectedSeries] = useState(exportState?.newSeries || (linkedId ? linked.get('newSeries') || ALL_SERIES : ALL_SERIES));
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState('');
 
   useEffect(() => {
-    setHiddenTrendMetrics(new Set(isSelfOperated ? [] : ZZ_TREND_METRIC_KEYS));
+    setHiddenTrendMetrics(new Set(isSelfOperated ? [] : DEFAULT_HIDDEN_TRADE_IN_METRICS));
   }, [isSelfOperated]);
 
   const handleTrendLegendClick = (entry: LegendPayload) => {
@@ -265,7 +279,7 @@ export default function CompetitivenessSummary({
             横向度量本司回收报价能否压制竞对。百分比按 {quoteWeightFieldLabel} 加权，越高代表高流量 PPV 的报价竞争力越强。
           </p>
         </div>
-        <div className="text-[11px] font-bold border border-[#141414] bg-white text-black px-3 py-1">
+        <div className="shrink-0 whitespace-nowrap text-[11px] font-bold border border-[#141414] bg-white text-black px-3 py-1">
           正式落数：{confirmedBatches.length} 期
         </div>
       </div>
@@ -409,8 +423,8 @@ export default function CompetitivenessSummary({
               横坐标为每次批次更新节点，纵坐标为“{quoteWeightFormulaLabel}”。
             </p>
           </div>
-          <div className="flex flex-nowrap items-center gap-2 overflow-hidden">
-            <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold">批次类型 <select aria-label="走势批次类型" value={batchTypeFilter} onChange={event => { setBatchTypeFilter(event.target.value); setSelectedBatchId(ALL_BATCHES); }} className="w-28 border border-[#141414] bg-white px-1.5 py-1.5"><option value="regular">常规期</option><option value="launch">发新期</option></select></label>
+          {!exportMode && <div className="flex flex-nowrap items-center gap-2 overflow-hidden">
+            <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-bold">批次类型 <select aria-label="走势批次类型" value={batchTypeFilter} onChange={event => { setBatchTypeFilter(event.target.value); setSelectedBatchId(ALL_BATCHES); }} className="w-28 border border-[#141414] bg-white px-1.5 py-1.5"><option value="regular">常规期</option><option value="launch">发新期</option><option value="unclassified">未分类（历史）</option></select></label>
             <label className="flex min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-xs font-bold text-stone-700">
               <span className="shrink-0">数据范围</span>
               <select
@@ -464,14 +478,15 @@ export default function CompetitivenessSummary({
             )}
             <button
               type="button"
-              data-tour="trend-export" onClick={handleExport}
+              style={exportMode ? {display:'none'} : undefined} data-tour="trend-export" onClick={handleExport}
               disabled={isExporting || timelineData.length === 0}
               className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold text-[#141414] hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
               {isExporting ? '导出中...' : '导出Excel'}
             </button>
-          </div>
+          </div>}
+          {exportMode && <p className="text-xs text-stone-600">{scopeLabel} · {trendRange === 'recent15' ? '近15次追价' : '全部期次'}</p>}
           {exportError && <p className="text-[11px] font-bold text-red-700">{exportError}</p>}
         </div>
 
@@ -534,7 +549,7 @@ export default function CompetitivenessSummary({
               />
               <Legend
                 verticalAlign="bottom"
-                height={36}
+                height={exportMode ? 70 : 36}
                 iconType="rect"
                 itemSorter={() => 0}
                 onClick={handleTrendLegendClick}
@@ -548,7 +563,7 @@ export default function CompetitivenessSummary({
                 )}
                 wrapperStyle={{ fontSize: 11, fontWeight: 'bold', paddingTop: 10, cursor: 'pointer', userSelect: 'none' }}
               />
-              {!isSelfOperated && <Line
+              {!isSelfOperated && <Line isAnimationActive={!exportMode}
                 type="monotone"
                 dataKey="tmItemScore"
                 name="天猫物品价竞争力"
@@ -557,7 +572,7 @@ export default function CompetitivenessSummary({
                 strokeWidth={3}
                 activeDot={{ r: 8 }}
               />}
-              {!isSelfOperated && <Line
+              {!isSelfOperated && <Line isAnimationActive={!exportMode}
                 type="monotone"
                 dataKey="ahsVsTmRecyclerScore"
                 name="AHS补贴后 vs TM回收商补贴后"
@@ -566,7 +581,7 @@ export default function CompetitivenessSummary({
                 strokeWidth={3}
                 activeDot={{ r: 8 }}
               />}
-              {!isSelfOperated && <Line
+              {!isSelfOperated && <Line isAnimationActive={!exportMode}
                 type="monotone"
                 dataKey="tmDirectScore"
                 name="天猫到手价竞争力"
@@ -575,7 +590,7 @@ export default function CompetitivenessSummary({
                 strokeWidth={2}
                 strokeDasharray="4 4"
               />}
-              <Line
+              <Line isAnimationActive={!exportMode}
                 type="monotone"
                 dataKey="zzItemScore"
                 name="转转物品价竞争力"
@@ -583,7 +598,7 @@ export default function CompetitivenessSummary({
                 stroke="#134E4A"
                 strokeWidth={2}
               />
-              <Line
+              <Line isAnimationActive={!exportMode}
                 type="monotone"
                 dataKey="ahsVsZzDirectScore"
                 name="物品价+ahs补贴 vs 转转到手价"
@@ -592,7 +607,7 @@ export default function CompetitivenessSummary({
                 strokeWidth={3}
                 activeDot={{ r: 8 }}
               />
-              {!isSelfOperated && <Line
+              {!isSelfOperated && <Line isAnimationActive={!exportMode}
                 type="monotone"
                 dataKey="jdVsZzDirectScore"
                 name="京东到手价 vs 转转到手价"
@@ -631,6 +646,7 @@ export default function CompetitivenessSummary({
             <span className="border border-stone-300 bg-white px-4 py-2">当前筛选暂无有效竞争力数据</span>
           </div>}
           <div
+            style={exportMode ? {display:'none'} : undefined}
             className="absolute bottom-[13px] left-0 z-10 inline-flex border border-[#141414] bg-white"
             role="group"
             data-tour="trend-range" aria-label="趋势展示范围"
@@ -658,7 +674,7 @@ export default function CompetitivenessSummary({
       </div>
 
       {/* Model Breakdown Inspection List */}
-      <div data-tour="trend-audit" className="space-y-4">
+      {!exportMode && <div data-tour="trend-audit" className="space-y-4">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
           <div>
             <h4 className="font-bold text-[#141414] text-xs uppercase tracking-wider">
@@ -855,7 +871,7 @@ export default function CompetitivenessSummary({
             </details>
           </div>
         ) : <div className="border border-stone-300 p-6 text-center text-xs text-stone-500">当前筛选暂无有效批次明细。</div>}
-      </div>
+      </div>}
     </div>
   );
 }

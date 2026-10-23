@@ -67,3 +67,7 @@ assert.doesNotMatch(missingArchive, /file-base-new/, 'a missing latest original 
 assert.match(missingArchive, /file-subsidy-new/);
 
 console.log('Snapshot source files: hidden by default, latest per type, upload history and missing originals passed.');
+
+assert.match(ordinary, /aria-label="上传流量表"/);
+assert.match(ordinary, /aria-label="上传成交表"/);
+assert.match(ordinary, /<button[^>]*disabled=""[^>]*>生成<\/button>/);

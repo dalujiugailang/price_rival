@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import DailyAdvicePanel from './DailyAdvicePanel';
+import {TrackingBatch,CalculatedProduct} from '../types';
+const batch={id:'test',date:'2026-10-22',products:[{ppv:'P',oldModel:'测试型号',recommendJdPrice:120,tmPrice:110,postJdHandPrice:150,tmHandPrice:150} as CalculatedProduct]} as TrackingBatch;
+const rows=[{ppv:'P',brand:'华为',newSeries:'Mate',type:'补贴竞争力不足',owner:'京东换新渠道方',gap:0,detail:'到手价持平'}];
+const html=renderToStaticMarkup(<DailyAdvicePanel batch={batch} rows={rows} onOpenSnapshot={()=>{}}/>);
+assert.ok(html.includes('到手价持平，仍需争取超过'));
+assert.ok(html.includes('品牌分布 / 建议条数')&&html.includes('导出当前建议'));
+assert.ok(html.includes('定位快照')&&html.replace(/<[^>]*>/g,'').includes('150/150'));
+assert.ok(html.includes('缺口不是总投入或销量影响'));
+assert.equal((html.match(/aria-pressed="false"/g)||[]).length,5);
+console.log('Daily advice dashboard: categories, zero-gap subsidy, comparable prices and traceability passed.');
