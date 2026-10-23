@@ -81,6 +81,7 @@ export function buildGradePlan({ volume, template, prices, skuIds, priceChoices 
       const targetPrice = previous?.price ?? anchor.price * rule.ratio / anchorRule.ratio;
       const price = previous?.price ?? roundUploadPrice(targetPrice);
       const status = [];
+      if (volumeRow?.activityFallback) status.push(`成交量补用历史底表：${volumeRow.activitySourceName}`);
       if (previous && Math.abs(previous.price - roundUploadPrice(anchor.price * rule.ratio / anchorRule.ratio)) > 0.01) status.push('保留已定价');
       if (rule.rank >= coverageRank + 6) status.push('六档外已定价');
       rows.push({ model, sku, skuId, ppv, level: rule.level, rank: rule.rank, template: templateName,
@@ -88,6 +89,7 @@ export function buildGradePlan({ volume, template, prices, skuIds, priceChoices 
         ratio: rule.ratio, anchorPpv: anchor.ppv, anchorPrice: anchor.price, anchorRatio: anchorRule.ratio,
         origin: previous ? '重点追价' : '等级推算', targetPrice: money(targetPrice), price,
         quoteVolume: volumeRow?.quoteVolume ?? 0, soldVolume: volumeRow?.soldVolume ?? 0,
+        activitySourceId:volumeRow?.activitySourceId, activitySourceName:volumeRow?.activitySourceName, activityFallback:volumeRow?.activityFallback || false,
         strategyPrice: null, adjustment: null, investment: null, status });
     }
   }

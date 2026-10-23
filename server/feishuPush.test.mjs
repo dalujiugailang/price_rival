@@ -1,0 +1,64 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import express from 'express';
+import sharp from 'sharp';
+import { buildReport, prepareTracker, reportCard } from './feishuReport.mjs';
+import { createPushStore } from './feishuPushStore.mjs';
+import { registerFeishuPushRoutes } from './feishuPushRoutes.mjs';
+import { createFeishuClient } from './feishuClient.mjs';
+import { safeReturnTo } from './auth.mjs';
+const product = {brand:'华为',newSeries:'Mate 80',quoteVolume:90,tmPrice:100,tmHandPrice:120,tmRecyclerQuotedPrice:110,zzPrice:95,zzHandPrice:130,postTmItemWin:true,postTmHandWin:false,postAhsTmRecyclerWin:true,postZzItemWin:true,postAhsZzHandWin:false,postJdZzHandWin:true};
+const fixture=()=>({id:'batch-1',channelId:'tradeIn',date:'2026-10-22',batchType:'launch',isCompetitivenessConfirmed:true,products:[product,{...product,brand:'小米',quoteVolume:10,postTmItemWin:false}]});
+test('report preserves weighted scope, missing denominators, aliases and immutable PNG/card content',async()=>{
+ const b=fixture(), r=buildReport(b,{},'https://price.example');assert.equal(r.metrics[0].value,90);
+ assert.equal(buildReport(b,{brand:'华为'},'https://price.example').metrics[0].value,100);
+ assert.equal(buildReport({...b,competitivenessMetrics:{tmItemScore:90}},{},'https://price.example').metrics.find(m=>m.key==='ahsVsTmRecyclerScore').value,null,'missing saved metric must match tracker, not become zero');
+ assert.equal(buildReport({...b,products:[{...product,quoteVolume:0}]},{},'https://price.example').metrics[0].value,null);
+ assert.throws(()=>buildReport({...b,isCompetitivenessConfirmed:false},{},'https://price.example'),/确认/);
+ assert.throws(()=>buildReport(b,{brand:'不存在'},'https://price.example'),/没有明细/);
+ const self=buildReport({...b,channelId:'selfOperated'},{},'https://price.example');assert.equal(self.metrics.length,2);
+ const png=await sharp({create:{width:1280,height:900,channels:3,background:'white'}}).png().toBuffer();assert.equal((await sharp(png).metadata()).width,1280);
+ assert.equal(prepareTracker({listBatches:()=>[b]},b,{},'https://price.example').batches[0].products[0].brand,'华为');
+ const apple={...b,products:[{...product,brand:'Apple',rawFields:{'品牌名称':'苹果'}}]};const prepared=prepareTracker({listBatches:()=>[apple]},apple,{brand:'苹果'},'https://price.example');assert.equal(buildReport({...apple,products:prepared.batches[0].products},{brand:'苹果'},'https://price.example').metrics[0].value,100);
+ assert.match(JSON.stringify(reportCard(r,'img_test','运营','2026/10/22')),/查看本批次详情/);
+ assert.equal(safeReturnTo('//evil.example'),'/');assert.equal(safeReturnTo('/\\evil.example'),'/');assert.equal(safeReturnTo('/?tab=competitiveness&batchId=x'),'/?tab=competitiveness&batchId=x');
+});
+test('client uses app token, uploads PNG and sends bot card to correct id type without retry',async()=>{
+ const calls=[];
+ const client=createFeishuClient({env:{FEISHU_APP_ID:'test-app',FEISHU_APP_SECRET:'test-secret'},fetchImpl:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=> url.includes('tenant_access')?{code:0,tenant_access_token:'token',expire:7200}:url.includes('/images')?{code:0,data:{image_key:'image'}}:{code:0,data:{message_id:'message'}}};}});
+ await client.uploadImage(Buffer.from('png'));await client.send({type:'user',id:'ou_example'},{header:{}},'unique');await client.send({type:'chat',id:'oc_example'},{},'unique2');
+ assert.equal(calls.filter(c=>c.url.includes('tenant_access')).length,1);assert.match(calls[2].url,/receive_id_type=open_id/);assert.match(calls[3].url,/receive_id_type=chat_id/);assert.equal(JSON.parse(calls[2].options.body).msg_type,'interactive');
+});
+test('routes enforce privileges, freeze results, prevent concurrent and repeated delivery, preserve unknown outcomes',async()=>{
+ const directory=mkdtempSync(path.join(os.tmpdir(),'feishu-push-test-')),store=createPushStore(path.join(directory,'test.sqlite'));
+ let batch=fixture(),sendCalls=0,uploadCalls=0,deny=false;const audit=[];
+ const app=express();app.use(express.json());
+ app.use((req,res,next)=>{req.authUser=req.headers['x-viewer']?{openId:'ou_viewer',role:'viewer',scopes:['tradeIn.competitiveness']}:{openId:'ou_actor',name:'运营',role:'admin'};next();});
+ registerFeishuPushRoutes(app,{store,db:{getBatch:()=>batch,listBatches:()=>[batch],listMembers:()=>[{openId:'ou_chen',name:'陈誉钧',department:'回收策略部',enabled:true}],writeAudit:r=>audit.push(r)},auth:{requestContext:req=>({actor:req.authUser}),searchDirectory:async()=>({users:[{openId:'ou_luoyi',name:'骆意'}]}),lookupMessageRecipient:async id=>({openId:id,name:'骆意'})},appUrl:'https://price.example',client:{configured:true,groups:async()=>[{id:'oc_group',name:'业务群',type:'chat'}],uploadImage:async()=>{uploadCalls++;return 'img';},send:async()=>{sendCalls++;await new Promise(resolve=>setTimeout(resolve,30));if(deny)throw new Error('timeout');return 'om_sent';}}});
+ const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));const root=`http://127.0.0.1:${server.address().port}`;
+ const request=async(url,body,viewer=false)=>{const response=await fetch(root+url,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(viewer?{'x-viewer':'true'}:{})},body:body?JSON.stringify(body):undefined});return {status:response.status,body:await response.json()};};
+ try {
+  const config=(await request('/api/feishu-push/config?channelId=tradeIn')).body;
+  assert.deepEqual(config.defaultRecipient,{id:'ou_chen',name:'陈誉钧',department:'回收策略部',type:'user'});
+  assert.equal((await request('/api/feishu-push/preview',{channelId:'tradeIn',batchId:'batch-1'},true)).status,403);
+  const imageBase64=(await sharp({create:{width:1280,height:900,channels:3,background:'white'}}).png().toBuffer()).toString('base64');
+  const prep=(await request('/api/feishu-push/prepare',{channelId:'tradeIn',batchId:'batch-1'})).body;
+  assert.equal((await request('/api/feishu-push/preview',{channelId:'tradeIn',batchId:'batch-1',digest:'stale',imageBase64})).status,400);
+  const p=(await request('/api/feishu-push/preview',{channelId:'tradeIn',batchId:'batch-1',digest:prep.report.digest,imageBase64})).body;assert.match(p.report.url,/reportId=/);
+  assert.equal((await request(`/api/feishu-push/reports/${p.previewId}`,undefined,true)).status,403);
+  const body={channelId:'tradeIn',previewId:p.previewId,targets:[{type:'user',id:'ou_luoyi',name:'wrong client name'}]};
+  const both=await Promise.all([request('/api/feishu-push/send',body),request('/api/feishu-push/send',body)]);assert.equal(sendCalls,1);assert.ok(both.some(r=>r.body.results[0].status==='sent'));
+  assert.equal((await request('/api/feishu-push/send',body)).body.results[0].reused,true);assert.equal(sendCalls,1);
+  const read=await request(`/api/feishu-push/reports/${p.previewId}`,undefined,true);assert.equal(read.status,200);
+  batch={...batch,products:[{...product,quoteVolume:0}]};assert.equal((await request('/api/feishu-push/send',body)).status,400);assert.equal((await request(`/api/feishu-push/reports/${p.previewId}`,undefined,true)).body.report.metrics[0].value,90);
+  const prep2=(await request('/api/feishu-push/prepare',{channelId:'tradeIn',batchId:'batch-1'})).body;
+  const p2=(await request('/api/feishu-push/preview',{channelId:'tradeIn',batchId:'batch-1',digest:prep2.report.digest,imageBase64})).body;
+  const bad=await request('/api/feishu-push/send',{...body,previewId:p2.previewId,targets:[{type:'chat',id:'oc_not_joined'}]});assert.equal(bad.status,400);
+  deny=true;const unknown={...body,previewId:p2.previewId,targets:[{type:'chat',id:'oc_group'}]};assert.equal((await request('/api/feishu-push/send',unknown)).body.results[0].status,'unknown');await request('/api/feishu-push/send',unknown);assert.equal(sendCalls,2);
+  assert.equal(audit.length,2);assert.ok(uploadCalls>=2);
+ } finally {await new Promise(resolve=>server.close(resolve));store.close();}
+ const reopened=createPushStore(path.join(directory,'test.sqlite'));assert.equal(reopened.history('tradeIn').length,2);reopened.close();
+});

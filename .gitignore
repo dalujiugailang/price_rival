@@ -10,3 +10,6 @@ deploy-backups/
 *.log
 .env*
 !.env.example
+
+# Local business exports and acceptance artifacts
+output/

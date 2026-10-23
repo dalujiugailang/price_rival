@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import ProfitComparison from './ProfitComparison';
+const html=renderToStaticMarkup(<ProfitComparison current={-.0135} target={-.2078} floor={.02} ceiling={2740}/>);
+assert.ok(html.includes('3.35pp')&&html.includes('19.43pp'),'derive gaps from real values');
+assert.ok(html.includes('-20.78%')&&html.includes('不建议追价'));
+const missing=renderToStaticMarkup(<ProfitComparison current={null} target={null} floor={.02} ceiling={null}/>);
+assert.ok(missing.includes('历史规则不足，待核验')&&!missing.includes('不建议追价'));
+console.log('Profit comparison: actual margin gaps and missing-data boundaries passed.');
+assert.ok(html.includes('显示风险区间')&&html.includes('展开计算详情'));
+assert.ok(html.includes('aria-pressed="true"'));
+assert.ok(!html.includes('情景模拟')&&!html.includes('type="range"')&&!html.includes('提交人工评估'));
+assert.ok(missing.includes('利润待核验')&&!missing.includes('利润率达标'));
+const extreme=renderToStaticMarkup(<ProfitComparison current={-.7} target={-.8} floor={-.05} ceiling={100}/>);
+assert.ok(extreme.includes('-80.00%'),'range includes extreme saved values without clipping');
+assert.ok(!extreme.includes('NaN'));
+console.log('Source UI integration: percent conversion, controls, no simulator, missing and extreme data passed.');

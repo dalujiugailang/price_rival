@@ -37,7 +37,8 @@
     "start": "node server/index.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:feishu-push": "node --test server/feishuPush.test.mjs server/feishuRecipient.test.mjs"
   },
   "dependencies": {
     "@office-kit/xlsx": "0.9.0",
@@ -46,12 +47,14 @@
     "compression": "^1.8.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^0.546.0",
     "lz-string": "^1.5.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.8.1",
+    "sharp": "^0.35.5",
     "vite": "^6.2.3",
     "xlsx": "^0.18.5"
   },

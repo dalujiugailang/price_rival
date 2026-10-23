@@ -36,6 +36,8 @@ type PpvAggregationRow = {
 
 type PpvAggregationResult = {
   sourceRows: number;
+  fullRows: PpvAggregationRow[];
+  audit: string;
   outputRows: PpvAggregationRow[];
   descriptionMatchedRows: number;
 };
@@ -455,33 +457,63 @@ const getPpvAggregationExportName = (channelId: ChannelId) => {
   return `${dateText}_竞争型号ppv${channelId === 'selfOperated' ? '报价访客数' : '报价量'}Top2筛选_v${version}.xlsx`;
 };
 
-const buildPpvAggregation = async (
+export const buildPpvAggregation = async (
   file: File,
+  soldFile: File,
   channelId: ChannelId,
   inquiryDescriptions: Map<string, string> = PPV_INQUIRY_DESCRIPTIONS
 ): Promise<PpvAggregationResult> => {
   const quoteFieldLabel = channelId === 'selfOperated' ? '报价访客数' : '报价量';
-  const parsed = await parseWorkbook(file, ['商品型号', '商品SKUID', '商品SKU', '商品LEVEL', quoteFieldLabel, '成交量']);
+  const parsed = await parseWorkbook(file, ['商品型号', '商品SKUID', '商品SKU', '商品LEVEL', quoteFieldLabel]);
+  const sold = await parseWorkbook(soldFile, ['质检SKUID', '质检LEVEL', '成交订单量']);
+  for (const [sheet, fields] of [[parsed, ['商品型号', '商品SKUID', '商品SKU', '商品LEVEL', quoteFieldLabel]], [sold, ['质检SKUID', '质检LEVEL', '成交订单量']]] as const) {
+    for (const field of fields) {
+      if (!hasExactField(sheet.headers, [field])) throw new Error(`${sheet.fileName} 缺少精确字段：${field}`);
+    }
+  }
+  const keyFor = (skuId: string, level: string) => JSON.stringify([skuId.trim(), normalize(level)]);
+  const count = (value: CellValue, label: string) => {
+    const text = String(value ?? '').trim().replace(/,/g, '');
+    const number = Number(text);
+    if (!text || !Number.isSafeInteger(number) || number < 0) throw new Error(`${label}必须是非负整数`);
+    return number;
+  };
+  const soldByKey = new Map<string, number>();
+  const soldIdentity = new Map<string, {model: string; sku: string; skuId: string; level: string}>();
+  sold.records.forEach((record, index) => {
+    const skuId = toText(getExactField(record, ['质检SKUID']));
+    const level = toText(getExactField(record, ['质检LEVEL']));
+    if (!skuId || !level) throw new Error(`成交表第 ${index + 2} 行缺少质检SKUID或质检LEVEL`);
+    const key = keyFor(skuId, level);
+    const model = toText(getExactField(record, ['质检型号']));
+    const sku = toText(getExactField(record, ['质检SKU']));
+    const previous = soldIdentity.get(key);
+    if (previous && (previous.model !== model || previous.sku !== sku)) throw new Error(`成交表SKUID ${skuId} 同等级对应多个型号或SKU`);
+    soldIdentity.set(key, {model, sku, skuId, level: level.replace(/\s+/g, '').toUpperCase()});
+    soldByKey.set(key, (soldByKey.get(key) || 0) + count(getExactField(record, ['成交订单量']), `成交表第 ${index + 2} 行成交订单量`));
+  });
+  if (!sold.records.length) throw new Error('成交表没有有效数据行');
   if (!hasExactField(parsed.headers, ['商品SKU', '商品sku'])) {
     throw new Error('底表缺少精确字段：商品SKU。ppv 必须按 商品LEVEL&商品SKU 生成，不能使用商品SKUID。');
   }
   const grouped = new Map<string, PpvAggregationRow>();
 
-  parsed.records.forEach(record => {
+  parsed.records.forEach((record, index) => {
     const model = toText(getField(record, ['商品型号']));
     const skuId = toText(getField(record, ['商品SKUID', '商品sku id', 'skuid']));
     const sku = toText(getExactField(record, ['商品SKU', '商品sku']));
-    const level = toText(getField(record, ['商品LEVEL', '商品level', 'level']));
-    const quoteVolume = toNumber(getField(record, [quoteFieldLabel]));
-    const soldVolume = toNumber(getField(record, ['成交量']));
+    const level = toText(getExactField(record, ['商品LEVEL'])).replace(/\s+/g, '').toUpperCase();
+    const quoteVolume = count(getExactField(record, [quoteFieldLabel]), `流量表第 ${index + 2} 行${quoteFieldLabel}`);
+    const soldVolume = 0;
     const ppv = `${level}${sku}`;
     const inquiryDescription = inquiryDescriptions.get(normalize(level)) || '';
 
-    if (!model || !sku || !level || !ppv) return;
+    if (!model || !skuId || !sku || !level) throw new Error(`流量表第 ${index + 2} 行缺少型号、SKUID、SKU或LEVEL`);
 
-    const key = [model, ppv, skuId, level].join('\u0001');
+    const key = keyFor(skuId, level);
     const current = grouped.get(key);
     if (current) {
+      if (current.model !== model || current.ppv !== ppv) throw new Error(`SKUID ${skuId} 的同一等级对应多个型号或SKU名称，请核对`);
       current.quoteVolume += quoteVolume;
       current.soldVolume += soldVolume;
       return;
@@ -499,6 +531,16 @@ const buildPpvAggregation = async (
     });
   });
 
+  let matchedKeys = 0;
+  let matchedSold = 0;
+  grouped.forEach((row, key) => {
+    row.soldVolume = soldByKey.get(key) || 0;
+    if (soldByKey.has(key)) matchedKeys++;
+    matchedSold += row.soldVolume;
+  });
+  const unmatched = [...soldByKey.entries()].filter(([key]) => !grouped.has(key));
+  const totalSold = [...soldByKey.values()].reduce((a, b) => a + b, 0);
+  const audit = `流量表 ${parsed.records.length} 行、${grouped.size} 个组合；成交表 ${sold.records.length} 行、${soldByKey.size} 个组合、成交量 ${totalSold}；匹配 ${matchedKeys} 个组合、成交量 ${matchedSold}；仅流量表 ${grouped.size - matchedKeys} 个组合成交量记0；仅成交表 ${unmatched.length} 个组合、成交量 ${totalSold - matchedSold}，已纳入完整汇总表，报价量记0，不进入Top2候选。` + (unmatched.length ? `未匹配SKUID+LEVEL：${unmatched.map(([key]) => JSON.parse(key).join(' + ')).join('、')}。` : '');
   const byModel = new Map<string, PpvAggregationRow[]>();
   grouped.forEach(row => {
     const rows = byModel.get(row.model) || [];
@@ -510,14 +552,26 @@ const buildPpvAggregation = async (
     .sort(([left], [right]) => left.localeCompare(right, 'zh-Hans-u-kn-true'))
     .flatMap(([, rows]) => selectTopPpvRows(rows));
 
+  const fullRows = [...grouped.values()];
+  for (const [key, soldVolume] of unmatched) {
+    const identity = soldIdentity.get(key)!;
+    const existing = fullRows.find(row => row.skuId === identity.skuId);
+    const model = identity.model || existing?.model || '';
+    const sku = identity.sku || (existing ? existing.ppv.slice(existing.level.length) : '');
+    if (!model || !sku) throw new Error(`成交表独有SKUID ${identity.skuId} 缺少质检型号或质检SKU，无法生成完整并集`);
+    if (existing && (normalize(existing.model) !== normalize(model) || normalize(existing.ppv.slice(existing.level.length)) !== normalize(sku))) throw new Error(`成交表SKUID ${identity.skuId} 的型号或SKU与流量表不一致`);
+    fullRows.push({model, skuId: identity.skuId, level: identity.level, ppv: `${identity.level}${sku}`, quoteVolume: 0, soldVolume, inquiryDescription: inquiryDescriptions.get(normalize(identity.level)) || '', zzPriceValue: ''});
+  }
   return {
     sourceRows: parsed.records.length,
+    fullRows,
+    audit,
     outputRows,
     descriptionMatchedRows: outputRows.filter(row => row.inquiryDescription).length
   };
 };
 
-const exportPpvAggregationWorkbook = (rows: PpvAggregationRow[], channelId: ChannelId) => {
+const exportPpvAggregationWorkbook = (rows: PpvAggregationRow[], channelId: ChannelId, fullRows: PpvAggregationRow[]) => {
   const headers = channelId === 'selfOperated'
     ? ['旧机型号', 'ppv', '商品SKUID', '商品LEVEL', 'ppv近30天报价访客数', 'ppv近30天成交量', '询价说明', 'zz裸机价']
     : ['新机系列', '旧机型号', 'ppv', '商品SKUID', '商品LEVEL', 'ppv近30天报价量', 'ppv近30天成交量', '询价说明', 'tm裸机价', 'tm总补贴-人工', 'zz裸机价'];
@@ -575,6 +629,10 @@ const exportPpvAggregationWorkbook = (rows: PpvAggregationRow[], channelId: Chan
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['商品型号', '商品SKUID', '商品SKU', '商品LEVEL', channelId === 'selfOperated' ? '报价访客数' : '报价量', '成交量'],
+    ...fullRows.map(row => [row.model, row.skuId, row.ppv.slice(row.level.length), row.level, row.quoteVolume, row.soldVolume])
+  ]), '完整汇总表');
   XLSX.writeFile(workbook, getPpvAggregationExportName(channelId));
 };
 
@@ -621,14 +679,19 @@ export default function UploadSection({
   const [error, setError] = useState('');
   const [dailyApiStatus, setDailyApiStatus] = useState('');
   const [ppvAggregationStatus, setPpvAggregationStatus] = useState('');
-  const [savedPpvSource, setSavedPpvSource] = useState<GradeSource | null>(null);
+  const [ppvFlowFile, setPpvFlowFile] = useState<File | null>(null);
+  const [ppvSoldFile, setPpvSoldFile] = useState<File | null>(null);
+  useEffect(() => { setPpvFlowFile(null); setPpvSoldFile(null); setPpvAggregationStatus(''); }, [channelId]);
+  const [ppvSources, setPpvSources] = useState<GradeSource[]>([]);
+  const latestMergedPpvSource = ppvSources.find(source => /^(PPV流量成交汇总_|成交匹配_)/.test(source.fileName));
   const snapshotFiles = (['base', 'subsidy'] as const)
     .map(type => restoredSnapshotFiles?.uploadRecords.find(record => record.type === type))
     .filter((record): record is SourceUploadRecord => Boolean(record?.sourceFileId));
   useEffect(() => {
     let live = true;
+    setPpvSources([]);
     if (channelId === 'tradeIn') void listGradeSources().then(result => {
-      if (live) setSavedPpvSource(result.sources.find(source => source.kind === 'volume') || null);
+      if (live) setPpvSources(result.sources.filter(source => source.kind === 'volume'));
     }).catch(() => undefined);
     return () => { live = false; };
   }, [channelId]);
@@ -717,19 +780,25 @@ export default function UploadSection({
     }
   };
 
-  const handlePpvAggregation = async (file: File | undefined) => {
-    if (!file) return;
+  const handlePpvAggregation = async () => {
+    if (!ppvFlowFile || !ppvSoldFile) return;
     setBusyType('ppv聚合工具');
     setError('');
     setPpvAggregationStatus('');
     try {
-      if (channelId === 'tradeIn') {
-        const stored = await uploadGradeSource(file, 'volume');
-        setSavedPpvSource(stored.source);
+      const result = await buildPpvAggregation(ppvFlowFile, ppvSoldFile, channelId);
+      if (channelId === 'tradeIn' && result.fullRows.length) {
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+          ['商品型号', '商品SKUID', '商品SKU', '商品LEVEL', '报价量', '成交量'],
+          ...result.fullRows.map(row => [row.model, row.skuId, row.ppv.slice(row.level.length), row.level, row.quoteVolume, row.soldVolume])
+        ]), '完整底表');
+        const mergedFile = new File([XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })], `PPV流量成交汇总_${new Date().toISOString().replace(/[:.]/g, '-')}.xlsx`);
+        const stored = await uploadGradeSource(mergedFile, 'volume');
+        setPpvSources(previous => [stored.source, ...previous.filter(source => source.id !== stored.source.id)]);
       }
-      const result = await buildPpvAggregation(file, channelId);
       if (result.outputRows.length === 0) {
-        throw new Error(`没有生成可导出的聚合结果，请检查商品型号、商品SKU、商品LEVEL、${isSelfOperated ? '报价访客数' : '报价量'}、成交量字段。`);
+        throw new Error(`没有生成可导出的聚合结果，请检查商品型号、商品SKU、商品LEVEL、${isSelfOperated ? '报价访客数' : '报价量'}字段。`);
       }
       let zzPriceResult: PpvAggregationZzPriceResult;
       let lookupWarning = '';
@@ -738,8 +807,8 @@ export default function UploadSection({
         zzPriceResult = { rows: result.outputRows, apiMatchedRows: 0 };
         lookupWarning = `；ZZ券前价查询未完成：${lookupError instanceof Error ? lookupError.message : '请求失败'}，已导出Top2，可稍后补查`;
       }
-      exportPpvAggregationWorkbook(zzPriceResult.rows, channelId);
-      setPpvAggregationStatus(`已读取 ${result.sourceRows} 行底表，剔除商品LEVEL为S的PPV后，按${isSelfOperated ? '报价访客数' : '报价量'}占比75%+成交量占比25%的综合得分Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果；匹配询价说明 ${result.descriptionMatchedRows} 行，API拉取到ZZ券前价并标记“无需爬价” ${zzPriceResult.apiMatchedRows} 行。${lookupWarning}`);
+      exportPpvAggregationWorkbook(zzPriceResult.rows, channelId, result.fullRows);
+      setPpvAggregationStatus(`${result.audit}已读取 ${result.sourceRows} 行底表，剔除商品LEVEL为S的PPV后，按${isSelfOperated ? '报价访客数' : '报价量'}占比75%+成交量占比25%的综合得分Top2输出 ${result.outputRows.length} 行 Sheet1 聚合结果；匹配询价说明 ${result.descriptionMatchedRows} 行，API拉取到ZZ券前价并标记“无需爬价” ${zzPriceResult.apiMatchedRows} 行。${lookupWarning}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ppv聚合导出失败');
     } finally {
@@ -859,14 +928,45 @@ export default function UploadSection({
               <details className="relative">
                 <summary
                   className="flex size-4 cursor-pointer list-none items-center justify-center border border-[#141414] bg-[#F0EFEC] text-[10px] font-black leading-none hover:bg-[#141414] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#141414]/30 [&::-webkit-details-marker]:hidden"
-                  aria-label="查看询价说明匹配规则"
-                  title="查看询价说明匹配规则"
+                  aria-label="查看Top2筛选与询价说明规则"
+                  title="查看Top2筛选与询价说明规则"
                 >
                   ?
                 </summary>
-                <div className="absolute left-0 top-6 z-30 w-[520px] max-w-[calc(100vw-3rem)] border border-[#141414] bg-white shadow-[4px_4px_0_#141414]">
-                  <div className="border-b border-[#141414] bg-[#F0EFEC] px-3 py-2 text-xs font-black">询价说明匹配规则</div>
-                  <div className="max-h-[420px] overflow-y-auto">
+                <div className="absolute left-0 top-6 z-30 max-h-[70vh] w-[520px] max-w-[calc(100vw-3rem)] overflow-y-auto border border-[#141414] bg-white shadow-[4px_4px_0_#141414]">
+                  <div className="border-b border-[#141414] bg-[#F0EFEC] px-3 py-2 text-xs font-black">Top2筛选与询价说明规则</div>
+                  <div className="space-y-4 border-b border-[#141414]/20 px-4 py-3 text-[11px] leading-relaxed text-[#141414]/75">
+                    <section className="space-y-2">
+                      <h4 className="font-bold text-[#141414]">01 · 上传与匹配</h4>
+                      <div className="space-y-2 border border-[#141414]/10 bg-[#F7F7F5] p-2.5">
+                        <p><strong className="text-[#141414]">流量表</strong><br />商品型号 / 商品SKUID / 商品SKU / 商品LEVEL / {isSelfOperated ? '报价访客数' : '报价量'}</p>
+                        <p><strong className="text-[#141414]">成交表</strong><br />质检型号 / 质检SKUID / 质检SKU / 质检LEVEL / 成交订单量</p>
+                      </div>
+                      <ul className="list-disc space-y-1 pl-4">
+                        <li>两表按 <strong className="text-[#141414]">SKUID + LEVEL</strong> 匹配，成交量取质检SKU和等级。</li>
+                        <li>选好两份文件后，点击“生成”导出结果。</li>
+                      </ul>
+                    </section>
+                    <section className="space-y-2">
+                      <h4 className="font-bold text-[#141414]">02 · Top2筛选规则</h4>
+                      <ul className="list-disc space-y-1 pl-4">
+                        <li>先排除等级恰为 S 的PPV，保留 99-S、95-S 等等级。</li>
+                        <li>同型号内评分：<strong className="text-[#141414]">75% × {isSelfOperated ? '报价访客数' : '报价量'}占比 + 25% × 成交量占比</strong>。</li>
+                        <li>取前2名，第二名同分时全部保留。</li>
+                      </ul>
+                    </section>
+                    <section className="space-y-2">
+                      <h4 className="font-bold text-[#141414]">03 · 输出与统计口径</h4>
+                      <ul className="list-disc space-y-1 pl-4">
+                        <li>API匹配到ZZ券前价时，标记“无需爬价”。</li>
+                        <li>完整汇总表保留两表组合的并集，缺少一侧的数量记0，供等级推算使用。</li>
+                        <li>等级推算按所选表匹配SKU+LEVEL，缺少组合时依次补查两个更旧版本；已有0值不回退、不跨期累加，补用来源会注明。</li>
+                        <li>两表须使用相同统计周期、渠道和业务范围；询价与质检等级须采用相同定义。</li>
+                      </ul>
+                    </section>
+                  </div>
+                  <div className="border-b border-[#141414]/20 bg-[#F0EFEC] px-4 py-2 text-xs font-bold">等级与询价说明</div>
+                  <div>
                     <table className="w-full border-collapse text-[11px]">
                       <thead className="sticky top-0 bg-white">
                         <tr className="border-b border-[#141414] text-left">
@@ -888,27 +988,36 @@ export default function UploadSection({
                 </div>
               </details>
             </div>
-            <div className="mt-1 text-[11px] text-[#141414]/70">
-              {isSelfOperated
-                ? '上传底表后按商品LEVEL+商品SKU生成ppv，先剔除商品LEVEL为S的PPV，再按商品型号以报价访客数占比75%+成交量占比25%的综合得分取前2名（第二名同分全部保留）；API能拉取到ZZ券前价时，zz裸机价标记为“无需爬价”。'
-                : '上传底表后按商品LEVEL+商品SKU生成ppv，先剔除商品LEVEL为S的PPV，再按商品型号以报价量占比75%+成交量占比25%的综合得分取前2名（第二名同分全部保留）；API能拉取到ZZ券前价时，zz裸机价标记为“无需爬价”，新机系列和天猫价格列留空。'}
-            </div>
+
           </div>
-          {!isSelfOperated && <div className="space-y-2 text-xs">
-            <div className="text-[#555]">上传时先保存原文件和全量PPV，供等级推算匹配成交量。</div>
-            {savedPpvSource && <div className="border border-[#141414] bg-[#F0EFEC] p-2">已保存：{savedPpvSource.fileName} · {savedPpvSource.rowCount} 个完整 PPV<br/>{savedPpvSource.periodStart ? `${savedPpvSource.periodStart} 至 ${savedPpvSource.periodEnd}` : '文件已汇总近30天'} · <a className="underline" href={gradeSourceUrl(savedPpvSource.id)}>下载原文件</a></div>}
+          {!isSelfOperated && <div className="border border-[#141414]/20 bg-[#F0EFEC] p-2 text-[11px] leading-relaxed">
+            {latestMergedPpvSource ? <>
+              <div className="font-bold">最新完整汇总表 · {latestMergedPpvSource.rowCount} 个PPV</div>
+              <div className="truncate" title={latestMergedPpvSource.fileName}>{latestMergedPpvSource.fileName}</div>
+              <a className="underline" href={gradeSourceUrl(latestMergedPpvSource.id)}>下载汇总表</a>
+              <span className="ml-2 text-[#555]">等级推算请选择此版本</span>
+            </> : <span className="text-[#555]">尚未生成流量与成交汇总表，请上传两表后生成。</span>}
           </div>}
-          <input
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            aria-label="Top2完整底表上传"
-            disabled={!!busyType}
-            className={inputClass}
-            onChange={(event) => {
-              handlePpvAggregation(event.target.files?.[0]);
-              event.currentTarget.value = '';
-            }}
-          />
+          <div className="flex items-center gap-2">
+            <label className={`relative flex-1 cursor-pointer whitespace-nowrap border border-[#141414] px-2 py-2 text-center text-xs font-bold focus-within:ring-2 focus-within:ring-[#141414]/30 ${busyType ? 'opacity-40' : 'hover:bg-[#F0EFEC]'}`}>
+              上传流量表
+              <input type="file" accept=".xlsx,.xls,.csv" aria-label="上传流量表" disabled={!!busyType} className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                onChange={event => { setPpvFlowFile(event.target.files?.[0] || null); setPpvAggregationStatus(''); setError(''); }} />
+            </label>
+            <label className={`relative flex-1 cursor-pointer whitespace-nowrap border border-[#141414] px-2 py-2 text-center text-xs font-bold focus-within:ring-2 focus-within:ring-[#141414]/30 ${busyType ? 'opacity-40' : 'hover:bg-[#F0EFEC]'}`}>
+              上传成交表
+              <input type="file" accept=".xlsx,.xls,.csv" aria-label="上传成交表" disabled={!!busyType} className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                onChange={event => { setPpvSoldFile(event.target.files?.[0] || null); setPpvAggregationStatus(''); setError(''); }} />
+            </label>
+            <button type="button" disabled={!!busyType || !ppvFlowFile || !ppvSoldFile} onClick={handlePpvAggregation}
+              className="flex-1 whitespace-nowrap border border-[#141414] bg-[#141414] px-2 py-2 text-xs font-bold text-white disabled:opacity-40">
+              {busyType === 'ppv聚合工具' ? '生成中…' : '生成'}
+            </button>
+          </div>
+          {(ppvFlowFile || ppvSoldFile) && <div className="space-y-1 text-[11px] text-[#555]">
+            {ppvFlowFile && <div className="truncate" title={ppvFlowFile.name}>流量：{ppvFlowFile.name}</div>}
+            {ppvSoldFile && <div className="truncate" title={ppvSoldFile.name}>成交：{ppvSoldFile.name}</div>}
+          </div>}
           {ppvAggregationStatus && <div className="text-[11px] font-bold text-green-700">{ppvAggregationStatus}</div>}
         </div>
 
@@ -1037,6 +1146,18 @@ export default function UploadSection({
               </tr>
             </thead>
             <tbody>
+              {ppvSources.map(source => {
+                const merged = /^(PPV流量成交汇总_|成交匹配_)/.test(source.fileName);
+                return <tr key={`ppv-${source.id}`} className="border-b border-[#141414]/20">
+                  <td className="p-2 border-r border-[#141414]/20 font-bold">{merged ? 'PPV完整汇总表' : '历史流量底表'}</td>
+                  <td className="p-2 border-r border-[#141414]/20"><span className="block truncate" title={source.fileName}>{source.fileName}</span></td>
+                  <td className="p-2 border-r border-[#141414]/20 font-mono">{new Date(source.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}</td>
+                  <td className="p-2 text-right border-r border-[#141414]/20 font-mono">{source.rowCount}</td>
+                  <td className="p-2 text-right border-r border-[#141414]/20">—</td>
+                  <td className="p-2 border-r border-[#141414]/20">{merged ? '流量表与质检成交表按SKUID+LEVEL汇总，供等级推算使用' : '旧版底表，成交量未经独立质检成交表匹配'}</td>
+                  <td className="p-2 text-center align-middle"><a href={gradeSourceUrl(source.id)} aria-label={`下载 ${source.fileName}`} className="inline-flex h-7 items-center gap-1 px-2 underline"><ArrowBigDownDash className="h-4 w-4" aria-hidden="true" />下载</a></td>
+                </tr>;
+              })}
               {uploadRecords.map(record => (
                 <tr key={record.id} className="border-b border-[#141414]/20">
                   <td className="p-2 border-r border-[#141414]/20 font-bold">{recordTypeLabel(record.type)}</td>
