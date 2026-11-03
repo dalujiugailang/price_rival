@@ -4,6 +4,7 @@ build
 coverage
 data
 outputs
+output
 deploy-backups
 *.codex-*
 .git
