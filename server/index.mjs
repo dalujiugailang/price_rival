@@ -1,3 +1,5 @@
+import {createPriceAnalysisService} from './priceAnalysisService.mjs';
+import { registerFeishuPushRoutes } from './feishuPushRoutes.mjs';
 import { registerRiskRoutes } from './tradeInRiskRoutes.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -57,6 +59,7 @@ const androidRevenue = createAndroidRevenueClient({ env: process.env });
 
 const db = createDatabase(DATABASE_PATH);
 const gradeStore = createGradeStore(DATABASE_PATH);
+const priceAnalysisService = createPriceAnalysisService(DATABASE_PATH);
 const investmentBatches={listBatches:channel=>db.listBatches(channel).map(batch=>withGradeInvestment(batch,gradeStore.getFinalRun(batch.id)))};
 const app = express();
 const auth = createAuth({ db, env: process.env, appUrl: APP_URL });
@@ -94,6 +97,7 @@ const requireSameOrigin = (req, res, next) => {
 
 app.use('/api', auth.requireAuth, requireSameOrigin);
 registerAccessRoutes(app, { db, auth });
+const feishuPushStore = registerFeishuPushRoutes(app, { db, auth, databasePath: DATABASE_PATH, appUrl: APP_URL });
 registerRiskRoutes(app, { databasePath: path.resolve(process.env.TRADEIN_RISK_DATABASE_PATH || path.join(path.dirname(DATABASE_PATH), 'tradein-risk.sqlite')) });
 registerGradeRoutes(app, { store: gradeStore, getBatch: id => db.getBatch(id), writeAudit: details => db.writeAudit(details),
   lookupRevenue:()=>androidRevenue.getLatest(),
@@ -139,6 +143,17 @@ const auditFailure = (req, action, error, resourceId = null) => {
     details: { error: error instanceof Error ? error.message : String(error) }
   });
 };
+
+app.get('/api/price-analysis/batches', requirePage('tradeIn', 'priceAnalysis'), (req, res) => {
+  try {
+    const result=priceAnalysisService.response(req.authUser,req.headers['if-none-match']);
+    res.set({'ETag':result.etag,'Cache-Control':'private, no-cache','Vary':'Accept-Encoding'});
+    if(result.status===304)return res.status(304).end();
+    res.type('application/json');
+    if(req.acceptsEncodings('gzip'))return res.set('Content-Encoding','gzip').send(result.gzip);
+    return res.send(result.body);
+  }catch(error){res.status(error.statusCode||500).json({success:false,error:error.message||'价格分析加载失败'});}
+});
 
 app.get('/api/tracking-batches', (req, res) => {
   const channelId = req.query.channelId ? String(req.query.channelId) : null;
@@ -290,17 +305,18 @@ app.post('/api/daily-price/lookup', auth.requireEditor, requirePage(requestChann
   }
 });
 
-const loginPage = () => `<!doctype html>
+// Unknown APIs must never fall through to the frontend HTML shell.
+app.use('/api', (_req, res) => res.status(404).json({ success: false, error: '当前服务未提供此接口，请刷新页面或检查服务版本。' }));
+
+const loginPage = (returnTo = '/') => `<!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>竞争追价系统登录</title><style>
 *{box-sizing:border-box}body{margin:0;background:#e4e3e0;color:#141414;font-family:Arial,"PingFang SC",sans-serif}
 .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}.card{width:420px;background:#fff;border:2px solid #141414}
 .head{background:#141414;color:#fff;padding:18px 22px;font-size:18px;font-weight:900}.body{padding:28px}.tag{display:inline-block;border:1px solid #141414;background:#f0efec;padding:4px 8px;font-size:12px;font-weight:700}
 h1{font-size:24px;margin:18px 0 8px}p{font-size:13px;line-height:1.7;color:#555}.btn{display:block;width:100%;margin-top:22px;border:2px solid #141414;background:#141414;color:#fff;padding:13px;text-align:center;text-decoration:none;font-size:14px;font-weight:900;cursor:pointer}
-.dev{background:#fff;color:#141414;margin-top:10px}.foot{border-top:1px solid #141414;background:#f0efec;padding:12px 22px;font-size:11px;color:#555}
-</style></head><body><main class="wrap"><section class="card"><div class="head">线上竞争追价系统</div><div class="body"><span class="tag">公司内部系统</span><h1>使用飞书账号登录</h1><p>按人员开通访问。首次登录后，可联系管理员在权限管理中搜索你的姓名并开通。</p><a class="btn" href="/api/auth/login">飞书授权登录</a>${auth.devLoginEnabled ? '<button class="btn dev" onclick="devLogin()">本地验收登录</button>' : ''}</div><div class="foot">尚未开通访问请联系系统管理员</div></section></main><script>
-async function devLogin(){const r=await fetch('/api/auth/dev-login',{method:'POST'});if(r.ok)location.reload();else alert((await r.json()).error||'登录失败')}
-</script></body></html>`;
+.foot{border-top:1px solid #141414;background:#f0efec;padding:12px 22px;font-size:11px;color:#555}
+</style></head><body><main class="wrap"><section class="card"><div class="head">线上竞争追价系统</div><div class="body"><span class="tag">公司内部系统</span><h1>使用飞书账号登录</h1><p>按人员开通访问。首次登录后，可联系管理员在权限管理中搜索你的姓名并开通。</p><a class="btn" href="/api/auth/login?returnTo=${encodeURIComponent(returnTo)}">飞书授权登录</a></div><div class="foot">尚未开通访问请联系系统管理员</div></section></main></body></html>`;
 
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
@@ -308,7 +324,7 @@ if (process.env.NODE_ENV === 'production') {
       next();
       return;
     }
-    res.status(401).set('cache-control', 'no-store').type('html').send(loginPage());
+    res.status(401).set('cache-control', 'no-store').type('html').send(loginPage(req.originalUrl));
   });
   app.use(express.static(path.join(appRoot, 'dist')));
   app.get('*', (_req, res) => res.sendFile(path.join(appRoot, 'dist', 'index.html')));
@@ -355,6 +371,8 @@ const callbackBridge = createLocalCallbackBridge();
 
 const shutdown = () => {
   const closeDatabase = () => {
+    feishuPushStore.close();
+    priceAnalysisService.close();
     gradeStore.close();
     db.close();
     process.exit(0);

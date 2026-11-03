@@ -4,7 +4,7 @@ export const ACCESS_CHANNELS = [
 ];
 export const ACCESS_PAGES = [
   { id: 'workspace', name: '追价工作台' }, { id: 'upload', name: '数据源' },
-  { id: 'history', name: '历史' }, { id: 'competitiveness', name: '竞争力走势' },
+  { id: 'history', name: '历史' }, { id: 'priceAnalysis', name: '价格分析', channelId: 'tradeIn' }, { id: 'competitiveness', name: '竞争力走势' },
   { id: 'tmHandGap', name: '追后到手高出TM', selfName: '追后AHS高出ZZ' },
   { id: 'riskLedger', name: '旧机压价台账', channelId: 'tradeIn' },
   { id: 'audit', name: '操作日志' },
@@ -12,6 +12,11 @@ export const ACCESS_PAGES = [
 ];
 export const pagesForChannel = channelId => ACCESS_PAGES.filter(page => !page.channelId || page.channelId === channelId);
 export const ALL_ACCESS_SCOPES = ACCESS_CHANNELS.flatMap(channel => pagesForChannel(channel.id).map(page => `${channel.id}.${page.id}`));
+// Action scopes are opt-in and are never included in page/admin defaults.
+export const ACCESS_ACTIONS = [{ id: 'feishu.push', name: '推送飞书' }];
+export const ALL_ACTION_SCOPES = ACCESS_ACTIONS.map(action => action.id);
+export const canPerformAction = (user, action) => user?.enabled !== false
+  && ALL_ACTION_SCOPES.includes(action) && user?.scopes?.includes(action) === true;
 export const DEFAULT_VIEWER_SCOPES = ['tradeIn.history', 'tradeIn.competitiveness', 'tradeIn.tmHandGap', 'tradeIn.tutorial'];
 export const isEditor = user => user?.role === 'admin' || user?.role === 'editor';
 export const canAccess = (user, channel, page) => (
@@ -19,14 +24,17 @@ export const canAccess = (user, channel, page) => (
   && user?.enabled !== false
   && (user?.role === 'admin' || user?.scopes?.includes(`${channel}.${page}`) === true)
 );
+export const canPushFeishu = (user, channel) => isEditor(user) && canPerformAction(user, 'feishu.push')
+  && canAccess(user, channel, 'workspace') && canAccess(user, channel, 'competitiveness');
+export const canManageActionPermissions = user => user?.role === 'admin' && canPerformAction(user, 'feishu.push');
 export const canEdit = (user, channel, page) => isEditor(user) && canAccess(user, channel, page);
 export const accessibleChannels = user => ACCESS_CHANNELS.filter(channel => ACCESS_PAGES.some(page => canAccess(user, channel.id, page.id)));
 
 export const validateAccess = ({ role, scopes, enabled }) => {
   if (!['admin', 'editor', 'viewer'].includes(role)) throw new Error('权限类型无效');
   if (typeof enabled !== 'boolean') throw new Error('启用状态无效');
-  if (!Array.isArray(scopes) || scopes.some(scope => !ALL_ACCESS_SCOPES.includes(scope))) throw new Error('查看范围无效');
-  const normalized = ALL_ACCESS_SCOPES.filter(scope => scopes.includes(scope));
-  if (enabled && normalized.length === 0) throw new Error('启用成员至少需要一个查看页面');
-  return { role, enabled, scopes: role === 'admin' ? [...ALL_ACCESS_SCOPES] : normalized };
+  if (!Array.isArray(scopes) || scopes.some(scope => ![...ALL_ACCESS_SCOPES, ...ALL_ACTION_SCOPES].includes(scope))) throw new Error('查看范围无效');
+  const normalized = [...ALL_ACCESS_SCOPES, ...ALL_ACTION_SCOPES].filter(scope => scopes.includes(scope));
+  if (enabled && !normalized.some(scope => ALL_ACCESS_SCOPES.includes(scope))) throw new Error('启用成员至少需要一个查看页面');
+  return { role, enabled, scopes: role === 'admin' ? [...ALL_ACCESS_SCOPES, ...normalized.filter(scope => ALL_ACTION_SCOPES.includes(scope))] : normalized };
 };

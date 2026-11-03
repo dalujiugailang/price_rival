@@ -30,6 +30,7 @@ interface Props {
   readOnly?: boolean;
   strategyReadOnly?: boolean;
   snapshot?: TrackingBatch;
+  focusPpv?: string;
   products: CalculatedProduct[];
   marginBottomLine: number;
   pricingMode: PricingMode;
@@ -86,6 +87,7 @@ export default function MainTable({
   readOnly: requestedReadOnly = false,
   strategyReadOnly: requestedStrategyReadOnly = requestedReadOnly,
   snapshot,
+  focusPpv,
   products,
   marginBottomLine,
   pricingMode,
@@ -104,9 +106,35 @@ export default function MainTable({
   onManualRecommendPriceChange,
   onManualBasePriceChange,
 }: Props) {
+  const focusedRowRef=useRef<HTMLTableRowElement>(null);
+  useEffect(()=>{if(focusPpv)focusedRowRef.current?.scrollIntoView({block:'center',inline:'start'});},[focusPpv,snapshot?.id]);
   const readOnly = requestedReadOnly || Boolean(snapshot);
   const strategyReadOnly = requestedStrategyReadOnly || Boolean(snapshot);
   const isSelfOperated = channelId === 'selfOperated';
+  const [selectedDisplayColumns, setSelectedDisplayColumns] = useState<number[]>([]);
+  const [focusedDisplayColumns, setFocusedDisplayColumns] = useState<number[] | null>(null);
+  const [showDisplayColumns, setShowDisplayColumns] = useState(false);
+  const displayColumnsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setSelectedDisplayColumns([]);
+    setFocusedDisplayColumns(null);
+    setShowDisplayColumns(false);
+  }, [channelId]);
+  useEffect(() => {
+    if (!showDisplayColumns) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!displayColumnsRef.current?.contains(event.target as Node)) setShowDisplayColumns(false);
+    };
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowDisplayColumns(false);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeEscape);
+    };
+  }, [showDisplayColumns]);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [batchRemarks, setBatchRemarks] = useState('');
   const [operatorName, setOperatorName] = useState('定价运营');
@@ -401,7 +429,9 @@ export default function MainTable({
   const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 30, 33, 35, 36, 38, 39, 40, 43]);
   const noteDisplayHiddenColumnIndexes = new Set([28, 37]);
   const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
-  const isFixedColumnVisible = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
+  const isAvailableDisplayColumn = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
+  const availableDisplayIndexes = fixedCodes.map((_, index) => index).filter(isAvailableDisplayColumn);
+  const isFixedColumnVisible = (index: number) => isAvailableDisplayColumn(index) && (focusedDisplayColumns === null || focusedDisplayColumns.includes(index));
   const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index) || index === 31;
   const exportFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnExported);
   const visibleFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnVisible);
@@ -824,7 +854,7 @@ export default function MainTable({
   ), document.body) : null;
 
   return (
-    <div className="bg-white border border-[#141414] overflow-hidden" data-tour={snapshot ? "history-table" : undefined} id={snapshot ? 'snapshot-tracking-panel' : 'main-tracking-panel'}>
+    <div className="bg-white border border-[#141414]" data-tour={snapshot ? "history-table" : undefined} id={snapshot ? 'snapshot-tracking-panel' : 'main-tracking-panel'}>
       {smallGapTolerancePopover}
       <div className="p-3 border-b border-[#141414] bg-[#F0EFEC] flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -841,9 +871,47 @@ export default function MainTable({
             </span>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <div className="relative" ref={displayColumnsRef}>
+            <button type="button" aria-expanded={showDisplayColumns} aria-haspopup="dialog" onClick={() => setShowDisplayColumns(value => !value)} className={`flex items-center gap-2 border border-[#141414] px-3 py-1.5 text-xs font-bold ${showDisplayColumns ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#141414] hover:text-white'}`}>
+              显示列
+              {focusedDisplayColumns !== null && <span className="border border-current px-1 text-[10px] leading-4">{visibleFixedIndexes.length}</span>}
+              <span aria-hidden="true" className="text-[9px]">{showDisplayColumns ? '▴' : '▾'}</span>
+            </button>
+            {showDisplayColumns && (
+              <div role="dialog" aria-label="选择显示列" className="absolute right-0 top-full z-50 mt-2 w-[min(480px,85vw)] border border-[#141414] bg-[#F0EFEC] text-[#141414] shadow-[3px_3px_0_#14141430]">
+                <div className="flex items-center justify-between border-b border-[#141414] px-3 py-2">
+                  <span className="text-[11px] font-black">选择显示列 <span className="ml-2 font-normal text-[#141414]/50">截图视图</span></span>
+                  <button type="button" onClick={() => setShowDisplayColumns(false)} aria-label="关闭显示列设置" className="flex h-5 w-5 items-center justify-center border border-transparent text-sm hover:border-[#141414] hover:bg-white">×</button>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2 text-[10px] font-bold">
+                  <span className="text-[#141414]/60">已选 <span className="font-mono text-[#141414]">{selectedDisplayColumns.length}</span> / {availableDisplayIndexes.length} 列</span>
+                  <div className="flex gap-1">
+                    <button type="button" onClick={() => setSelectedDisplayColumns(availableDisplayIndexes)} className="border border-[#141414]/30 bg-white px-2 py-1 hover:border-[#141414]">全选</button>
+                    <button type="button" onClick={() => setSelectedDisplayColumns([])} className="border border-[#141414]/30 bg-white px-2 py-1 hover:border-[#141414]">清空</button>
+                  </div>
+                </div>
+                <div className="mx-3 mb-3 grid max-h-72 grid-cols-2 overflow-y-auto border-l border-t border-[#141414]/30 bg-white">
+                  {availableDisplayIndexes.map(index => (
+                    <label key={fixedCodes[index]} className={`flex cursor-pointer items-center gap-2 border-b border-r border-[#141414]/30 px-2 py-2 ${selectedDisplayColumns.includes(index) ? 'bg-[#E4E3E0]' : 'hover:bg-[#F9F9F8]'}`}>
+                      <input className="h-3 w-3 shrink-0 accent-[#141414]" type="checkbox" checked={selectedDisplayColumns.includes(index)} onChange={event => setSelectedDisplayColumns(current => event.target.checked ? [...current, index] : current.filter(value => value !== index))} />
+                      <span title={fixedCodes[index]} className="w-6 shrink-0 truncate font-mono text-[9px] text-[#141414]/50">{fixedCodes[index]}</span>
+                      <span className="min-w-0 text-[11px] font-bold leading-snug">{fixedLabels[index]}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-[#141414] px-3 py-2">
+                  <span className="text-[10px] text-[#141414]/50">隐藏其他列，随时可恢复</span>
+                  <button type="button" disabled={!selectedDisplayColumns.length} onClick={() => { setFocusedDisplayColumns([...selectedDisplayColumns]); setShowDisplayColumns(false); }} className="border border-[#141414] bg-[#141414] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-white hover:text-[#141414] disabled:cursor-not-allowed disabled:opacity-30">仅展示所选</button>
+                </div>
+              </div>
+            )}
+          </div>
+          {focusedDisplayColumns !== null && <button type="button" onClick={() => { setFocusedDisplayColumns(null); setShowDisplayColumns(false); }} className="border border-[#141414]/40 px-2 py-1.5 text-[11px] font-bold text-[#141414]/70 hover:border-[#141414] hover:bg-white hover:text-[#141414]">恢复全部列</button>}
         <button data-tour={snapshot ? "history-export" : undefined} onClick={exportToExcel} className="px-3 py-1.5 border border-[#141414] bg-white hover:bg-black hover:text-white text-xs font-bold">
           {snapshot ? '导出快照' : '导出追价表'}
         </button>
+        </div>
         {!readOnly && (
           <button onClick={() => setShowSaveModal(true)} id="save-snapshot-btn-element" className="hidden">
             保存快照
@@ -1020,13 +1088,13 @@ export default function MainTable({
             {filteredProducts.map((p, rowIndex) => {
               const savedValues = snapshot ? getFixedExportValues(p) : undefined;
               return (
-                <tr key={`${p.id}-${rowIndex}`} className={`border-b border-[#141414]/20 ${p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
+                <tr ref={p.ppv===focusPpv?focusedRowRef:undefined} aria-label={p.ppv===focusPpv?`已定位 PPV：${p.ppv}`:undefined} key={`${p.id}-${rowIndex}`} className={`border-b border-[#141414]/20 ${p.ppv===focusPpv?'bg-sky-100 [&>td]:!bg-sky-100 outline outline-2 outline-inset outline-sky-300':p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
                   {fixedCodes.map((_, index) => renderFixedCell(p, index, savedValues))}
                 </tr>
               );
             })}
             {filteredProducts.length === 0 && (
-              <tr><td colSpan={fixedCodes.length} className="p-6 text-left text-xs text-[#555]">{products.length ? '没有符合筛选条件的明细。' : '暂无明细。'}</td></tr>
+              <tr><td colSpan={visibleFixedIndexes.length} className="p-6 text-left text-xs text-[#555]">{products.length ? '没有符合筛选条件的明细。' : '暂无明细。'}</td></tr>
             )}
           </tbody>
         </table>
@@ -1104,11 +1172,12 @@ const emptySnapshotSubsidies: SubsidyRule[] = [];
 const emptySelfSnapshotSubsidies: SelfOperatedSubsidyRule[] = [];
 const emptySnapshotSelection: string[] = [];
 
-export function SnapshotTable({ batch }: { batch: TrackingBatch }) {
+export function SnapshotTable({ batch, focusPpv }: { batch: TrackingBatch; focusPpv?: string }) {
   return (
     <MainTable
       readOnly
       snapshot={batch}
+      focusPpv={focusPpv}
       products={batch.products}
       channelId={batch.channelId || 'tradeIn'}
       marginBottomLine={batch.marginBottomLine}

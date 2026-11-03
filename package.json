@@ -4,8 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:preview-auth": "node --test server/previewAuth.test.mjs",
+    "test:subsidy-matrix": "node --test shared/subsidyMatrix.test.mjs && node --import tsx --test src/components/subsidyMatrix/subsidyProfit.test.ts src/components/subsidyMatrix/workspace.test.tsx",
     "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "dev:api": "NODE_ENV=development AUTH_DEV_BYPASS=true PORT=3001 node server/index.mjs",
+    "dev:api": "NODE_ENV=development AUTH_DEV_BYPASS=false PORT=3001 node server/index.mjs",
     "dev:web": "NODE_OPTIONS=--use-bundled-ca vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "test:pricing-logic": "tsx src/utils/pricingLogic.test.ts",
@@ -37,7 +39,8 @@
     "start": "node server/index.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:feishu-push": "node --test server/feishuPush.test.mjs server/feishuRecipient.test.mjs server/feishuPushPermission.test.mjs"
   },
   "dependencies": {
     "@office-kit/xlsx": "0.9.0",
@@ -46,12 +49,14 @@
     "compression": "^1.8.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^0.546.0",
     "lz-string": "^1.5.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.8.1",
+    "sharp": "^0.35.5",
     "vite": "^6.2.3",
     "xlsx": "^0.18.5"
   },

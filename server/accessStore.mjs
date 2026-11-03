@@ -1,4 +1,4 @@
-import { ALL_ACCESS_SCOPES, DEFAULT_VIEWER_SCOPES, validateAccess } from '../shared/accessPolicy.mjs';
+import { ALL_ACCESS_SCOPES, DEFAULT_VIEWER_SCOPES, ALL_ACTION_SCOPES, canManageActionPermissions, validateAccess } from '../shared/accessPolicy.mjs';
 const now = () => new Date().toISOString();
 const error = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 
@@ -102,12 +102,33 @@ export const createAccessStore = (db, writeAudit) => {
         WHERE a.actor_open_id=m.open_id AND a.action='AUTH_LOGIN_SUCCESS' AND a.outcome='SUCCESS') last_login_at
         FROM access_members m ORDER BY CASE m.role WHEN 'admin' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END, m.name`).all().map(member);
     },
+    setMemberActions(input, context) {
+      if (!canManageActionPermissions(context.actor)) throw error('只有已开通推送权限的管理员可以管理功能权限', 403);
+      if (!Array.isArray(input.actions) || input.actions.some(action => !ALL_ACTION_SCOPES.includes(action))) throw error('功能权限无效');
+      return transaction(() => {
+        const before = get(input.openId);
+        if (!before) throw error('成员不存在', 404);
+        if (input.version !== before.version) throw error('该成员权限已被更新，请刷新后重试', 409);
+        if (before.openId === context.actor.openId && !input.actions.includes('feishu.push')) throw error('不能在此移除自己的推送权限', 403);
+        if (input.actions.length && (!before.enabled || before.role === 'viewer')) throw error('需先启用成员并开通编辑权限');
+        const scopes = [...before.scopes.filter(scope => !ALL_ACTION_SCOPES.includes(scope)), ...ALL_ACTION_SCOPES.filter(action => input.actions.includes(action))];
+        db.prepare('UPDATE access_members SET scopes_json=?, updated_at=?, version=version+1 WHERE open_id=?')
+          .run(JSON.stringify(scopes), now(), before.openId);
+        const after = get(before.openId);
+        writeAudit({ ...context, action: 'ACCESS_ACTION_UPDATE', resourceType: 'access_member', resourceId: before.openId,
+          details: { name: before.name, before: before.scopes.filter(scope => ALL_ACTION_SCOPES.includes(scope)), after: input.actions } });
+        return after;
+      });
+    },
     saveMember(input, context, create = false) {
       if (context.actor?.role !== 'admin') throw error('只有管理员可以管理权限', 403);
       let access;
       try { access = validateAccess(input); } catch (err) { throw error(err.message); }
       return transaction(() => {
         const before = get(input.openId);
+        const previousActions = (before?.scopes || []).filter(scope => ALL_ACTION_SCOPES.includes(scope)).sort();
+        const nextActions = access.scopes.filter(scope => ALL_ACTION_SCOPES.includes(scope)).sort();
+        if (JSON.stringify(previousActions) !== JSON.stringify(nextActions)) throw error('功能权限请通过独立入口设置', 403);
         if (create && before) throw error('该成员已开通，请在名单中修改权限', 409);
         if (!create && !before) throw error('成员不存在', 404);
         if (input.role === 'admin' || before?.role === 'admin' || input.openId === context.actor.openId) {

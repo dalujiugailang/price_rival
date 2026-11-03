@@ -1,3 +1,4 @@
+import {createPriceAnalysisCache} from './utils/priceAnalysisCache';
 import { BrandSalesAmount30d, TrackingBatch } from './types';
 import { CompetitivenessTrendExportPayload } from './utils/competitivenessTrendExport';
 
@@ -51,6 +52,13 @@ const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> =
       ...(options?.headers || {})
     }
   });
+  return readJsonResponse<T>(response,url);
+};
+
+const readJsonResponse = async <T,>(response:Response,url:string):Promise<T> => {
+  if (response.ok && !response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('服务接口返回了页面，当前前端与本地服务版本不一致，请刷新页面后重试。');
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && !url.includes('/api/auth/')) {
@@ -81,10 +89,6 @@ export const getAuthConfig = () => requestJson<{
 }>('/api/auth/config');
 
 export const getCurrentUser = () => requestJson<{ success: true; user: AuthUser }>('/api/auth/me');
-
-export const developmentLogin = () => requestJson<{ success: true; user: AuthUser }>('/api/auth/dev-login', {
-  method: 'POST'
-});
 
 export const logout = () => requestJson<{ success: true }>('/api/auth/logout', { method: 'POST' });
 
@@ -164,6 +168,10 @@ export const updateAccessMember = (member: Pick<AccessMember, 'openId' | 'role' 
   { method: create ? 'POST' : 'PUT', body: JSON.stringify(member) }
 );
 
+export const updateMemberActions = (openId: string, actions: string[], version: number) => requestJson<{ member: AccessMember }>(
+  `/api/access-members/${encodeURIComponent(openId)}/actions`, { method: 'PUT', body: JSON.stringify({ actions, version }) }
+);
+
 export const exportCompetitivenessTrends = async (payload: CompetitivenessTrendExportPayload) => {
   const response = await fetch('/api/exports/competitiveness-trends', {
     method: 'POST',
@@ -180,3 +188,29 @@ export const exportCompetitivenessTrends = async (payload: CompetitivenessTrendE
     fileName: fileNameFromDisposition(response.headers.get('content-disposition'))
   };
 };
+
+const analysisCache=createPriceAnalysisCache(async etag=>{
+ const url='/api/price-analysis/batches';
+ const response=await fetch(url,{headers:etag?{'If-None-Match':etag}:{},cache:'no-cache'});
+ if(response.status===304)return {notModified:true};
+ const result=await readJsonResponse<{success:boolean;batches:TrackingBatch[]}>(response,url);
+ return {notModified:false,etag:response.headers.get('etag')||undefined,batches:result.batches};
+});
+export const listPriceAnalysisBatches = (identity:string) => analysisCache.load(identity);
+export const clearPriceAnalysisCache = () => analysisCache.clear();
+
+export interface FeishuTarget { id: string; name: string; type: 'user' | 'chat'; department?: string; nameVerified?: boolean; nameSource?: 'feishu' | 'access_member' }
+export interface FeishuReport {
+  batchId: string; channelId: string; channelName: string; date: string; title: string; typeLabel: string;
+  scope: { brand: string; newSeries: string }; scopeLabel: string; count: number;
+  metrics: Array<{ key: string; label: string; value: number | null; weight: number }>;
+  url: string; weightLabel: string; brands: string[]; series: string[];
+}
+export interface FeishuDelivery { target: FeishuTarget; status: string; messageId?: string; error?: string; reused?: boolean }
+export const feishuPushConfig = (channelId: string) => requestJson<{ configured: boolean; trialName: string; defaultRecipient: FeishuTarget | null }>(`/api/feishu-push/config?channelId=${channelId}`);
+export const searchFeishuTargets = (channelId: string, type: string, q: string) => requestJson<{ targets: FeishuTarget[]; requiresLogin?: boolean }>(`/api/feishu-push/targets?${new URLSearchParams({ channelId, type, q })}`);
+export const prepareFeishuPush = (channelId: string, batchId: string, scope: FeishuReport['scope']) => requestJson<{ report: FeishuReport & { digest: string }; batches: TrackingBatch[] }>('/api/feishu-push/prepare', { method: 'POST', body: JSON.stringify({ channelId, batchId, scope }) });
+export const previewFeishuPush = (channelId: string, batchId: string, scope: FeishuReport['scope'], digest: string, imageBase64: string) => requestJson<{ previewId: string; report: FeishuReport; imageUrl: string }>('/api/feishu-push/preview', { method: 'POST', body: JSON.stringify({ channelId, batchId, scope, digest, imageBase64 }) });
+export const sendFeishuPush = (channelId: string, previewId: string, targets: FeishuTarget[]) => requestJson<{ results: FeishuDelivery[] }>('/api/feishu-push/send', { method: 'POST', body: JSON.stringify({ channelId, previewId, targets }) });
+export const feishuPushHistory = (channelId: string) => requestJson<{ deliveries: Array<FeishuDelivery & { id: string; batchId: string; scopeLabel: string; createdAt: string }> }>(`/api/feishu-push/history?channelId=${channelId}`);
+export const getFeishuReport = (id: string) => requestJson<{ report: FeishuReport }>(`/api/feishu-push/reports/${encodeURIComponent(id)}`);

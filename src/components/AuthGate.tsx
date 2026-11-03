@@ -1,5 +1,6 @@
+import {clearPriceAnalysisCache} from '../api';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { AuthUser, developmentLogin, getAuthConfig, getCurrentUser, logout } from '../api';
+import { AuthUser, getAuthConfig, getCurrentUser, logout } from '../api';
 
 interface AuthContextValue {
   user: AuthUser;
@@ -17,7 +18,6 @@ export const useAuth = () => {
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [devLoginEnabled, setDevLoginEnabled] = useState(false);
   const [authConfigured, setAuthConfigured] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,7 +29,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       setUser(result.user);
     } catch {
       const config = await getAuthConfig();
-      setDevLoginEnabled(config.devLoginEnabled);
       setAuthConfigured(config.authConfigured);
       setUser(null);
     } finally {
@@ -72,16 +71,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     };
   }, [user?.openId]);
 
-  const handleDevLogin = async () => {
-    try {
-      const result = await developmentLogin();
-      setUser(result.user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
   const handleLogout = async () => {
+    clearPriceAnalysisCache();
     await logout();
     window.location.reload();
   };
@@ -100,12 +91,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <h1 className="text-2xl font-black">使用飞书账号登录</h1>
             <p className="text-sm leading-6 text-[#141414]/70">按人员开通访问。首次登录后，可联系管理员在权限管理中搜索你的姓名并开通。</p>
             {error && <div className="border border-red-700 bg-red-50 p-3 text-xs text-red-800">{error}</div>}
-            <a href="/api/auth/login" className="block w-full border-2 border-[#141414] bg-[#141414] px-4 py-3 text-center text-sm font-black text-white">
+            <a href={`/api/auth/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`} className="block w-full border-2 border-[#141414] bg-[#141414] px-4 py-3 text-center text-sm font-black text-white">
               {authConfigured ? '飞书授权登录' : '飞书登录待配置'}
             </a>
-            {devLoginEnabled && (
-              <button onClick={handleDevLogin} className="w-full border-2 border-[#141414] bg-white px-4 py-3 text-sm font-black">本地验收登录</button>
-            )}
           </div>
         </div>
       </div>

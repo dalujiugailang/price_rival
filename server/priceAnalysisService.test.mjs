@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';import {test} from 'node:test';import {DatabaseSync} from 'node:sqlite';import {mkdtempSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {gunzipSync} from 'node:zlib';
+import {createPriceAnalysisService} from './priceAnalysisService.mjs';
+const admin={role:'admin'},denied={role:'viewer',scopes:['tradeIn.history']};
+test('projected cache, persistent restart, every mutation invalidation and auth before 304',()=>{
+ const path=join(mkdtempSync(join(tmpdir(),'analysis-cache-test-')),'db.sqlite');const db=new DatabaseSync(path);
+ db.exec('CREATE TABLE tracking_batches(id TEXT PRIMARY KEY,channel_id TEXT,batch_date TEXT,operator TEXT,pricing_timestamp TEXT,is_summary_only INTEGER,created_at TEXT,competitiveness_date TEXT,deleted_at TEXT,payload_json TEXT)');
+ const insert=db.prepare('INSERT INTO tracking_batches VALUES(?,?,?,?,?,?,?,?,?,?)');
+ const batch={id:'A',products:[{ppv:'P',basePrice:123,tmPrice:120,rawFields:{'B_品牌名称':'华为',secret:'omit'},quoteVolume:0,totalSubsidy:0}],restorePayload:{products:[{secret:'large'}],subsidyRules:[]},sourceUploadRecords:[{secret:'omit'}]};
+ insert.run('A','tradeIn','2026-10-23','test',null,0,'2026-10-23',null,null,JSON.stringify(batch));
+ let service=createPriceAnalysisService(path);const first=service.response(admin);assert.equal(first.status,200);
+ const body=JSON.parse(gunzipSync(first.gzip));assert.equal(body.batches[0].products[0].basePrice,123);assert.equal(body.batches[0].products[0].totalSubsidy,0);assert.ok(!first.body.includes('secret'));assert.ok(!first.body.includes('sourceUploadRecords'));
+ assert.equal(service.response(admin,first.etag).status,304);assert.equal(service.response(admin,`W/${first.etag}`).status,304);
+ assert.throws(()=>service.response(denied,first.etag),error=>error.statusCode===403);
+ service.close();service=createPriceAnalysisService(path);assert.equal(service.response(admin,first.etag).status,304);
+ batch.products[0].basePrice=124;db.prepare('UPDATE tracking_batches SET payload_json=? WHERE id=?').run(JSON.stringify(batch),'A');
+ const updated=service.response(admin,first.etag);assert.equal(updated.status,200);assert.notEqual(updated.etag,first.etag);assert.equal(JSON.parse(updated.body).batches[0].products[0].basePrice,124);
+ db.prepare("UPDATE tracking_batches SET deleted_at='now' WHERE id='A'").run();assert.equal(JSON.parse(service.response(admin).body).batches.length,0);
+ insert.run('B','tradeIn','2026-10-24','test',null,0,'2026-10-24',null,null,JSON.stringify({...batch,id:'B'}));assert.equal(JSON.parse(service.response(admin).body).batches.length,1);
+ db.prepare("DELETE FROM tracking_batches WHERE id='B'").run();assert.equal(JSON.parse(service.response(admin).body).batches.length,0);
+ service.close();db.close();
+});

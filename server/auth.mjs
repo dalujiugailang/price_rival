@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import tls from 'node:tls';
-import { ALL_ACCESS_SCOPES, DEFAULT_VIEWER_SCOPES, isEditor } from '../shared/accessPolicy.mjs';
+import { ALL_ACCESS_SCOPES, ALL_ACTION_SCOPES, DEFAULT_VIEWER_SCOPES, isEditor } from '../shared/accessPolicy.mjs';
 import { ACCESS_PROFILES, DEFAULT_ADMIN_OPEN_IDS } from './accessBootstrap.mjs';
 
 if (typeof tls.setDefaultCACertificates === 'function') {
@@ -9,6 +9,12 @@ if (typeof tls.setDefaultCACertificates === 'function') {
 
 const SESSION_COOKIE = 'price_rival_session';
 const OAUTH_STATE_COOKIE = 'price_rival_oauth_state';
+const OAUTH_RETURN_COOKIE = 'price_rival_oauth_return';
+export const safeReturnTo = value => {
+  const text = String(value || '');
+  if (!text.startsWith('/') || text.startsWith('//') || /[\\\r\n]/.test(text) || text.length > 2000) return '/';
+  try { const url=new URL(text,'https://local.invalid'); return url.origin==='https://local.invalid' && !url.pathname.startsWith('/api/') ? url.pathname+url.search : '/'; } catch { return '/'; }
+};
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export const AUTH_ROLES = Object.freeze({
@@ -83,7 +89,7 @@ export const createAuth = ({ db, env, appUrl }) => {
   const directoryTokens = new Map();
   const developmentAccess = () => {
     const role = env.AUTH_DEV_ROLE === 'admin' ? 'admin' : ['viewer', 'tradeInViewer'].includes(env.AUTH_DEV_ROLE) ? 'viewer' : 'editor';
-    const scopes = env.AUTH_DEV_SCOPES ? splitCsv(env.AUTH_DEV_SCOPES).filter(scope => ALL_ACCESS_SCOPES.includes(scope))
+    const scopes = env.AUTH_DEV_SCOPES ? splitCsv(env.AUTH_DEV_SCOPES).filter(scope => ALL_ACCESS_SCOPES.includes(scope) || ALL_ACTION_SCOPES.includes(scope))
       : role === 'viewer' ? [...DEFAULT_VIEWER_SCOPES] : [...ALL_ACCESS_SCOPES];
     return { role, scopes, enabled: true, accessVersion: 0 };
   };
@@ -101,9 +107,7 @@ export const createAuth = ({ db, env, appUrl }) => {
 
   const applyCurrentAccess = user => {
     if (!user) return null;
-    if (user.loginType === 'development' && devLoginEnabled) {
-      return { ...user, ...developmentAccess() };
-    }
+    if (user.loginType === 'development') return devLoginEnabled ? { ...user, ...developmentAccess() } : null;
     const tenantAllowed = allowedTenantKeys.size === 0 || allowedTenantKeys.has(user.tenantKey);
     const member = tenantAllowed ? db.getMember(user.openId) : null;
     return member?.enabled ? { ...user, name: member.name, role: member.role, scopes: member.scopes,
@@ -191,17 +195,23 @@ export const createAuth = ({ db, env, appUrl }) => {
     return payload.data?.items?.[0]?.department_ids || [];
   };
 
-  const lookupDirectoryUser = async openId => {
+  const lookupDirectoryUser = async (openId, { allowKnownMember = false } = {}) => {
     if (!/^ou_[a-zA-Z0-9]+$/.test(openId)) throw new Error('飞书账号 ID 无效');
     const token = await getTenantToken();
     const payload = await fetchJson(`https://open.feishu.cn/open-apis/contact/v3/users/${encodeURIComponent(openId)}?user_id_type=open_id`,
       { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }, '飞书成员查询');
     const contact = payload.data?.user;
-    if (!contact?.open_id || !contact?.name || contact.open_id !== openId) throw new Error('未找到该飞书成员');
+    if (!contact?.open_id || contact.open_id !== openId) throw new Error('未找到该飞书成员或账号 ID 不匹配');
     if (contact.status?.is_resigned) throw new Error('该成员已离职');
-    const profile = { openId, name: contact.name, department: contact.department_name || db.getProfile(openId)?.department || '' };
-    db.rememberProfile(profile);
-    return profile;
+    const member = allowKnownMember ? db.getMember?.(openId) : null;
+    if (allowKnownMember && member && !member.enabled) throw new Error('该成员已在系统停用');
+    const liveName = typeof contact.name === 'string' ? contact.name.trim() : '';
+    const knownName = member?.enabled && member.name !== openId ? String(member.name || '').trim() : '';
+    const name = liveName || knownName;
+    if (!name) throw new Error('飞书已返回该账号，但未提供姓名；请检查姓名字段权限或由管理员先核验并开通成员');
+    const profile = { openId, name, department: contact.department_name || member?.department || db.getProfile?.(openId)?.department || '' };
+    if (liveName) db.rememberProfile(profile);
+    return { ...profile, nameVerified: !!liveName, nameSource: liveName ? 'feishu' : 'access_member' };
   };
 
   const searchDirectory = async (user, query) => {
@@ -252,13 +262,15 @@ export const createAuth = ({ db, env, appUrl }) => {
       const loginOrigin = new URL(appUrl);
       if (['localhost', '127.0.0.1'].includes(loginOrigin.hostname)
         && req.hostname && req.hostname !== loginOrigin.hostname) {
-        res.redirect(new URL('/api/auth/login', loginOrigin).toString());
+        const target = new URL('/api/auth/login', loginOrigin);target.searchParams.set('returnTo',safeReturnTo(req.query.returnTo));
+        res.redirect(target.toString());
         return;
       }
       if (!authConfigured) {
         res.status(503).json({ success: false, error: '飞书登录尚未完成服务端配置' });
         return;
       }
+      res.append('Set-Cookie', cookieText(OAUTH_RETURN_COOKIE, safeReturnTo(req.query.returnTo), { maxAge: 600, secure: secureCookie }));
       const state = randomToken();
       res.append('Set-Cookie', cookieText(OAUTH_STATE_COOKIE, state, { maxAge: 600, secure: secureCookie }));
       const authorizeUrl = new URL(env.FEISHU_AUTHORIZE_URL || 'https://accounts.feishu.cn/open-apis/authen/v1/authorize');
@@ -326,7 +338,8 @@ export const createAuth = ({ db, env, appUrl }) => {
           details: { loginType: 'feishu', departmentIds }
         });
         res.append('Set-Cookie', cookieText(OAUTH_STATE_COOKIE, '', { maxAge: 0, secure: secureCookie }));
-        res.redirect('/');
+        res.append('Set-Cookie', cookieText(OAUTH_RETURN_COOKIE, '', { maxAge: 0, secure: secureCookie }));
+        res.redirect(safeReturnTo(cookies[OAUTH_RETURN_COOKIE]));
       } catch (error) {
         db.writeAudit({
           ...requestContext(req),
@@ -422,6 +435,7 @@ export const createAuth = ({ db, env, appUrl }) => {
     requireEditor,
     searchDirectory,
     lookupDirectoryUser,
+    lookupMessageRecipient: openId => lookupDirectoryUser(openId, { allowKnownMember: true }),
     requestContext,
     logoutCurrentSession
   };

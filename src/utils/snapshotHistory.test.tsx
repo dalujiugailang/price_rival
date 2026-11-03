@@ -8,7 +8,7 @@ import HistoryPanel from '../components/HistoryPanel';
 import { getSnapshotSourceFiles, selectSnapshotSourceFiles } from './snapshotSourceFiles';
 import {
   compareSnapshotProducts, createSnapshotWorkbook, selectSnapshot, snapshotRemark,
-  snapshotTimeLabel, snapshotPricingTimeLabel, sortSnapshots
+  snapshotFocusPpv, snapshotTimeLabel, snapshotPricingTimeLabel, sortSnapshots
 } from './snapshotHistory';
 
 // Sparse products reproduce older saved payloads which lack recently added fields.
@@ -113,3 +113,10 @@ assert.deepEqual(getSnapshotSourceFiles(boundBatch).map(record => record.id), ['
 const missingLatest = batch({ sourceUploadRecords: [sourceRecord('missing-base', 'base', '2026-10-01 10:00:00'), ...sourceHistory] });
 assert.equal(getSnapshotSourceFiles(missingLatest)[0].sourceFileId, undefined, 'missing latest original must not fall back to an older file');
 console.log('Snapshot history: selection, historical values, row identity, export and sparse rendering passed.');
+
+// First history open previously treated undefined batch IDs as equal and read null.ppv.
+assert.equal(snapshotFocusPpv(null, undefined), undefined);
+assert.equal(snapshotFocusPpv(undefined, undefined), undefined);
+assert.equal(snapshotFocusPpv({batchId:'A',ppv:'PPV-A'}, undefined), undefined);
+assert.equal(snapshotFocusPpv({batchId:'A',ppv:'PPV-A'}, 'B', 'fallback'), 'fallback');
+assert.equal(snapshotFocusPpv({batchId:'A',ppv:'PPV-A'}, 'A'), 'PPV-A');

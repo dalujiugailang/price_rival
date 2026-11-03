@@ -1,3 +1,4 @@
+import { canManageActionPermissions } from '../shared/accessPolicy.mjs';
 export const registerAccessRoutes = (app, { db, auth }) => {
   const adminOnly = (req, res, next) => {
     if (req.authUser.role === 'admin') return next();
@@ -18,6 +19,11 @@ export const registerAccessRoutes = (app, { db, auth }) => {
       const member = db.saveMember({ ...req.body, openId }, auth.requestContext(req), true);
       res.status(201).json({ success: true, member });
     } catch (error) { fail(res, error); }
+  });
+  app.put('/api/access-members/:openId/actions', adminOnly, (req, res) => {
+    if (!canManageActionPermissions(req.authUser)) return res.status(403).json({ success: false, error: '未开通功能权限管理' });
+    try { res.json({ success: true, member: db.setMemberActions({ openId: req.params.openId, actions: req.body?.actions, version: req.body?.version }, auth.requestContext(req)) }); }
+    catch (error) { fail(res, error); }
   });
   app.put('/api/access-members/:openId', adminOnly, (req, res) => {
     try { res.json({ success: true, member: db.saveMember({ ...req.body, openId: req.params.openId }, auth.requestContext(req)) }); }

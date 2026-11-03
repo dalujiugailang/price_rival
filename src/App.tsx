@@ -1,3 +1,9 @@
+import FeishuIcon from './components/FeishuIcon';
+import SubsidyMatrixPanel from './components/subsidyMatrix/SubsidyMatrixPanel';
+import {resolveMatrixWorkspace} from './components/subsidyMatrix/model';
+import { snapshotFocusPpv } from './utils/snapshotHistory';
+import FeishuPushDialog from './components/FeishuPushDialog';
+import FeishuReportPage from './components/FeishuReportPage';
 import TradeInRiskPanel from './components/tradeInRisk/TradeInRiskPanel';
 import { batchScopeKey } from './utils/batchScope';
 /**
@@ -51,6 +57,7 @@ import {gradeBatchMismatch} from '../shared/gradeHistory.mjs';
 import MainTable from './components/MainTable';
 import UploadSection from './components/UploadSection';
 import HistoryPanel from './components/HistoryPanel';
+import AuthorizedPriceAnalysis from './components/AuthorizedPriceAnalysis';
 import CompetitivenessSummary from './components/CompetitivenessSummary';
 import TmHandPriceGapPanel from './components/TmHandPriceGapPanel';
 import OnboardingTour, { TourStep } from './components/OnboardingTour';
@@ -58,7 +65,7 @@ import AuditLogPanel from './components/AuditLogPanel';
 import PermissionPanel from './components/PermissionPanel';
 import SharedSourcesPanel from './components/SharedSourcesPanel';
 import ProductTutorial from './components/ProductTutorial';
-import { ACCESS_PAGES, accessibleChannels, canAccess, canEdit, isEditor } from '../shared/accessPolicy.mjs';
+import { ACCESS_PAGES, accessibleChannels, canAccess, canEdit, canPushFeishu, isEditor } from '../shared/accessPolicy.mjs';
 import { useAuth } from './components/AuthGate';
 import { CHANNELS, DEFAULT_CHANNEL_ID } from './config/channels';
 import {
@@ -122,7 +129,7 @@ type SaveBatchOptions = {
   pricingTimestamp: string;
 };
 
-type ViewTab = 'riskLedger' | 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions' | 'tutorial';
+type ViewTab = 'priceAnalysis' | 'riskLedger' | 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions' | 'tutorial';
 
 type ChannelWorkspaceState = {
   productsMaster: Product[];
@@ -174,8 +181,12 @@ export default function App() {
   const isAdmin = user.role === 'admin';
   const channelOrder = accessibleChannels(user).map(channel => channel.id) as ChannelId[];
   const firstPage = (channel: ChannelId) => ACCESS_PAGES.find(page => canAccess(user, channel, page.id))?.id as ViewTab || 'workspace';
-  const [activeChannelId, setActiveChannelId] = useState<ChannelId>(channelOrder[0] || DEFAULT_CHANNEL_ID);
-  const [activeTab, setActiveTab] = useState<ViewTab>(() => (new URLSearchParams(location.search).get('tab') === 'riskLedger' && canAccess(user, 'tradeIn', 'riskLedger') ? 'riskLedger' : firstPage(channelOrder[0] || DEFAULT_CHANNEL_ID)));
+  const deepLink = new URLSearchParams(location.search);
+  const linkedChannel = deepLink.get('channel') as ChannelId;
+  const initialChannel = channelOrder.includes(linkedChannel) ? linkedChannel : channelOrder[0] || DEFAULT_CHANNEL_ID;
+  const [activeChannelId, setActiveChannelId] = useState<ChannelId>(initialChannel);
+  const [pushOpen, setPushOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => { const tab = deepLink.get('tab'); return tab && ACCESS_PAGES.some(p => p.id === tab) && canAccess(user, initialChannel, tab) ? tab as ViewTab : firstPage(initialChannel); });
   const [restoredSnapshotFiles, setRestoredSnapshotFiles] = useState<{
     channelId: ChannelId;
     batchId: string;
@@ -199,7 +210,7 @@ export default function App() {
     return states;
   });
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
-  const [workspacePane, setWorkspacePane] = useState<'pricing' | 'grades'>('pricing');
+  const [workspacePane, setWorkspacePane] = useState<'pricing' | 'grades' | 'risk'>('pricing');
   const [handPriceUndo, setHandPriceUndo] = useState<{
     channel: ChannelId;
     before: HandPriceAdjustments;
@@ -213,6 +224,7 @@ export default function App() {
   } | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourStepIndex, setTourStepIndex] = useState(0);
+  const [analysisSnapshotFocus,setAnalysisSnapshotFocus]=useState<{batchId:string;ppv:string}|null>(null);
   const [historySyncStatus, setHistorySyncStatus] = useState('正在连接共享历史…');
   const [historyRefreshing, setHistoryRefreshing] = useState(true);
   const [androidRevenueSnapshot, setAndroidRevenueSnapshot] = useState<AndroidRevenueSnapshot | null>(null);
@@ -222,6 +234,7 @@ export default function App() {
   const historySyncRef = useRef<ReturnType<typeof createSnapshotSync<TrackingBatch[]>> | null>(null);
   const activeChannel = CHANNELS[activeChannelId];
   const activeState = channelStates[activeChannelId];
+  const canPushToFeishu = canPushFeishu(user, activeChannelId);
   const canEditWorkspace = canEdit(user, activeChannelId, 'workspace');
   const canEditUpload = canEdit(user, activeChannelId, 'upload');
   const canViewWorkspace = canAccess(user, activeChannelId, 'workspace');
@@ -236,6 +249,16 @@ export default function App() {
     : readOnlySnapshot?.totalInvestmentRateInputs ?? readOnlySnapshot?.investmentRateInputs ?? activeState.investmentRateInputs;
   const isSelfOperated = activeChannelId === 'selfOperated';
   const gradeProducts = useSharedSnapshot ? readOnlySnapshot?.products || [] : activeCalculatedItems;
+  const matrixWorkspace = useMemo(() => resolveMatrixWorkspace({
+    useSharedSnapshot,
+    snapshot: readOnlySnapshot,
+    products: activeCalculatedItems,
+    subsidyRules: activeState.subsidyRules,
+    fileName: activeState.activeSubsidyFileName,
+    records: activeState.sourceUploadRecords,
+    version: activeState.competitionVersionIndex
+  }), [useSharedSnapshot, readOnlySnapshot, activeCalculatedItems, activeState.subsidyRules,
+    activeState.activeSubsidyFileName, activeState.sourceUploadRecords, activeState.competitionVersionIndex]);
   const investmentBatch=useMemo(()=>{
     if(useSharedSnapshot)return readOnlySnapshot;
     const request={prices:gradeProducts.map(p=>({id:p.id,skuId:String(p.skuId),ppv:p.ppv,model:p.oldModel,newSeries:p.newSeries||'',price:p.recommendJdPrice,display:{recommendAdjustment:p.recommendAdjustment}}))};
@@ -558,7 +581,7 @@ export default function App() {
     historySyncRef.current = sync;
     void sync.refresh().catch(() => undefined);
     const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible' || document.querySelector('[data-price-analysis-active]')) return;
       void sync.refresh().catch(() => undefined);
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -1126,11 +1149,11 @@ export default function App() {
   }, [activeChannelId, activeTab, user]);
 
   const viewButtons: { id: ViewTab; label: string }[] = ACCESS_PAGES
-    .filter(page => canAccess(user, activeChannelId, page.id))
+    .filter(page => page.id !== 'priceAnalysis' && canAccess(user, activeChannelId, page.id))
     .map(page => ({ id: page.id as ViewTab, label: page.id === 'history' ? `历史 (${activeState.historyBatches.length})`
       : isSelfOperated && page.selfName ? page.selfName : page.name }));
   if (isAdmin && activeChannelId === 'tradeIn') viewButtons.push({ id: 'permissions', label: '权限管理' });
-  const showWorkspaceControls = canViewWorkspace && !['riskLedger', 'permissions', 'history', 'tutorial'].includes(activeTab);
+  const showWorkspaceControls = !(deepLink.get('reportId') && activeTab === 'competitiveness') && canViewWorkspace && !['riskLedger', 'permissions', 'history', 'priceAnalysis', 'tutorial'].includes(activeTab);
   const hasPausedTour = !tourOpen && tourStepIndex > 0;
   const channelTargetLabel = (channelId: ChannelId) => (
     CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价×103%' : '天猫裸机价×103%'
@@ -1189,7 +1212,7 @@ export default function App() {
                             data-tour={`tab-${button.id}`}
                             onClick={() => {
                               setActiveTab(button.id);
-                              if (!active && !['permissions', 'tutorial'].includes(button.id)) void refreshServerBatches().catch(() => undefined);
+                              if (!active && !['permissions', 'tutorial', 'priceAnalysis'].includes(button.id)) void refreshServerBatches().catch(() => undefined);
                             }}
                             className={`block w-full border px-3 py-2 text-left text-xs transition-colors ${
                               active
@@ -1243,11 +1266,13 @@ export default function App() {
         </aside>
 
         <div className="min-w-0 flex-1">
+          {pushOpen && canPushToFeishu && <FeishuPushDialog batches={activeState.historyBatches} channelId={activeChannelId} onClose={()=>setPushOpen(false)} />}
+          {deepLink.get('reportId') && !canAccess(user, linkedChannel, 'competitiveness') && <div role="alert" className="bg-amber-50 p-4 text-sm">当前账号未开通该竞争力报告，请联系管理员。</div>}
           <header className="flex flex-col md:flex-row items-start md:items-center justify-between px-6 py-4 border-b border-[#141414] bg-[#E4E3E0] gap-4">
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-xs font-black text-white">{activeChannel.name}</span>
-                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'riskLedger' ? '旧机压价台账' : activeTab === 'tutorial' ? '产品教程' : activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
+                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'riskLedger' ? '旧机压价台账' : activeTab === 'tutorial' ? '产品教程' : activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'priceAnalysis' ? '价格分析' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
               </div>
               {!['permissions', 'riskLedger'].includes(activeTab) && <div className="flex flex-wrap gap-4 mt-1">
                 {activeTab !== 'history' && <div className="flex items-center gap-2 text-xs text-[#141414]/70">
@@ -1274,7 +1299,8 @@ export default function App() {
               </div>}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              {canPushToFeishu && <button type="button" onClick={()=>setPushOpen(true)} className="inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap border border-[#141414] bg-blue-700 px-3 py-1 text-xs font-black text-white hover:bg-blue-800"><FeishuIcon />推送飞书</button>}
               <div className="border border-[#141414] bg-white px-3 py-1 text-xs font-bold">
                 {user.name} · {isAdmin ? '管理员' : isReadOnly ? '只读' : '可编辑'}
                 <button type="button" onClick={logout} className="ml-2 underline">退出</button>
@@ -1283,7 +1309,7 @@ export default function App() {
                 type="button"
                 data-tour="tutorial-button"
                 onClick={startTour}
-                className="inline-flex items-center gap-1.5 border border-[#141414] bg-white px-3 py-1 text-xs font-black hover:bg-[#141414] hover:text-white"
+                className="inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap border border-[#141414] bg-white px-3 py-1 text-xs font-black hover:bg-[#141414] hover:text-white"
               >
                 <Info className="h-3.5 w-3.5" />
                 {hasPausedTour ? '继续教程' : '新手教程'}
@@ -1316,7 +1342,7 @@ export default function App() {
             {activeTab === 'workspace' && canEditWorkspace && readOnlySnapshot && <div className="border border-[#141414] bg-white px-4 py-3 text-sm">
               当前展示 {readOnlySnapshot.date} 保存的追价快照，共 {readOnlySnapshot.products.length} 行。切换追价策略或边际底线即可基于这批机型实时重算。
             </div>}
-            {showWorkspaceControls && !(activeTab === 'workspace' && activeChannelId === 'tradeIn' && workspacePane === 'grades' && canEditWorkspace) && <DashboardStats
+            {showWorkspaceControls && !(activeTab === 'workspace' && activeChannelId === 'tradeIn' && workspacePane !== 'pricing') && <DashboardStats
               products={activeCalculatedItems}
               marginBottomLine={effectiveMarginBottomLine}
               pricingMode={effectivePricingMode}
@@ -1333,11 +1359,16 @@ export default function App() {
               }} />}
               {activeTab === 'workspace' && canViewWorkspace && (
                 <>
-                  {activeChannelId === 'tradeIn' && canEditWorkspace && <div className="flex gap-2 border-b border-[#141414] bg-[#F0EFEC] p-3">
+                  {activeChannelId === 'tradeIn' && canViewWorkspace && <div className="flex gap-2 border-b border-[#141414] bg-[#F0EFEC] p-3">
                     <button className={`border border-[#141414] px-4 py-2 text-xs font-bold ${workspacePane === 'pricing' ? 'bg-[#141414] text-white' : 'bg-white'}`} onClick={() => setWorkspacePane('pricing')}>重点追价</button>
-                    <button className={`border border-[#141414] px-4 py-2 text-xs font-bold ${workspacePane === 'grades' ? 'bg-[#141414] text-white' : 'bg-white'}`} onClick={() => setWorkspacePane('grades')}>等级推算</button>
+                    {canEditWorkspace && <button className={`border border-[#141414] px-4 py-2 text-xs font-bold ${workspacePane === 'grades' ? 'bg-[#141414] text-white' : 'bg-white'}`} onClick={() => setWorkspacePane('grades')}>等级推算</button>}
+                    <button className={`border border-[#141414] px-4 py-2 text-xs font-bold ${workspacePane === 'risk' ? 'bg-[#141414] text-white' : 'bg-white'}`} onClick={() => setWorkspacePane('risk')}>风险测算</button>
                   </div>}
-                  {activeChannelId === 'tradeIn' && canEditWorkspace && workspacePane === 'grades' ? <GradeExpansionPanel
+                  {activeChannelId === 'tradeIn' && workspacePane === 'risk' ? <SubsidyMatrixPanel
+                    workspace={matrixWorkspace}
+                    marginBottomLine={effectiveMarginBottomLine}
+                    onOpenSources={canAccess(user, activeChannelId, 'upload') ? () => setActiveTab('upload') : undefined}
+                  /> : activeChannelId === 'tradeIn' && canEditWorkspace && workspacePane === 'grades' ? <GradeExpansionPanel
                     products={gradeProducts}
                     subsidyRules={activeState.subsidyRules}
                     trackingBatchId={readOnlySnapshot?.id}
@@ -1412,10 +1443,13 @@ export default function App() {
                 />
               ) : <SharedSourcesPanel batch={latestSnapshot} />)}
 
+              {activeTab === 'priceAnalysis' && canAccess(user, activeChannelId, 'priceAnalysis') && <AuthorizedPriceAnalysis onOpenSnapshot={canAccess(user, activeChannelId, 'history') ? (batchId,ppv)=>{setSelectedHistoryBatchIds(previous=>({...previous,[activeChannelId]:batchId}));setAnalysisSnapshotFocus({batchId,ppv});setActiveTab('history');}:undefined}/>}
               {activeTab === 'history' && canAccess(user, activeChannelId, 'history') && (
                 <div key={activeChannelId}>
                 <HistoryPanel
                   historyBatches={activeState.historyBatches}
+                  canViewAnalysis={canAccess(user, activeChannelId, 'priceAnalysis')}
+                  focusPpv={snapshotFocusPpv(analysisSnapshotFocus, selectedHistoryBatchIds[activeChannelId])}
                   selectedBatchId={selectedHistoryBatchIds[activeChannelId]}
                   onSelectBatch={id => setSelectedHistoryBatchIds(previous => ({ ...previous, [activeChannelId]: id }))}
                   onDeleteBatch={canEdit(user, activeChannelId, 'history') ? handleDeleteBatch : undefined}
@@ -1426,7 +1460,7 @@ export default function App() {
               )}
 
               {activeTab === 'competitiveness' && canAccess(user, activeChannelId, 'competitiveness') && (
-                <CompetitivenessSummary
+                deepLink.get('reportId') && activeChannelId === linkedChannel ? <FeishuReportPage id={deepLink.get('reportId')!} /> : deepLink.get('batchId') && activeChannelId === linkedChannel && !activeState.historyBatches.some(b => b.id === deepLink.get('batchId')) ? <div role="alert" className="border bg-amber-50 p-4">{historyRefreshing ? '正在加载指定批次…' : '该批次不存在或当前账号无权查看，请联系管理员。'}</div> : <CompetitivenessSummary
                   revealIssueDetails={tourOpen && tourSteps[tourStepIndex]?.target === 'audit-issue-details'}
                   historyBatches={activeState.historyBatches}
                   currentCalculatedItems={useSharedSnapshot ? [] : activeCalculatedItems}

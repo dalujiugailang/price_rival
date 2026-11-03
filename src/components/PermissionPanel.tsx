@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { AccessMember, DirectoryMember, listAccessMembers, searchAccessDirectory, updateAccessMember } from '../api';
-import { ACCESS_CHANNELS, ACCESS_PAGES, DEFAULT_VIEWER_SCOPES, pagesForChannel } from '../../shared/accessPolicy.mjs';
+import { AccessMember, DirectoryMember, listAccessMembers, searchAccessDirectory, updateAccessMember, updateMemberActions } from '../api';
+import { ACCESS_CHANNELS, ACCESS_PAGES, DEFAULT_VIEWER_SCOPES, ALL_ACTION_SCOPES, canManageActionPermissions, pagesForChannel } from '../../shared/accessPolicy.mjs';
+
+import { useAuth } from './AuthGate';
 
 const control = 'border border-[#141414] bg-white px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50';
 const date = (value: string | null) => value ? new Date(value).toLocaleString('zh-CN', {
@@ -10,6 +12,8 @@ type Draft = { role: 'editor' | 'viewer'; scopes: string[]; enabled: boolean };
 const initialDraft = (): Draft => ({ role: 'viewer', scopes: [...DEFAULT_VIEWER_SCOPES], enabled: true });
 
 export default function PermissionPanel() {
+  const { user } = useAuth();
+  const canManageActions = canManageActionPermissions(user);
   const [members, setMembers] = useState<AccessMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -60,6 +64,17 @@ export default function PermissionPanel() {
       setMembers(current => [...current.filter(member => member.openId !== result.member.openId), result.member]);
       setEditing(null); setNotice(`${result.member.name}的权限已保存，后续请求按新权限生效。`);
     } catch (err) { setFormError((err as Error).message); }
+    finally { setSaving(false); }
+  };
+  const setPushPermission = async (member: AccessMember, checked: boolean) => {
+    setSaving(true); setError(''); setNotice('');
+    try {
+      const actions = member.scopes.filter(scope => ALL_ACTION_SCOPES.includes(scope));
+      const next = checked ? [...new Set([...actions, 'feishu.push'])] : actions.filter(action => action !== 'feishu.push');
+      const result = await updateMemberActions(member.openId, next, member.version);
+      setMembers(current => current.map(item => item.openId === result.member.openId ? result.member : item));
+      setNotice(`${member.name}的飞书推送权限已${checked ? '开通' : '关闭'}。`);
+    } catch (err) { setError((err as Error).message); }
     finally { setSaving(false); }
   };
   const enabled = members.filter(member => member.enabled);
@@ -116,16 +131,16 @@ export default function PermissionPanel() {
           </fieldset>;
         })}
       </div>
-      <p className="text-xs text-[#555]">已选 {draft.scopes.length} 个页面。只读账号在已选页面仍不能上传、改价、保存或删除。</p>
+      <p className="text-xs text-[#555]">已选 {draft.scopes.filter(scope => !ALL_ACTION_SCOPES.includes(scope)).length} 个页面。只读账号在已选页面仍不能上传、改价、保存或删除。</p>
       {formError && <p role="alert" className="text-xs text-red-800">{formError}</p>}
       <div className="flex justify-end gap-2"><button className={control} onClick={() => setEditing(null)}>取消</button>
         <button className={`${control} font-bold`} onClick={() => void save()}>{saving ? '保存中…' : '保存权限'}</button></div>
     </fieldset>}
     <div className="overflow-x-auto border border-[#141414]">
       <table className="w-full text-xs text-left"><thead className="bg-[#F0EFEC] border-b border-[#141414]"><tr>
-        {['成员 / 部门', '操作权限', '查看范围', '状态', '最近登录', '操作'].map(label => <th className="p-3 whitespace-nowrap" key={label}>{label}</th>)}
+        {['成员 / 部门', '操作权限', '查看范围', '独立功能权限', '状态', '最近登录', '操作'].map(label => <th className="p-3 whitespace-nowrap" key={label}>{label}</th>)}
       </tr></thead><tbody className="divide-y divide-[#141414]/20">
-        {loading ? <tr><td colSpan={6} className="p-8 text-center">读取人员权限…</td></tr> : filtered.map(member => <tr key={member.openId}>
+        {loading ? <tr><td colSpan={7} className="p-8 text-center">读取人员权限…</td></tr> : filtered.map(member => <tr key={member.openId}>
           <td className="p-3"><b>{member.name}</b><div className="text-[#666] mt-1">{member.department || '—'}</div></td>
           <td className="p-3 whitespace-nowrap">{member.role === 'admin' ? '管理员' : member.role === 'editor' ? '可编辑' : '只读'}</td>
           <td className="p-3"><details><summary className="cursor-pointer">{ACCESS_CHANNELS.map(channel => {
@@ -136,12 +151,17 @@ export default function PermissionPanel() {
               const labels = ACCESS_PAGES.filter(page => member.scopes.includes(`${channel.id}.${page.id}`)).map(page => channel.id === 'selfOperated' && page.selfName ? page.selfName : page.name);
               return labels.length ? <div key={channel.id}><b>{channel.name}</b>：{labels.join('、')}</div> : null;
             })}</div></details>{member.role !== 'admin' && <button className="underline mt-1" disabled={saving || searching} onClick={() => open(member)}>配置范围</button>}</td>
+          <td className="p-3 whitespace-nowrap"><label className="inline-flex items-center gap-2 text-xs">
+            <input type="checkbox" aria-label={`${member.name}的飞书推送权限`} checked={member.scopes.includes('feishu.push')}
+              disabled={saving || !canManageActions || member.openId === user.openId || !member.enabled || member.role === 'viewer'}
+              onChange={event => void setPushPermission(member, event.target.checked)} />推送飞书
+          </label>{member.openId === user.openId && member.scopes.includes('feishu.push') && <div className="mt-1 text-[10px] text-[#666]">本人权限保护</div>}</td>
           <td className="p-3 whitespace-nowrap">{member.enabled ? '启用' : '停用'}</td><td className="p-3 whitespace-nowrap">{date(member.lastLoginAt)}</td>
           <td className="p-3 whitespace-nowrap">{member.role === 'admin' ? '账号保护' : <button className={control} disabled={saving || searching} onClick={() => open(member)}>修改权限</button>}</td>
         </tr>)}
-        {!loading && !filtered.length && <tr><td className="p-8 text-center" colSpan={6}>没有匹配的成员</td></tr>}
+        {!loading && !filtered.length && <tr><td className="p-8 text-center" colSpan={7}>没有匹配的成员</td></tr>}
       </tbody></table>
     </div>
-    <p className="text-xs text-[#666]">权限管理仅管理员可用。最近登录按北京时间显示；暂无记录不代表从未登录。</p>
+    <p className="text-xs text-[#666]">飞书推送为独立功能权限，不随管理员角色或页面全选自动开通。只有已开通的管理员可管理此权限。最近登录按北京时间显示；暂无记录不代表从未登录。</p>
   </section>;
 }

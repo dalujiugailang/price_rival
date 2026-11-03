@@ -24,6 +24,13 @@ export const sortSnapshots = (batches: TrackingBatch[]) => (
   [...batches].sort((a, b) => savedTimestamp(b) - savedTimestamp(a) || b.id.localeCompare(a.id))
 );
 
+// No selection and no focus must not compare as a matching batch.
+export const snapshotFocusPpv = (
+  focus: { batchId: string; ppv: string } | null | undefined,
+  selectedBatchId: string | undefined,
+  fallback?: string
+) => focus && selectedBatchId && focus.batchId === selectedBatchId ? focus.ppv : fallback;
+
 export const selectSnapshot = (batches: TrackingBatch[], selectedId?: string) => (
   batches.find(batch => batch.id === selectedId)
   || batches.find(hasSnapshotDetails)

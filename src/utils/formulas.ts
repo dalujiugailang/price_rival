@@ -114,7 +114,7 @@ const calcLinearCost = (itemPrice: number, subsidy: number, basePrice: number, c
   return (itemPrice + subsidy) * 0.0466 + basePrice * 0.0218 + 81;
 };
 
-const calcMarginalProfit = (itemPrice: number, subsidy: number, basePrice: number, channel: ChannelConfig = CHANNELS.tradeIn) => {
+export const calcMarginalProfit = (itemPrice: number, subsidy: number, basePrice: number, channel: ChannelConfig = CHANNELS.tradeIn) => {
   if (basePrice <= 0) return 0;
   const linearCost = calcLinearCost(itemPrice, subsidy, basePrice, channel);
   return 1 - (itemPrice + subsidy + linearCost) / basePrice;

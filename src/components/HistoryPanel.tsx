@@ -10,9 +10,10 @@ import { TrackingBatch } from '../types';
 import { formatPercent, formatRMB } from '../utils/formulas';
 import {
   compareSnapshotProducts, hasSnapshotDetails, isImportedSnapshot, selectSnapshot, snapshotRemark,
-  snapshotStatus, snapshotTimeLabel, snapshotPricingTimeLabel, sortSnapshots
+  snapshotStatus, snapshotFocusPpv, snapshotTimeLabel, snapshotPricingTimeLabel, sortSnapshots
 } from '../utils/snapshotHistory';
 import { SnapshotTable } from './MainTable';
+import AuthorizedPriceAnalysis from './AuthorizedPriceAnalysis';
 import GradeSnapshotHistory from './GradeSnapshotHistory';
 import {calculateBrandCompetitionInvestmentMetrics} from '../utils/investment';
 import SourceFileDownloadLink from './SourceFileDownloadLink';
@@ -25,6 +26,8 @@ interface Props {
   onDeleteBatch?: (id: string) => void;
   onRestoreBatch?: (batch: TrackingBatch) => void;
   channelName?: string;
+  canViewAnalysis?: boolean;
+  focusPpv?: string;
 }
 
 const buttonClass = 'inline-flex items-center justify-center gap-1.5 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold hover:bg-[#E4E3E0] disabled:cursor-not-allowed disabled:opacity-40';
@@ -36,7 +39,7 @@ const marginText = (value: number | null) => value === null ? '—' : formatPerc
 const listTimeLabel = (batch: TrackingBatch) => isImportedSnapshot(batch) ? batch.date : snapshotTimeLabel(batch);
 
 export default function HistoryPanel({
-  historyBatches, selectedBatchId, onSelectBatch, onDeleteBatch, onRestoreBatch, channelName = '京东换新'
+  historyBatches, selectedBatchId, onSelectBatch, onDeleteBatch, onRestoreBatch, channelName = '京东换新', canViewAnalysis = false, focusPpv
 }: Props) {
   const batches = useMemo(() => sortSnapshots(historyBatches), [historyBatches]);
   const inspectedBatch = selectSnapshot(batches, selectedBatchId);
@@ -44,6 +47,8 @@ export default function HistoryPanel({
   const inspectedId = inspectedBatch?.id;
   const investmentMetrics=inspectedBatch?.totalInvestmentRateMetrics || inspectedBatch?.investmentRateMetrics;
   const brandInvestments=useMemo(()=>inspectedBatch?calculateBrandCompetitionInvestmentMetrics(inspectedBatch.products,inspectedBatch.investmentBrandSalesAmounts30d||[],inspectedBatch.gradeInvestment):[],[inspectedBatch]);
+  const [historyPane, setHistoryPane] = useState<'snapshots' | 'analysis'>('snapshots');
+  const [snapshotFocus,setSnapshotFocus] = useState<{batchId:string;ppv:string}|null>(null);
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
   const [search, setSearch] = useState('');
   const [showComparison, setShowComparison] = useState(false);
@@ -74,9 +79,10 @@ export default function HistoryPanel({
     else if (left + tab.offsetWidth > strip.scrollLeft + strip.clientWidth) {
       strip.scrollLeft = left + tab.offsetWidth - strip.clientWidth;
     }
-  }, [inspectedId]);
+  }, [inspectedId, historyPane]);
 
   const inspect = (id: string) => {
+    setSnapshotFocus(null);
     onSelectBatch(id);
     setShowAllSnapshots(false);
     setShowComparison(false);
@@ -97,6 +103,8 @@ export default function HistoryPanel({
 
   return (
     <section className="min-w-0 space-y-4" data-tour="history-panel" id="history-panel-area" aria-label={`${channelName}历史快照`}>
+      {channelName === '京东换新' && canViewAnalysis && <div role="tablist" aria-label="历史功能" className="flex gap-2">{([['snapshots','已保存快照'],['analysis','价格分析']] as const).map(([id,label])=><button key={id} role="tab" aria-selected={historyPane===id} className={buttonClass + (historyPane===id?' !bg-[#141414] text-white':'')} onClick={()=>setHistoryPane(id)}>{label}</button>)}</div>}
+      {historyPane === 'analysis' && canViewAnalysis && channelName === '京东换新' ? <AuthorizedPriceAnalysis onOpenSnapshot={(batchId,ppv)=>{onSelectBatch(batchId);setSnapshotFocus({batchId,ppv});setShowAllSnapshots(false);setShowComparison(false);setHistoryPane('snapshots');}}/> : <>
       <div className="min-w-0 border border-[#141414] bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] px-4 py-3">
           <h2 className="flex items-center gap-2 text-sm font-bold">
@@ -107,7 +115,7 @@ export default function HistoryPanel({
             <button type="button" className={buttonClass} aria-expanded={showAllSnapshots} data-tour="history-library" aria-controls="snapshot-library" onClick={() => setShowAllSnapshots(value => !value)}>
               <List className="h-3.5 w-3.5" /> 全部快照
             </button>
-            <button type="button" className={buttonClass} data-tour="history-compare" disabled={!canCompare} aria-pressed={showComparison && canCompare} onClick={() => setShowComparison(value => !value)}>
+            <button type="button" className={buttonClass} data-tour="history-compare" disabled={!canCompare || (channelName === '京东换新' && !canViewAnalysis)} aria-pressed={showComparison && canCompare} onClick={() => channelName === '京东换新' ? setHistoryPane('analysis') : setShowComparison(value => !value)}>
               <ArrowLeftRight className="h-3.5 w-3.5" /> 两期对比
             </button>
           </div>
@@ -243,8 +251,8 @@ export default function HistoryPanel({
             </div>
           ) : hasSnapshotDetails(inspectedBatch) ? (
             (inspectedBatch.channelId || 'tradeIn') === 'tradeIn'
-              ? <div key={inspectedBatch.id}><GradeSnapshotHistory batchId={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} /></GradeSnapshotHistory></div>
-              : <div key={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} /></div>
+              ? <div key={inspectedBatch.id}><GradeSnapshotHistory batchId={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></GradeSnapshotHistory></div>
+              : <div key={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></div>
           ) : (
             <div className="border border-[#141414] bg-white p-6">
               <div className="mb-5 text-center">
@@ -267,6 +275,7 @@ export default function HistoryPanel({
           )}
         </div>
       )}
+      </>}
     </section>
   );
 }
