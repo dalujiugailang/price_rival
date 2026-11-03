@@ -174,6 +174,11 @@ const testTradeInFormulas = () => {
     '京东物品价+ahs补贴-追价后 vs 转转',
     '京东到手价-追价后vs转转'
   ].forEach(label => {
+    if (label === '京东物品价+ahs补贴-追价后 vs天猫') {
+      assert.equal(cellFor(pricingSheet, label).f, undefined);
+      assert.equal(cellFor(pricingSheet, label).v, '');
+      return;
+    }
     const formula = cellFor(pricingSheet, label).f || '';
     assert.match(formula, />0,/);
     assert.match(formula, />=/);

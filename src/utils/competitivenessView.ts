@@ -58,6 +58,7 @@ export const viewMetrics = (
   const metrics = saved || calculateCompetitivenessMetrics(products, channelId);
   const result = unavailableViewMetrics();
   for (const key of Object.keys(ELIGIBLE_PRICE) as (keyof CompetitivenessMetrics)[]) {
+    if (key === 'ahsVsTmRecyclerScore') continue;
     const value = metrics[key];
     const hasWeight = products.some(product => (
       Number(product[ELIGIBLE_PRICE[key]]) > 0 && product.quoteVolume > 0
@@ -70,6 +71,7 @@ export const viewMetrics = (
 const savedSummaryMetrics = (saved?: CompetitivenessMetrics): CompetitivenessViewMetrics => {
   const result = unavailableViewMetrics();
   for (const key of Object.keys(result) as (keyof CompetitivenessMetrics)[]) {
+    if (key === 'ahsVsTmRecyclerScore') continue;
     const value = saved?.[key];
     result[key] = typeof value === 'number' && Number.isFinite(value) ? value : null;
   }

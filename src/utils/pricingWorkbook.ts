@@ -337,9 +337,13 @@ export const addDynamicPricingWorkbookSheets = ({
       PERCENT_FORMAT
     );
 
+    const disabledBenchmarkColumn = optionalColumn(columns, '京东物品价+ahs补贴-追价后 vs天猫');
+    if (disabledBenchmarkColumn !== undefined) {
+      pricingSheet[cellRef(disabledBenchmarkColumn, rowNumber)] = { t: 's', v: '' };
+    }
+
     const formulaFlags: Array<[string, string, boolean]> = [
       ['京东物品价-追价后 vs 天猫', 'tm裸机价', product.postTmItemWin],
-      ['京东物品价+ahs补贴-追价后 vs天猫', '含tm回收商补贴后报价', product.postAhsTmRecyclerWin],
       ['京东到手价-追价后 vs 天猫', 'tm总到手价', product.postTmHandWin],
       ['京东物品价-追价后 vs 转转', 'zz裸机价', product.postZzItemWin],
       ['京东物品价+ahs补贴-追价后 vs 转转', 'zz券后价', product.postAhsZzHandWin],

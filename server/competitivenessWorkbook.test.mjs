@@ -71,6 +71,7 @@ for (const sheetName of sheetNames(workbook)) {
     ]
   );
   assert.equal(getCell(worksheet, 24, 4)?.value, 0.612);
+  assert.equal(getCell(worksheet, 24, 5)?.value, '', 'disabled benchmark stays blank even with legacy values');
   if (sheetName === '总盘走势') {
     assert.equal(getCell(worksheet, 24, 5)?.value, '');
     assert.equal(getCell(worksheet, 24, 9)?.value, '');

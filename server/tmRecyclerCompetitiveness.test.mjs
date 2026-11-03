@@ -22,9 +22,9 @@ const backfilled = backfillTmRecyclerCompetitivenessBatch({
 
 assert.equal(backfilled.products[0].tmRecyclerSubsidy, 180);
 assert.equal(backfilled.products[0].tmRecyclerQuotedPrice, 1180);
-assert.equal(backfilled.products[0].postAhsTmRecyclerWin, true);
+assert.equal(backfilled.products[0].postAhsTmRecyclerWin, null);
 assert.equal(backfilled.products[0].postJdZzHandWin, false);
-assert.equal(backfilled.competitivenessMetrics.ahsVsTmRecyclerScore, 30);
+assert.equal(backfilled.competitivenessMetrics.ahsVsTmRecyclerScore, null);
 assert.equal(backfilled.competitivenessMetrics.jdVsZzDirectScore, 70);
 assert.equal(backfilled.competitivenessMetrics.tmItemScore, 1);
 

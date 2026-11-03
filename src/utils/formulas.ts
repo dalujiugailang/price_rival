@@ -294,7 +294,7 @@ export function calculateProductPrice(
   const jdZzHandWin = zzHandPrice > 0 && jdVsZzHandGap > 0;
 
   const postTmItemWin = product.tmPrice > 0 && recommendJdPrice >= product.tmPrice;
-  const postAhsTmRecyclerWin = tmRecyclerQuotedPrice > 0 && postAhsPrice >= tmRecyclerQuotedPrice;
+  const postAhsTmRecyclerWin = null;
   const postTmHandWin = tmHandPrice > 0 && postJdHandPrice >= tmHandPrice;
   const postZzItemWin = product.zzPrice > 0 && recommendJdPrice >= product.zzPrice;
   const postAhsZzHandWin = zzHandPrice > 0 && postAhsPrice >= zzHandPrice;
@@ -426,7 +426,7 @@ export function applyManualRecommendedPrice(
     postMarginalProfit,
     postJdHandPrice,
     postTmItemWin: product.tmPrice > 0 && recommendJdPrice >= product.tmPrice,
-    postAhsTmRecyclerWin: product.tmRecyclerQuotedPrice > 0 && postAhsPrice >= product.tmRecyclerQuotedPrice,
+    postAhsTmRecyclerWin: null,
     postTmHandWin: product.tmHandPrice > 0 && postJdHandPrice >= product.tmHandPrice,
     postZzItemWin: product.zzPrice > 0 && recommendJdPrice >= product.zzPrice,
     postAhsZzHandWin: product.zzHandPrice > 0 && postAhsPrice >= product.zzHandPrice,

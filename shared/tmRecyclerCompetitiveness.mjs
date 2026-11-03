@@ -43,7 +43,7 @@ export const backfillTmRecyclerCompetitivenessBatch = batch => {
       competitivenessMetrics: batch.competitivenessMetrics
         ? {
             ...batch.competitivenessMetrics,
-            ahsVsTmRecyclerScore: batch.competitivenessMetrics.ahsVsTmRecyclerScore ?? null,
+            ahsVsTmRecyclerScore: null,
             jdVsZzDirectScore: batch.competitivenessMetrics.jdVsZzDirectScore ?? null
           }
         : batch.competitivenessMetrics
@@ -61,18 +61,14 @@ export const backfillTmRecyclerCompetitivenessBatch = batch => {
       ...product,
       tmRecyclerSubsidy,
       tmRecyclerQuotedPrice,
-      postAhsTmRecyclerWin: tmRecyclerQuotedPrice > 0 && postAhsPrice >= tmRecyclerQuotedPrice,
+      postAhsTmRecyclerWin: null,
       postJdZzHandWin: zzHandPrice > 0 && postJdHandPrice >= zzHandPrice
     };
   });
 
   const competitivenessMetrics = {
     ...(batch.competitivenessMetrics || {}),
-    ahsVsTmRecyclerScore: weightedScore(
-      nextProducts,
-      product => product.tmRecyclerQuotedPrice > 0,
-      product => product.postAhsTmRecyclerWin
-    ),
+    ahsVsTmRecyclerScore: null,
     jdVsZzDirectScore: weightedScore(
       nextProducts,
       product => finiteNumber(product.zzHandPrice) > 0,

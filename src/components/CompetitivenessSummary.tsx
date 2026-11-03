@@ -327,15 +327,13 @@ export default function CompetitivenessSummary({
                 <div>
                   <div className="mb-1 flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-500">Benchmark 2</span>
-                    <span className={`border px-1.5 text-[9px] font-bold ${getScoreRating(latestMetric.ahsVsTmRecyclerScore).color}`}>
-                      {getScoreRating(latestMetric.ahsVsTmRecyclerScore).label}
-                    </span>
+
                   </div>
                   <h5 className="text-xs font-bold text-[#141414]">AHS补贴后 vs TM回收商补贴后</h5>
                   <p className="mt-0.5 text-[10px] text-slate-500">追后含AHS补贴报价 ≥ TM裸机价+回收商投入</p>
                 </div>
                 <div className="mt-4 flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-black tracking-tight text-[#141414]">{formatScore(latestMetric.ahsVsTmRecyclerScore)}</span>
+                  <span className="font-mono text-2xl font-black tracking-tight text-[#141414]">——</span>
                   <span className="font-mono text-[10px] opacity-70">{quoteWeightShortLabel}</span>
                 </div>
               </div>
@@ -753,7 +751,7 @@ export default function CompetitivenessSummary({
                     </div>
                     {!isSelfOperated && <div className="bg-white border border-[#141414]/20 p-2">
                       <div className="text-[10px] text-stone-500">Benchmark 2 · AHS vs TM回收商补贴后</div>
-                      <div className="font-mono font-bold">{formatScore(selectedBatchDetails.metrics.ahsVsTmRecyclerScore, 2)}</div>
+                      <div className="font-mono font-bold">{null}</div>
                     </div>}
                     <div className="bg-white border border-[#141414]/20 p-2">
                       <div className="text-[10px] text-stone-500">Benchmark 3 · 天猫到手价</div>
@@ -857,9 +855,7 @@ export default function CompetitivenessSummary({
                             {isTmItemBetter ? '✔ 胜出' : '❌ 报价低'}
                           </td>
 
-                          <td className={`p-3 font-bold text-center ${p.tmRecyclerQuotedPrice > 0 ? (isAhsBetterThanTmRecycler ? 'bg-green-50 text-green-700' : 'bg-rose-50 text-rose-700') : 'text-slate-400 font-mono'}`}>
-                            {p.tmRecyclerQuotedPrice > 0 ? (isAhsBetterThanTmRecycler ? '✔ 胜出' : '❌ 报价低') : '无数据'}
-                          </td>
+                          <td className="p-3 text-center" />
 
                           <td className="p-3 font-mono text-stone-500">{p.tmHandPrice > 0 ? formatRMB(tmHandPrice) : 'N/A'}</td>
 

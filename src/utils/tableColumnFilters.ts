@@ -80,3 +80,33 @@ export const setColumnFilter = (
   }
   return { ...filters, [columnKey]: Array.from(new Set(selectedValues)) };
 };
+
+export type NumericFilterOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'between';
+export interface NumericColumnFilter { operator: NumericFilterOperator; value: number; upper?: number; }
+export type NumericColumnFilters = Record<string, NumericColumnFilter>;
+
+export const matchesNumericColumnFilters = <Row>(row: Row, filters: NumericColumnFilters,
+  getValue: (row: Row, columnKey: string) => unknown, excludedColumnKey?: string): boolean => (
+  Object.entries(filters).every(([key, filter]) => {
+    if (key === excludedColumnKey) return true;
+    const raw = getValue(row, key);
+    if (raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '') || typeof raw === 'boolean') return false;
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(value) || !Number.isFinite(filter.value)) return false;
+    // Tolerate binary floating-point noise at an inclusive/equality boundary.
+    const tolerance = Math.max(1, Math.abs(value), Math.abs(filter.value)) * Number.EPSILON * 8;
+    const equal = Math.abs(value - filter.value) <= tolerance;
+    switch (filter.operator) {
+      case 'gt': return value > filter.value && !equal;
+      case 'gte': return value > filter.value || equal;
+      case 'lt': return value < filter.value && !equal;
+      case 'lte': return value < filter.value || equal;
+      case 'eq': return equal;
+      case 'neq': return !equal;
+      case 'between': return Number.isFinite(filter.upper) && filter.value <= filter.upper!
+        && (value > filter.value || equal)
+        && value <= filter.upper! + Math.max(1, Math.abs(filter.upper!)) * Number.EPSILON * 8;
+      default: return false;
+    }
+  })
+);

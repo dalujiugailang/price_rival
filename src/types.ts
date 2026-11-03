@@ -208,7 +208,7 @@ export interface CalculatedProduct extends Product {
   postJdHandPrice: number;      // AS
 
   postTmItemWin: boolean;       // AT
-  postAhsTmRecyclerWin: boolean;// 追后AHS报价 vs TM回收商补贴后报价
+  postAhsTmRecyclerWin: boolean | null;// 追后AHS报价 vs TM回收商补贴后报价
   postTmHandWin: boolean;       // AU
   postZzItemWin: boolean;       // BI
   postAhsZzHandWin: boolean;    // BJ

@@ -30,7 +30,7 @@ const mapPoints = (points: TimelinePoint[]): CompetitivenessTrendExportPoint[] =
   batchName: point.batchName,
   nodeType: point.isDraft ? '实时草稿' : '历史正式',
   tmItemScore: point.tmItemScore,
-  ahsVsTmRecyclerScore: point.ahsVsTmRecyclerScore,
+  ahsVsTmRecyclerScore: null,
   tmDirectScore: point.tmDirectScore,
   zzItemScore: point.zzItemScore,
   ahsVsZzDirectScore: point.ahsVsZzDirectScore,

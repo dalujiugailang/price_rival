@@ -10,3 +10,7 @@ deploy-backups/
 *.log
 .env*
 !.env.example
+
+# Local previews and reversible source archives
+output/
+**/.archive/

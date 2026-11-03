@@ -15,7 +15,7 @@ import { handPriceRowKey, type HandPriceAction } from '../utils/handPriceAlignme
 import { getTmPriceGaps } from '../utils/tmPriceGaps';
 import { createSnapshotWorkbook } from '../utils/snapshotHistory';
 import {
-  ColumnFilters,
+  ColumnFilters, NumericColumnFilters, matchesNumericColumnFilters,
   EMPTY_COLUMN_FILTER_VALUE,
   getColumnFilterOptions,
   matchesColumnFilters,
@@ -23,6 +23,7 @@ import {
   setColumnFilter
 } from '../utils/tableColumnFilters';
 import ColumnFilterButton from './ColumnFilterButton';
+import { retainFilterScope, resolveFilteredRows, type RetainedFilterScope } from '../utils/retainedFilterScope';
 import RepricingControlsPopover from './RepricingControlsPopover';
 import * as XLSX from 'xlsx';
 
@@ -143,6 +144,29 @@ export default function MainTable({
   const [competitivenessDate, setCompetitivenessDate] = useState(currentLocalDate);
   const [pricingTimestamp, setPricingTimestamp] = useState(currentLocalDateTime);
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
+  const [numericFilters, setNumericFilters] = useState<NumericColumnFilters>({});
+  const [retainedFilterRows, setRetainedFilterRows] = useState<RetainedFilterScope | null>(null);
+  const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
+  const clearCrosshair = (table: HTMLTableElement) => {
+    selectedRowRef.current?.removeAttribute('data-hover-row');
+    selectedRowRef.current = null;
+    table.removeAttribute('data-hover-column');
+    table.querySelector('[data-hover-cell]')?.removeAttribute('data-hover-cell');
+  };
+  const updateCrosshair = (event: React.MouseEvent<HTMLTableElement>) => {
+    const cell = (event.target as HTMLElement).closest<HTMLTableCellElement>('td, th');
+    const table = event.currentTarget;
+    if (!cell || cell.closest('table') !== table || cell.colSpan > 1) return;
+    const row = cell.parentElement as HTMLTableRowElement;
+    if (selectedRowRef.current !== row) {
+      selectedRowRef.current?.removeAttribute('data-hover-row');
+      row.setAttribute('data-hover-row', '');
+      selectedRowRef.current = row;
+    }
+    table.setAttribute('data-hover-column', String(cell.cellIndex));
+    const previous = table.querySelector('[data-hover-cell]');
+    if (previous !== cell) { previous?.removeAttribute('data-hover-cell'); cell.setAttribute('data-hover-cell', ''); }
+  };
   const [tableSearch, setTableSearch] = useState('');
   const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
   const [editingRecommendPpv, setEditingRecommendPpv] = useState<string | null>(null);
@@ -176,6 +200,8 @@ export default function MainTable({
 
   useEffect(() => {
     setColumnFilters({});
+    setNumericFilters({});
+    setRetainedFilterRows(null);
     setTableSearch('');
     setOpenColumnFilter(null);
   }, [channelId]);
@@ -322,6 +348,7 @@ export default function MainTable({
       '目标价将按现有取整规则调整至不低于 tm裸机价的首个合法价格。'
     );
     if (!confirmed) return;
+    retainRowsBeforeEdit();
     onApplySmallGapTolerance(previewSmallGapToleranceMargin, latestPrices);
     setShowSmallGapTolerancePopover(false);
   };
@@ -385,7 +412,7 @@ export default function MainTable({
       return;
     }
     baseEditActive.current = false;
-    if (price !== product.basePrice) onManualBasePriceChange(product.ppv, price);
+    if (price !== product.basePrice) { retainRowsBeforeEdit(); onManualBasePriceChange(product.ppv, price); }
     setEditingBaseId(null);
   };
 
@@ -393,6 +420,7 @@ export default function MainTable({
     if (!editingRecommendPpv) return;
     const text = editingRecommendValue.trim();
     if (!text) {
+      retainRowsBeforeEdit();
       onManualRecommendPriceChange(editingRecommendPpv, undefined);
       setEditingRecommendPpv(null);
       setEditingRecommendValue('');
@@ -405,6 +433,7 @@ export default function MainTable({
       return;
     }
 
+    retainRowsBeforeEdit();
     onManualRecommendPriceChange(editingRecommendPpv, parsed);
     setEditingRecommendPpv(null);
     setEditingRecommendValue('');
@@ -485,7 +514,7 @@ export default function MainTable({
     gaps.postHandGap ?? '',
     snapshot && p.maxPriceByMargin == null ? null : `${pricingMode === 'fullCompetition' ? '目标' : '上限'} ${formatRMB(p.maxPriceByMargin)}`,
     booleanValue(p.postTmItemWin),
-    booleanValue(p.postAhsTmRecyclerWin),
+    '',
     booleanValue(p.postTmHandWin),
     booleanValue(p.postZzItemWin),
     booleanValue(p.postAhsZzHandWin),
@@ -506,20 +535,35 @@ export default function MainTable({
     ...getFixedExportValues(product),
     ...rawFieldKeys.map(key => product.rawFields?.[key])
   ];
-  const filteredProducts = products.filter(product => (
+  const matchingProducts = products.filter(product => (
     matchesColumnFilters(product, columnFilters, getColumnFilterValue)
+    && matchesNumericColumnFilters(product, numericFilters, getColumnFilterValue)
     && matchesTableSearch(product, tableSearch, getTableSearchValues)
   ));
+  const filterScope = JSON.stringify([
+    channelId, snapshot?.id, marginBottomLine, pricingMode, columnFilters, numericFilters, tableSearch,
+    products.map(handPriceRowKey),
+    subsidyRules.map(rule => [rule.newSeries, rule.threshold, rule.ahsInput, rule.jdSubsidy]),
+    selfSubsidyRules.map(rule => [rule.threshold, rule.ahsInput])
+  ]);
+  useEffect(() => { setRetainedFilterRows(null); }, [filterScope]);
+  const filteredProducts = resolveFilteredRows(products, matchingProducts, retainedFilterRows, filterScope, handPriceRowKey);
+  const isFilterScopeRetained = retainedFilterRows?.scope === filterScope;
+  const retainRowsBeforeEdit = () => {
+    if (readOnly || (!Object.keys(columnFilters).length && !Object.keys(numericFilters).length && !tableSearch.trim())) return;
+    setRetainedFilterRows(current => current?.scope === filterScope ? current : retainFilterScope(filterScope, filteredProducts, handPriceRowKey));
+  };
   const parsedHandMargin = /^-?\d+(\.\d*)?$/.test(handPriceMarginInput) ? Number(handPriceMarginInput) / 100 : NaN;
   const validHandMargin = Number.isFinite(parsedHandMargin) && parsedHandMargin >= -1 && parsedHandMargin <= 1;
   const runHandPriceAction = (action: HandPriceAction) => {
     if (readOnly || isSelfOperated || !onHandPriceAction || handPriceBusy || !filteredProducts.length
       || (action === 'rollback' && !validHandMargin)) return;
+    retainRowsBeforeEdit();
     setHandPriceBusy(true);
     onHandPriceAction(action, filteredProducts.map(handPriceRowKey), action === 'rollback' ? parsedHandMargin : handPriceMargin);
     setHandPriceStatus(`${action === 'align' ? '①追至TM 103%' : '②底线回调'}已处理${filteredProducts.length}行；原因见小差额提醒。`);
   };
-  const activeColumnFilterCount = Object.keys(columnFilters).length;
+  const activeColumnFilterCount = new Set([...Object.keys(columnFilters), ...Object.keys(numericFilters)]).size;
   const hasTableSearch = tableSearch.trim().length > 0;
   const moneyColumnIndexes = new Set([9, 11, 13, 14, 16, 18, 19, 21, 22, 27, 29, 31, 32, 33, 35, 36]);
   const percentColumnIndexes = new Set([20, 34]);
@@ -533,7 +577,7 @@ export default function MainTable({
     return value;
   };
   const getFilterButtonOptions = (columnKey: string) => (
-    getColumnFilterOptions(products, columnKey, columnFilters, getColumnFilterValue).map(option => ({
+    getColumnFilterOptions(products.filter(p => matchesNumericColumnFilters(p, numericFilters, getColumnFilterValue, columnKey)), columnKey, columnFilters, getColumnFilterValue).map(option => ({
       ...option,
       label: formatColumnFilterOption(columnKey, option.value)
     }))
@@ -545,10 +589,18 @@ export default function MainTable({
         label={label}
         options={isOpen ? getFilterButtonOptions(columnKey) : []}
         activeValues={columnFilters[columnKey] || []}
+        numeric={![0, 1, 2, 3, 4, 28, 30, 37, 39, 44].includes(Number(columnKey.slice(6)))}
+        numericScale={percentColumnIndexes.has(Number(columnKey.slice(6))) ? 100 : 1}
+        activeNumeric={numericFilters[columnKey]}
+        onApplyNumeric={filter => { setRetainedFilterRows(null); setNumericFilters(current => {
+          const next = { ...current };
+          if (filter) next[columnKey] = filter; else delete next[columnKey];
+          return next;
+        }); }}
         isOpen={isOpen}
         onToggle={() => setOpenColumnFilter(current => current === columnKey ? null : columnKey)}
         onClose={() => setOpenColumnFilter(current => current === columnKey ? null : current)}
-        onApply={values => setColumnFilters(current => setColumnFilter(current, columnKey, values))}
+        onApply={values => { setRetainedFilterRows(null); setColumnFilters(current => setColumnFilter(current, columnKey, values)); }}
       />
     );
   };
@@ -781,7 +833,7 @@ export default function MainTable({
       case 38:
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmItemWin ? 1 : 0}</td>;
       case 39:
-        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsTmRecyclerWin ? 1 : 0}</td>;
+        return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{null}</td>;
       case 40:
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postTmHandWin ? 1 : 0}</td>;
       case 41:
@@ -950,6 +1002,13 @@ export default function MainTable({
             className="w-24 px-2 py-1 border border-[#141414] text-xs font-bold disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:text-[#555]"
           />
           <span className="text-xs">%</span>
+          {!isSelfOperated && pricingMode === 'margin' && (
+            <RepricingControlsPopover variant="help">
+              <div className="font-bold">自动补追规则</div>
+              <p className="leading-relaxed">追前边际利润率&gt;0%、第一轮物品价≥天猫且到手价落后不超过30元时，以最低可达报价追平到手价。</p>
+              <p className="leading-relaxed">追后边际利润率不得低于当前底线减2个百分点（当前为{formatPercent(marginBottomLine - 0.02)}）。无法达标则保留第一轮价。</p>
+            </RepricingControlsPopover>
+          )}
           {!readOnly && !isSelfOperated && onHandPriceAction && (
             <RepricingControlsPopover>
               <div className="font-bold">筛选 {filteredProducts.length} 行</div>
@@ -967,7 +1026,7 @@ export default function MainTable({
                 disabled={handPriceBusy || !validHandMargin || !filteredProducts.some(p => p.handPriceAdjustment?.aligned)}
                 className="w-full border border-[#141414] bg-white px-1 py-2 font-bold hover:bg-[#141414] hover:text-white disabled:opacity-40">② 边际底线回调</button>
               <button type="button" disabled={!canUndoHandPrice || handPriceBusy} onClick={() => {
-                onUndoHandPrice?.(); setHandPriceStatus('已撤销最近一次操作。');
+                retainRowsBeforeEdit(); onUndoHandPrice?.(); setHandPriceStatus('已撤销最近一次操作。');
               }} className="w-full border border-[#141414]/40 bg-white py-1 disabled:opacity-40">撤销本次操作</button>
               <p role="status" className="leading-relaxed text-[#555]">{handPriceStatus}</p>
             </RepricingControlsPopover>
@@ -994,7 +1053,7 @@ export default function MainTable({
               id={snapshot ? 'snapshot-table-search' : 'tracking-table-search'}
               type="search"
               value={tableSearch}
-              onChange={(event) => setTableSearch(event.target.value)}
+              onChange={(event) => { setRetainedFilterRows(null); setTableSearch(event.target.value); }}
               placeholder="搜索型号、PPV、SKU或任意字段"
               className="h-8 w-full border border-[#141414] bg-white py-1 pl-8 pr-3 text-xs font-bold outline-none placeholder:font-normal placeholder:text-[#777] focus:ring-2 focus:ring-[#141414]/20"
             />
@@ -1008,11 +1067,18 @@ export default function MainTable({
             {activeColumnFilterCount > 0 ? `已按 ${activeColumnFilterCount} 列筛选` : '未启用列筛选'}
             {hasTableSearch ? `；搜索“${tableSearch.trim()}”` : ''}
             {`，显示 ${filteredProducts.length} / ${products.length} 行`}
+            {isFilterScopeRetained && <span className="ml-2 font-normal text-[#555]">已保留筛选范围，数值实时更新</span>}
           </span>
+          {isFilterScopeRetained && <button type="button" onClick={() => setRetainedFilterRows(null)}
+            className="ml-auto shrink-0 border border-[#141414] bg-white px-2 py-1 text-[10px] font-black hover:bg-[#141414] hover:text-white">
+            按最新值重新筛选
+          </button>}
           <button
             type="button"
             onClick={() => {
+              setRetainedFilterRows(null);
               setColumnFilters({});
+              setNumericFilters({});
               setTableSearch('');
               setOpenColumnFilter(null);
             }}
@@ -1024,7 +1090,14 @@ export default function MainTable({
       )}
 
       <div className="tracking-table-scroll">
-        <table className="table-fixed text-[11px] leading-tight" style={{ width: tableWidth, minWidth: tableWidth }}>
+        <style>{`
+          .pricing-crosshair [data-hover-row] > td, .pricing-crosshair [data-hover-row] > th { box-shadow: inset 0 0 0 9999px rgba(56,189,248,.16); }
+          .pricing-crosshair [data-hover-cell] { outline: 1px solid #38bdf8; outline-offset: -1px; }
+          ${fixedCodes.map((_, index) => `.pricing-crosshair[data-hover-column="${index}"] tr > :nth-child(${index + 1}) { box-shadow: inset 0 0 0 9999px rgba(56,189,248,.16); }`).join('\n')}
+        `}</style>
+        <table className="pricing-crosshair table-fixed text-[11px] leading-tight" onClick={updateCrosshair}
+          onKeyDown={event => { if (event.key === 'Escape') clearCrosshair(event.currentTarget); }}
+          style={{ width: tableWidth, minWidth: tableWidth }}>
           <colgroup>
             {fixedColumnWidths.map((width, index) => (
               <col key={`fixed-${index}`} style={isFixedColumnVisible(index) ? { width } : { display: 'none', width: 0 }} />

@@ -87,7 +87,7 @@ const addTrendChart = (worksheet, sheetName, chartTitle, points) => {
       val: {
         ref: `${quotedSheetName}!$${columnLetter}$${DATA_START_ROW}:$${columnLetter}$${endRow}`,
         cache: points.map(point => {
-          const rawValue = point[column.key];
+          const rawValue = column.key === 'ahsVsTmRecyclerScore' ? null : point[column.key];
           const value = rawValue === null || rawValue === undefined || rawValue === '' ? Number.NaN : Number(rawValue);
           return Number.isFinite(value) ? value / 100 : null;
         }),
@@ -168,7 +168,7 @@ export const createCompetitivenessTrendWorkbook = async payload => {
       setCell(worksheet, row, 2, String(point.batchName || ''));
       setCell(worksheet, row, 3, point.nodeType === '实时草稿' ? '实时草稿' : '历史正式');
       COLUMNS.slice(3).forEach((column, metricIndex) => {
-        const rawScore = point[column.key];
+        const rawScore = column.key === 'ahsVsTmRecyclerScore' ? null : point[column.key];
         const score = rawScore === null || rawScore === undefined || rawScore === '' ? Number.NaN : Number(rawScore);
         setCell(worksheet, row, metricIndex + 4, Number.isFinite(score) ? score / 100 : '');
       });

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   EMPTY_COLUMN_FILTER_VALUE,
+  matchesNumericColumnFilters,
+  type NumericFilterOperator,
   getColumnFilterOptions,
   matchesColumnFilters,
   matchesTableSearch,
@@ -53,3 +55,23 @@ assert.deepEqual(setColumnFilter(filters, 'risk', ['SAFE', 'SAFE']), {
 });
 
 console.log('table column filters tests passed');
+
+const compare = (value: unknown, operator: NumericFilterOperator, target: number, upper?: number) =>
+  matchesNumericColumnFilters({ value }, { value: { operator, value: target, upper } }, (row, key) => row[key]);
+for (const [operator, expected] of [['gt', false], ['gte', true], ['lt', false], ['lte', true], ['eq', true], ['neq', false]] as const) {
+  assert.equal(compare(20, operator, 20), expected, `equal boundary for ${operator}`);
+}
+assert.equal(compare(21, 'gt', 20), true);
+assert.equal(compare(-0.02, 'lt', 0), true);
+assert.equal(compare(0.01 + 0.02, 'eq', 0.03), true);
+assert.equal(compare(10, 'between', 10, 20), true);
+assert.equal(compare(20, 'between', 10, 20), true);
+assert.equal(compare(21, 'between', 10, 20), false);
+assert.equal(compare(15, 'between', 20, 10), false);
+for (const value of [null, undefined, '', ' ', '未知', NaN, Infinity, true]) {
+  assert.equal(compare(value, 'neq', 0), false, `missing/nonnumeric ${String(value)} must not match`);
+}
+assert.equal(matchesNumericColumnFilters(rows[0], { amount: { operator: 'gt', value: 999 } }, getValue, 'amount'), true);
+assert.deepEqual(rows.filter(row => matchesColumnFilters(row, { brand: ['华为'] }, getValue)
+  && matchesNumericColumnFilters(row, { amount: { operator: 'gte', value: 20 } }, getValue)).map(row => row.risk), ['CRITICAL']);
+console.log('numeric filters: operators, inclusive ranges, percentages, missing values and composition passed');

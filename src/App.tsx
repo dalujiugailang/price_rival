@@ -1463,7 +1463,7 @@ export default function App() {
                 deepLink.get('reportId') && activeChannelId === linkedChannel ? <FeishuReportPage id={deepLink.get('reportId')!} /> : deepLink.get('batchId') && activeChannelId === linkedChannel && !activeState.historyBatches.some(b => b.id === deepLink.get('batchId')) ? <div role="alert" className="border bg-amber-50 p-4">{historyRefreshing ? '正在加载指定批次…' : '该批次不存在或当前账号无权查看，请联系管理员。'}</div> : <CompetitivenessSummary
                   revealIssueDetails={tourOpen && tourSteps[tourStepIndex]?.target === 'audit-issue-details'}
                   historyBatches={activeState.historyBatches}
-                  currentCalculatedItems={useSharedSnapshot ? [] : activeCalculatedItems}
+                  currentCalculatedItems={activeCalculatedItems}
                   activeSubsidyFileName={activeState.activeSubsidyFileName}
                   channelId={activeChannelId}
                   channelName={activeChannel.name}

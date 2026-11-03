@@ -67,4 +67,3 @@ export const filterCompetitivenessProducts = (
     && (selectedSeries === ALL_SERIES || seriesOf(product) === selectedSeries)
   ));
 };
-
