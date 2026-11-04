@@ -1,3 +1,4 @@
+import {heatmapValues, type HeatmapMode} from './heatmapStyle';
 import type {CalculatedProduct, SourceUploadRecord, SubsidyRule, TrackingBatch} from '../../types';
 import {buildMatrix, compareSubsidyProfit, hitWorkspaceSeriesRules} from '../../../shared/subsidyMatrix.mjs';
 import type {ExchangeScenario, MatrixGroup, MatrixRow, MatrixRule, MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
@@ -160,9 +161,9 @@ export function cycleMatrixSort(current: MatrixSort, groupKey: string): MatrixSo
 }
 
 // Use the displayed maximum; missing rules stay last in both directions.
-export function sortMatrixRows(rows: MatrixRow[], groupKey: string, direction: MatrixSort['direction'] = 'descending') {
+export function sortMatrixRows(rows: MatrixRow[], groupKey: string, direction: MatrixSort['direction'] = 'descending', mode: HeatmapMode = 'amount') {
   if (!groupKey) return rows;
-  const amount = (row: MatrixRow) => row.cells[groupKey]?.length ? Math.max(...row.cells[groupKey].map(rule => rule.ahs)) : null;
+  const amount = (row: MatrixRow) => {const values = heatmapValues(row.cells[groupKey] || [], mode); return values ? Math.max(...values) : null;};
   return [...rows].sort((a, b) => {
     const av = amount(a), bv = amount(b);
     if (av === bv) return 0;

@@ -6,7 +6,7 @@ import {DetailDialog, RuleTable, button, deltaLabel, input, money, percent, risk
 import {createMatrixWorkbook} from './workbook';
 import type {MatrixGroup, MatrixRow, MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
 
-import {amountColors, amountLabels, amountBand as band} from './heatmapStyle';
+import {amountColors, amountLabels, ratioLabels, heatmapCell, ratioSpread, ratioText, type HeatmapMode} from './heatmapStyle';
 
 type DetailSelection = {kind: 'matrix'; series: string; groupKey: string} | {kind: 'profit'; series: string; productId: string};
 
@@ -15,6 +15,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
   marginBottomLine: number;
   onOpenSources?: () => void;
 }) {
+  const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>('amount');
   const [onlyTargets, setOnlyTargets] = useState(false);
   const scope = onlyTargets ? 'active' : 'all';
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -43,7 +44,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     return matrix.groups.filter(group => range === 'all' || (range === 'low' ? group.min <= 1000 : range === 'mid' ? group.max >= 1100 && group.min <= 3001 : group.max >= 3500));
   }, [matrix, range]);
   const activeSort = groups.some(group => group.key === sort.groupKey) ? sort.groupKey : '';
-  const displayRows = useMemo(() => sortMatrixRows(rows, activeSort, sort.direction), [rows, activeSort, sort.direction]);
+  const displayRows = useMemo(() => sortMatrixRows(rows, activeSort, sort.direction, heatmapMode), [rows, activeSort, sort.direction, heatmapMode]);
   const columnWidth = range === 'all' || !groups.length ? 88 : Math.max(88, (containerWidth - 185) / groups.length);
   const profit: ReturnType<typeof buildProfitView> = useMemo(() => buildProfitView({selection: profitSelection, rows, rules: matrix.rules, products: workspace.products, floor: marginBottomLine, invalidSeries: matrix.invalidSeries}), [profitSelection, rows, matrix, workspace.products, marginBottomLine]);
   const selectedRow = detail && matrix.rows.find(row => row.series === detail.series);
@@ -65,12 +66,12 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     setExportError('');
     try {
       const {workbookToBytes} = await import('@office-kit/xlsx/io');
-      const book = createMatrixWorkbook({workspace, rows: displayRows, groups, columnWidth});
+      const book = createMatrixWorkbook({workspace, rows: displayRows, groups, columnWidth, mode: heatmapMode, spreadRows: matrix.rows});
       const bytes = await workbookToBytes(book);
       const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `补贴承担热力图_${workspace.snapshotId || '当前工作台'}.xlsx`;
+      link.download = `补贴承担热力图_${workspace.snapshotId || '当前工作台'}${heatmapMode === 'ratio' ? '_承担比例' : ''}.xlsx`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
@@ -89,7 +90,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
 
   return <section className="subsidy-matrix space-y-4 p-4" aria-label="补贴承担矩阵">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h2 className="text-lg font-black">所有新机系列—爱回收承担补贴热力图</h2>
+      <h2 className="text-lg font-black">所有新机系列—爱回收承担补贴热力图{heatmapMode === 'ratio' ? ' · 承担比例' : ''}</h2>
       <button className={button} disabled={!workspace.subsidyRules.length || exporting} onClick={exportWorkbook}>{exporting ? '正在导出…' : '导出 Excel'}</button>
     </div>
     {exportError && <p role="alert" className="text-xs text-red-700">{exportError}</p>}
@@ -112,7 +113,11 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
         <strong className="sm-filter-tag">矩阵筛选</strong>
         <span className="text-xs text-[#555]">显示 <b className="sm-filter-count">{rows.length}</b> 个系列 · <b className="sm-filter-count">{groups.length}</b> 档门槛</span>
         <button type="button" className={`sm-target-filter ${onlyTargets ? 'sm-selected' : ''}`} aria-pressed={onlyTargets} onClick={() => setOnlyTargets(value => !value)} title="只显示当前工作台已设为目标的新机系列">{onlyTargets && <span aria-hidden="true">✓ </span>}只看目标新机系列</button>
-        <span className="text-xs text-[#555]">行：新机系列 ｜ 列：合并门槛 ｜ 金额单位：元</span>
+        <div className="sm-mode-switch" role="group" aria-label="热力图显示方式">
+          <button type="button" className={`sm-target-filter ${heatmapMode === 'amount' ? 'sm-selected' : ''}`} aria-pressed={heatmapMode === 'amount'} onClick={() => setHeatmapMode('amount')}>承担金额</button>
+          <button type="button" className={`sm-target-filter ${heatmapMode === 'ratio' ? 'sm-selected' : ''}`} aria-pressed={heatmapMode === 'ratio'} onClick={() => setHeatmapMode('ratio')}>承担比例</button>
+        </div>
+        <span className="text-xs text-[#555]">行：新机系列 ｜ 列：合并门槛 ｜ {heatmapMode === 'ratio' ? '比例：承担额 ÷ 原始门槛' : '金额单位：元'}</span>
       </div>
       <div className="sm-toolbar-row text-xs">
         <label>关键词<input className={`${input} sm-toolbar-search`} aria-label="型号搜索" placeholder="搜索品牌 / 型号" value={search} onChange={event => setSearch(event.target.value)}/></label>
@@ -131,9 +136,9 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     </div>
     {matrix.missingSeries.length > 0 && <p className="text-xs text-amber-800">工作台有 {matrix.missingSeries.length} 个在用系列未匹配补贴规则：{matrix.missingSeries.join('、')}。已保留空行供核对。</p>}
     <div ref={scrollRef} className="sm-scroll" tabIndex={0} aria-label="可横向纵向滚动的补贴矩阵">
-      <table className="sm-table" style={{width: 185 + groups.length * columnWidth}}>
+      <table className="sm-table" data-mode={heatmapMode} style={{width: 185 + groups.length * columnWidth}}>
         <colgroup><col style={{width: 185}}/>{groups.map(group => <col key={group.key} style={{width: columnWidth}}/>)}</colgroup>
-        <thead><tr><th>品牌 / 新机系列{activeSort && <button className="sm-reset-sort" onClick={() => setSort({groupKey: '', direction: 'descending'})}>恢复默认顺序</button>}</th>{groups.map(group => <th key={group.key} aria-sort={activeSort === group.key ? sort.direction : 'none'}><button className="sm-sort-heading" title="点击依次切换：承担额降序 → 升序 → 默认；多规则取最大值，无规则排最后" onClick={() => setSort(current => cycleMatrixSort({...current, groupKey: activeSort}, group.key))}>{group.label}<span className="sm-sort-arrow" aria-hidden="true">{activeSort === group.key ? sort.direction === 'descending' ? ' ↓' : ' ↑' : ' ⇅'}</span><small>最大差额 Δ {money(group.delta)}</small></button></th>)}</tr></thead>
+        <thead><tr><th>品牌 / 新机系列{activeSort && <button className="sm-reset-sort" onClick={() => setSort({groupKey: '', direction: 'descending'})}>恢复默认顺序</button>}</th>{groups.map(group => <th key={group.key} aria-sort={activeSort === group.key ? sort.direction : 'none'}><button className="sm-sort-heading" title={`点击依次切换：${heatmapMode === 'ratio' ? '承担比例' : '承担额'}降序 → 升序 → 默认；多规则取最大值，无规则或比例待核验排最后`} onClick={() => setSort(current => cycleMatrixSort({...current, groupKey: activeSort}, group.key))}>{group.label}<span className="sm-sort-arrow" aria-hidden="true">{activeSort === group.key ? sort.direction === 'descending' ? ' ↓' : ' ↑' : ' ⇅'}</span><small>最大差额 Δ {heatmapMode === 'ratio' ? ratioSpread(matrix.rows, group.key) : money(group.delta)}</small></button></th>)}</tr></thead>
         <tbody key={range}>{displayRows.map(row => <tr key={row.key} data-in-use={row.activeCount > 0 ? 'true' : 'false'}>
           <th title={`${row.brand} · ${row.series}${row.activeCount ? ` · 对应 ${row.activeCount} 条工作台报价` : ' · 工作台未使用'}`}>
             <small>{row.brand}{row.activeCount > 0 ? ` · ${row.activeCount} 条报价` : ' · 未使用'}</small>
@@ -142,12 +147,11 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
           {groups.map(group => {
             const rules = row.cells[group.key];
             if (!rules?.length) return <td key={group.key} className="sm-empty">—</td>;
-            const values = rules.map(rule => rule.ahs);
-            const min = Math.min(...values), max = Math.max(...values), index = band(max);
-            const text = min === max ? money(max) : `${money(min)}–${money(max)}`;
-            const title = `${row.brand} ${row.series}\n合并门槛 ${group.label}\n${rules.map(ruleLabel).join('\n')}\n同档最低 ${group.low}；最高 ${group.high}；最大风险差额 ${Math.max(...rules.map(rule => rule.ahs)) - group.low}`;
-            return <td key={group.key}><button style={{background: amountColors[index], color: index === 5 ? 'white' : '#141414'}}
-              title={title} aria-label={`${row.series} 门槛 ${group.label} ${text}元，查看原始规则`}
+            const cell = heatmapCell(rules, heatmapMode);
+            const text = cell.text;
+            const title = `${row.brand} ${row.series}\n合并门槛 ${group.label}\n${rules.map(rule => `${ruleLabel(rule)}${heatmapMode === 'ratio' ? ` · 承担比例 ${rule.threshold > 0 ? ratioText(rule.ahs / rule.threshold) : '待核验（门槛为0）'}` : ''}`).join('\n')}\n同档最低承担 ${group.low}；最高承担 ${group.high}`;
+            return <td key={group.key}><button style={{background: cell.background, color: cell.foreground}}
+              title={title} aria-label={`${row.series} 门槛 ${group.label} ${text}${heatmapMode === 'amount' ? '元' : ''}，查看原始规则`}
               onClick={() => setDetail({kind: 'matrix', series: row.series, groupKey: group.key})}>
               {text}{rules.length > 1 && <sup>◈</sup>}
             </button></td>;
@@ -156,7 +160,8 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
       </table>
       {!rows.length && <p className="p-5 text-xs text-[#555]">没有匹配的新机系列。</p>}
     </div>
-    <div className="sm-legend">{amountColors.map((color, index) => <span key={color}><i style={{background: color}}/>{amountLabels[index]} 元</span>)}<span>◈ 多条原始规则，点击可展开</span></div>
+    <div className="sm-legend">{amountColors.map((color, index) => <span key={color}><i style={{background: color}}/>{heatmapMode === 'ratio' ? ratioLabels[index] : `${amountLabels[index]} 元`}</span>)}<span>◈ 多条原始规则，点击可展开</span></div>
+    {heatmapMode === 'ratio' && <p className="text-xs text-[#555]">承担比例＝爱回收承担额 ÷ 每条规则的原始门槛；多规则显示比例范围，颜色与排序取最高比例。Δ 的 pp 表示百分点；门槛为 0 时待核验。</p>}
     <p className="text-xs text-[#555]">合并门槛仅用于展示。实际追价利润测算必须以原始触发门槛和适用补贴规则为准。</p>
     {!!matrix.issues.length && <details className="border border-[#141414] p-3 text-xs"><summary className="cursor-pointer font-bold">本次补贴规则提示（{matrix.issues.length}）</summary><div className="mt-2 max-h-40 overflow-auto">{matrix.issues.map((issue, index) => <p key={index}>{issue}</p>)}</div></details>}
 
@@ -166,7 +171,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
       <p className="text-xs text-[#555]">{workspace.fileName} · {workspace.label}</p>
       {detail.kind === 'matrix' && selectedGroup ? <>
         <p className="text-xs leading-relaxed">{selectedRow.brand} · 合并门槛 {selectedGroup.label} 元；同档最低承担 {money(selectedGroup.low)} 元，最高 {money(selectedGroup.high)} 元。<br/>全系列共 {seriesDetails.rules.length} 条原始规则；黑框标注刚点击的 {selectedGroup.label} 元档，共 {highlightedRules.length} 条。</p>
-        <RuleTable rules={seriesDetails.rules} highlightedIds={seriesDetails.highlightedIds}/>
+        <RuleTable rules={seriesDetails.rules} highlightedIds={seriesDetails.highlightedIds} showRatio={heatmapMode === 'ratio'}/>
         <p className="text-xs text-[#555]">合并档最大值用于发现风险，实际换新承担按这台旧机达到的原始门槛重新命中。</p>
         <button className={button} onClick={() => {setProfitSelection(old => ({...old, view: 'new', targetSeries: selectedRow.series})); setDetail(null); document.querySelector('[aria-label="换新利润比较"]')?.scrollIntoView({behavior: 'smooth', block: 'start'});}}>查看这个新机对应的竞争机型</button>
       </> : selectedProfit ? <>

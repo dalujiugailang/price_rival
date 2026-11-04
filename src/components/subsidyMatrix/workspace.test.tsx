@@ -1,3 +1,4 @@
+import {heatmapCell, ratioSpread} from './heatmapStyle';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
@@ -278,4 +279,37 @@ test('target-only scope clears an unavailable selected series and retains target
   assert.ok(targets.every(row => row.activeCount > 0));
   assert.ok(targets.some(row => row.series === '缺规则系列'));
   assert.ok(filterMatrixRows(matrix.rows, {scope: 'all', brand: ''}).some(row => row.series === '未用新机'));
+});
+
+test('ratio heatmap preserves original threshold and subsidy pairing instead of dividing merged extremes', () => {
+  const cell = heatmapCell([{ahs: 100, threshold: 141}, {ahs: 101, threshold: 146}], 'ratio');
+  assert.equal(cell.min, 101 / 146);
+  assert.equal(cell.max, 100 / 141);
+  assert.equal(cell.text, '69.18%–70.92%');
+  assert.equal(cell.background, '#BB4E5A');
+  assert.equal(heatmapCell([{ahs: 0, threshold: 500}], 'ratio').text, '0.00%');
+  assert.equal(heatmapCell([{ahs: 100, threshold: 0}], 'ratio').text, '待核验');
+  assert.equal(heatmapCell([{ahs: 0, threshold: 0}, {ahs: 10, threshold: 1}], 'ratio').max, null);
+  assert.equal(heatmapCell([], 'ratio').text, '—');
+});
+
+test('ratio sorting uses actual ratios in both directions and export keeps native percentages and colors', async () => {
+  const rules = [rule('A', 500, 200), rule('B', 501, 200.1), rule('range', 500, 100), rule('range', 501, 180), rule('missing', 1500, 20)];
+  const matrix = buildWorkspaceMatrix(rules, []);
+  const groups = matrix.groups.filter(g => g.min === 500);
+  const descending = sortMatrixRows(matrix.rows, groups[0].key, 'descending', 'ratio');
+  assert.deepEqual(descending.map(r => r.series), ['A', 'B', 'range', 'missing']);
+  assert.deepEqual(sortMatrixRows(matrix.rows, groups[0].key, 'ascending', 'ratio').map(r => r.series), ['range', 'B', 'A', 'missing']);
+  assert.equal(ratioSpread(matrix.rows, groups[0].key), '20.00pp');
+  const book = createMatrixWorkbook({workspace, rows: descending, groups, mode: 'ratio', spreadRows: matrix.rows});
+  const loaded = XLSX.read(await workbookToBytes(book), {type: 'array', cellStyles: true});
+  const sheet = loaded.Sheets[loaded.SheetNames[0]];
+  assert.ok(sheet.A1.v.includes('承担比例'));
+  assert.equal(sheet.B5.v, .4);
+  assert.equal(sheet.B5.z, '0.00%');
+  assert.equal(sheet.B5.s.fgColor.rgb, 'F8BD8E');
+  assert.equal(sheet.B7.v, '20.00%–35.93% ◈');
+  assert.equal(sheet.B8.v, '—');
+  const details = renderToStaticMarkup(<RuleTable rules={matrix.rules.filter(r => r.series === 'range')} showRatio/>);
+  assert.ok(details.includes('承担比例') && details.includes('20.00%') && details.includes('35.93%'));
 });
