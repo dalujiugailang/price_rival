@@ -1,4 +1,4 @@
-import {heatmapSpread, heatmapValues, type HeatmapMode} from './heatmapStyle';
+import {heatmapSpread, heatmapValues, type HeatmapMode, type SubsidyMetric} from './heatmapStyle';
 import type {CalculatedProduct, SourceUploadRecord, SubsidyRule, TrackingBatch} from '../../types';
 import {buildMatrix, compareSubsidyProfit, hitWorkspaceSeriesRules} from '../../../shared/subsidyMatrix.mjs';
 import type {ExchangeScenario, MatrixGroup, MatrixRow, MatrixRule, MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
@@ -161,9 +161,9 @@ export function cycleMatrixSort(current: MatrixSort, groupKey: string): MatrixSo
 }
 
 // Use the displayed maximum; missing rules stay last in both directions.
-export function sortMatrixRows(rows: MatrixRow[], groupKey: string, direction: MatrixSort['direction'] = 'descending', mode: HeatmapMode = 'amount') {
+export function sortMatrixRows(rows: MatrixRow[], groupKey: string, direction: MatrixSort['direction'] = 'descending', mode: HeatmapMode = 'amount', metric: SubsidyMetric = 'ahs') {
   if (!groupKey) return rows;
-  const amount = (row: MatrixRow) => {const values = heatmapValues(row.cells[groupKey] || [], mode); return values ? Math.max(...values) : null;};
+  const amount = (row: MatrixRow) => {const values = heatmapValues(row.cells[groupKey] || [], mode, metric); return values ? Math.max(...values) : null;};
   return [...rows].sort((a, b) => {
     const av = amount(a), bv = amount(b);
     if (av === bv) return 0;
@@ -174,8 +174,8 @@ export function sortMatrixRows(rows: MatrixRow[], groupKey: string, direction: M
 }
 
 // Rank columns using only the rows currently visible under the linked filters.
-export function selectHeatmapGroups(groups: MatrixGroup[], rows: MatrixRow[], range: string, mode: HeatmapMode) {
-  if (range === 'top') return groups.map(group => ({group, spread: heatmapSpread(rows, group.key, mode)}))
+export function selectHeatmapGroups(groups: MatrixGroup[], rows: MatrixRow[], range: string, mode: HeatmapMode, metric: SubsidyMetric = 'ahs') {
+  if (range === 'top') return groups.map(group => ({group, spread: heatmapSpread(rows, group.key, mode, metric)}))
     .filter(entry => entry.spread !== null)
     .sort((a, b) => b.spread - a.spread || a.group.min - b.group.min)
     .slice(0, 10).map(entry => entry.group).sort((a, b) => a.min - b.min);

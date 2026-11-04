@@ -147,3 +147,7 @@
 .sm-mode-switch{display:inline-flex;flex-shrink:0}.sm-mode-switch button+button{border-left:0}
 .sm-table[data-mode="ratio"] td button{font-size:10px}
 .sm-detail-table[data-ratio="true"] th:first-child{width:28%}.sm-detail-table[data-ratio="true"] th:not(:first-child){width:18%}
+
+.sm-metric-rules summary{cursor:pointer;font-weight:600;line-height:20px}
+
+.sm-detail-table[data-ratio="true"] thead th{white-space:normal}

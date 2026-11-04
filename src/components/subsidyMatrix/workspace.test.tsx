@@ -346,3 +346,63 @@ test('TOP 10 reranks thresholds for filtered rows and current display mode', () 
   assert.deepEqual(selectHeatmapGroups(matrix.groups, [], 'top', 'amount'), []);
   assert.equal(selectHeatmapGroups(matrix.groups, targets, 'all', 'amount').length, 11);
 });
+
+test('total subsidy uses the source total without adding AHS, preserves zero, missing values and raw ratio pairs', () => {
+  const rules = [{ahs: 300, jd: 400, threshold: 500}, {ahs: 100, jd: 900, threshold: 501}];
+  assert.equal(heatmapCell(rules, 'amount', 'ahs').text, '100–300');
+  assert.equal(heatmapCell(rules, 'amount', 'total').text, '400–900');
+  assert.equal(heatmapCell(rules, 'ratio', 'total').text, '80.00%–179.64%');
+  assert.equal(heatmapCell([{ahs: 80, jd: 0, threshold: 500}], 'amount', 'total').text, '0');
+  assert.equal(heatmapCell([{ahs: 80, jd: 0, threshold: 500}], 'ratio', 'total').text, '0.00%');
+  assert.equal(heatmapCell([{ahs: 80, jd: 900, threshold: 0}], 'amount', 'total').text, '900');
+  assert.equal(heatmapCell([{ahs: 80, jd: 900, threshold: 0}], 'ratio', 'total').text, '待核验');
+  assert.equal(heatmapCell([{ahs: 80, threshold: 500}], 'amount', 'total').text, '待核验');
+  assert.equal(heatmapCell([{ahs: 80, jd: NaN, threshold: 500}], 'amount', 'total').max, null);
+  assert.equal(heatmapCell([], 'amount', 'total').text, '—');
+});
+
+test('total and AHS modes sort independently and filtered gaps and Excel agree with the selected metric', async () => {
+  const source = [{...rule('A', 500, 300), jdSubsidy: 400}, {...rule('B', 501, 100), jdSubsidy: 900}, {...rule('C', 500, 200), jdSubsidy: 400}];
+  const old = product('q', 'baseline');
+  const matrix = buildWorkspaceMatrix(source, [old]);
+  const group = matrix.groups[0];
+  const rows = matrix.rows.filter(row => row.hasRules);
+  assert.deepEqual(sortMatrixRows(rows, group.key, 'descending', 'amount', 'ahs').map(r => r.series), ['A', 'C', 'B']);
+  const totalRows = sortMatrixRows(rows, group.key, 'descending', 'amount', 'total');
+  assert.deepEqual(totalRows.map(r => r.series), ['B', 'A', 'C']);
+  assert.deepEqual(sortMatrixRows(rows, group.key, 'ascending', 'ratio', 'total').map(r => r.series), ['A', 'C', 'B']);
+  assert.equal(spreadText(rows, group.key, 'amount', 'ahs'), '200');
+  assert.equal(spreadText(rows, group.key, 'amount', 'total'), '500');
+  assert.equal(spreadText(rows.filter(r => r.series !== 'B'), group.key, 'ratio', 'total'), '0.00pp');
+  for (const mode of ['amount', 'ratio'] as const) {
+    const book = createMatrixWorkbook({workspace, rows: totalRows, groups: [group], mode, metric: 'total'});
+    const loaded = XLSX.read(await workbookToBytes(book), {type: 'array', cellStyles: true});
+    assert.deepEqual(loaded.SheetNames, ['总补贴热力图']);
+    const sheet = loaded.Sheets[loaded.SheetNames[0]];
+    assert.ok(sheet.A1.v.includes('总补贴热力图（含京东券）'));
+    assert.equal(sheet.B5.v, mode === 'amount' ? 900 : 900 / 501);
+    assert.equal(sheet.B5.z, mode === 'amount' ? '#,##0' : '0.00%');
+    assert.equal(sheet.B5.s.fgColor.rgb, 'BB4E5A');
+    assert.ok(sheet.B4.v.includes(mode === 'amount' ? '500' : '99.64pp'));
+  }
+  const details = renderToStaticMarkup(<RuleTable rules={matrix.rules} showRatio metric="total"/>);
+  assert.ok(details.includes('补贴比例') && details.includes('179.64%'));
+  const profitBefore = buildSeriesProfitResults({rows, rules: matrix.rules, product: old, floor: .03});
+  const changedTotals = matrix.rules.map(r => ({...r, jd: r.jd * 10}));
+  const profitAfter = buildSeriesProfitResults({rows, rules: changedTotals, product: old, floor: .03});
+  assert.deepEqual(profitAfter.map(r => r.comparison), profitBefore.map(r => r.comparison));
+  assert.equal(profitBefore.find(r => r.row.series === 'A').comparison.delta, 200);
+});
+
+test('TOP10 follows selected total subsidy metric and retains duplicate rules for details', () => {
+  const source = Array.from({length: 11}, (_, i) => [
+    {...rule('A', (i + 1) * 100, 0), jdSubsidy: 0},
+    {...rule('B', (i + 1) * 100, i === 10 ? 0 : 500), jdSubsidy: i === 10 ? 1000 : 50}
+  ]).flat();
+  source.push({...source[1]});
+  const matrix = buildWorkspaceMatrix(source, []);
+  assert.ok(!selectHeatmapGroups(matrix.groups, matrix.rows, 'top', 'amount', 'ahs').some(g => g.min === 1100));
+  assert.ok(selectHeatmapGroups(matrix.groups, matrix.rows, 'top', 'amount', 'total').some(g => g.min === 1100));
+  assert.ok(selectHeatmapGroups(matrix.groups, matrix.rows, 'top', 'ratio', 'total').some(g => g.min === 1100));
+  assert.equal(matrix.rows.find(r => r.series === 'B').cells[matrix.groups[0].key].length, 2);
+});
