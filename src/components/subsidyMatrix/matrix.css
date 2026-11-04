@@ -161,3 +161,29 @@
 .sm-view-controls>.sm-target-filter{margin-left:auto;min-height:28px;padding:4px 10px;font-weight:400}
 .sm-view-controls>.sm-target-filter.sm-selected{font-weight:600}
 @media(max-width:700px){.sm-view-controls{gap:10px}.sm-switch-field{display:grid;grid-template-columns:56px minmax(0,1fr);width:100%}.sm-switch-field .sm-mode-switch{display:flex;min-width:0}.sm-switch-field .sm-mode-switch button{flex:1;min-width:0;white-space:normal;padding-right:8px;padding-left:8px}.sm-view-controls>.sm-target-filter{margin-left:66px}}
+
+/* Profit analysis follows the same grouped controls as the matrix filters. */
+.sm-analysis-panel{padding:12px 14px;border:1px solid #141414;background:#F7F7F5}
+.sm-analysis-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
+.sm-analysis-heading>.sm-filter-tag{display:inline-flex;align-items:center;padding:3px 8px;background:#141414;color:#fff;font-size:11px;font-weight:700;line-height:18px;letter-spacing:.04em}
+.sm-margin-floor{font-size:11px;line-height:18px;color:#666}.sm-margin-floor b{color:#141414;font-variant-numeric:tabular-nums}.sm-margin-floor i{font-style:normal;padding:0 6px;color:#aaa}
+.sm-analysis-view{display:flex;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid #d6d5d1}
+.sm-analysis-view .sm-mode-switch button{min-height:28px;padding:4px 12px;font-size:12px}
+.sm-profit-question{margin:12px 0 10px;font-size:14px;font-weight:700;line-height:22px}
+.sm-profit-context{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 24px}
+.sm-profit-field{display:flex;flex-direction:column;gap:5px;width:min(360px,100%);min-width:0;font-size:11px;color:#444;line-height:16px}
+.sm-profit-field>strong{font-weight:600}
+.subsidy-matrix .sm-profit-field select{height:32px;width:100%;max-width:none;border-color:#999994;font-size:12px;color:#141414}
+.sm-profit-field select:hover{border-color:#141414}.sm-profit-field select:focus-visible{outline:1px solid #141414;outline-offset:2px}
+.sm-profit-field-wide{width:min(900px,100%)}
+.sm-profit-coverage{padding:0 0 2px 20px;border-left:1px solid #d6d5d1;font-size:12px;line-height:20px;color:#555}
+.sm-profit-coverage>span{display:block;margin-bottom:3px;font-size:11px;color:#777}.sm-profit-coverage strong{font-weight:700;color:#141414;font-variant-numeric:tabular-nums}
+.sm-profit-note{margin-top:10px;font-size:11px;color:#666;line-height:19px}
+.sm-analysis-panel .sm-baseline{margin-top:10px;background:#fff;border-color:#c5c4bf}
+.sm-risk-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;margin-top:12px;padding-top:10px;border-top:1px solid #d6d5d1;font-size:11px}
+.sm-risk-counts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.sm-risk-scope{color:#666;margin-right:2px}
+.sm-risk-item{display:inline-flex;align-items:center;gap:10px;padding:3px 8px;border:1px solid #d6d5d1;background:#fff;line-height:18px;color:#555}
+.sm-risk-item strong{font-size:13px;line-height:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.sm-risk-only{display:inline-flex;align-items:center;gap:6px;min-height:26px;padding:3px 8px;border:1px solid #999994;background:#fff;cursor:pointer;color:#444;line-height:18px;white-space:nowrap}
+.sm-risk-only:hover{border-color:#141414}.sm-risk-only input{accent-color:#141414}
+@media(max-width:600px){.sm-analysis-panel{padding:10px}.sm-margin-floor{width:100%}.sm-profit-field{width:100%}.sm-profit-coverage{border-left:0;padding:0}.sm-risk-toolbar{align-items:flex-start}.sm-risk-only{margin-left:0}.sm-profit-question{font-size:13px}}

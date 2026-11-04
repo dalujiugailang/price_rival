@@ -1,10 +1,15 @@
 import React from 'react';
 import type {MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
 import type {buildProfitView} from './model';
-import {button, deltaLabel, input, money, percent, riskClass} from './ui';
+import {deltaLabel, input, money, percent, riskClass} from './ui';
 
 function RiskSummary({results}: {results: SeriesProfitResult[]}) {
-  return <p aria-label="换新风险概况">当前范围：<strong className="text-red-700">{results.filter(r => r.comparison?.risk === '亏损风险').length} 个亏损</strong>，<strong className="text-amber-800">{results.filter(r => r.comparison?.risk === '低利润风险').length} 个低利润</strong>，{results.filter(r => !r.comparison).length} 个待核验。</p>;
+  return <div className="sm-risk-counts" aria-label="换新风险概况">
+    <span className="sm-risk-scope">当前范围</span>
+    <span className="sm-risk-item"><span>亏损</span><strong className="text-red-700">{results.filter(r => r.comparison?.risk === '亏损风险').length}</strong></span>
+    <span className="sm-risk-item"><span>低利润</span><strong className="text-amber-800">{results.filter(r => r.comparison?.risk === '低利润风险').length}</strong></span>
+    <span className="sm-risk-item"><span>待核验</span><strong>{results.filter(r => !r.comparison).length}</strong></span>
+  </div>;
 }
 
 export default function ProfitPerspectives({workspace, model, selection, onChange, floor, onDetail}: {
@@ -18,27 +23,32 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
   const {product, target} = model;
   const baseProfit = product ? product.postMarginalProfit * product.basePrice : NaN;
   return <section className="sm-profit space-y-3" aria-label="换新利润比较">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="flex gap-1" aria-label="换新分析视角">
-        <button className={`${button} ${selection.view === 'new' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'new'} onClick={() => onChange({view: 'new'})}>新机视角</button>
-        <button className={`${button} ${selection.view === 'old' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'old'} onClick={() => onChange({view: 'old'})}>旧机视角</button>
+    <div className="sm-analysis-panel">
+      <div className="sm-analysis-heading">
+        <strong className="sm-filter-tag">利润风险分析</strong>
+        <span className="sm-margin-floor">工作台利润底线 <b>{percent(floor)}</b><i aria-hidden="true">｜</i>不修改原报价</span>
       </div>
-      <span className="text-xs text-[#555]">工作台利润底线 {percent(floor)} · 不修改原报价</span>
-    </div>
+      <div className="sm-analysis-view">
+        <span className="sm-switch-label">分析视角</span>
+        <div className="sm-mode-switch" role="group" aria-label="换新分析视角">
+          <button type="button" className={`sm-target-filter ${selection.view === 'new' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'new'} onClick={() => onChange({view: 'new'})}>新机视角</button>
+          <button type="button" className={`sm-target-filter ${selection.view === 'old' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'old'} onClick={() => onChange({view: 'old'})}>旧机视角</button>
+        </div>
+      </div>
     {selection.view === 'new' ? <>
-      <h3 className="text-base font-black">这款新机下，目前现有哪些竞争型号来换会导致边际亏损？</h3>
-      <div className="sm-perspective-controls flex flex-wrap items-center gap-3 text-xs">
-        <label className="flex items-center gap-2"><strong>目标新机系列</strong><select className={input} aria-label="新机视角目标系列" value={target?.series || ''} onChange={event => onChange({targetSeries: event.target.value})}>
+      <h3 className="sm-profit-question">这款新机下，目前现有哪些竞争型号来换会导致边际亏损？</h3>
+      <div className="sm-profit-context">
+        <label className="sm-profit-field"><strong>目标新机系列</strong><select className={input} aria-label="新机视角目标系列" value={target?.series || ''} onChange={event => onChange({targetSeries: event.target.value})}>
           {!target && <option value="">当前范围暂无新机系列</option>}
           {model.results.map(result => <option key={result.row.key} value={result.row.series}>{result.row.series}</option>)}
         </select></label>
-        <span className="text-[#555]">检查全部 {workspace.products.length} 条工作台 PPV 报价</span>
+        <div className="sm-profit-coverage"><span>测算范围</span><p>全部 <strong>{workspace.products.length}</strong> 条工作台 PPV 报价</p></div>
       </div>
-      <p className="text-xs text-[#555]">按每条 PPV 的“京东物品价-追价后”，判断换到所选新机后是否亏损；包含原本对应其他新机的报价，亏损最多的优先显示。此处为换新风险测算，不代表实际换新订单。</p>
+      <p className="sm-profit-note">按每条 PPV 的“京东物品价-追价后”，判断换到所选新机后是否亏损；包含原本对应其他新机的报价，亏损最多的优先显示。此处为换新风险测算，不代表实际换新订单。</p>
     </> : <>
-      <h3 className="text-base font-black">按旧机追后价，换哪些新机会亏损？</h3>
-      <label className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center"><strong>选择工作台旧机报价</strong>
-        <select className={`${input} sm:max-w-[640px]`} aria-label="选择工作台旧机报价" value={product?.id || ''} onChange={event => onChange({productId: event.target.value})} disabled={!workspace.products.length}>
+      <h3 className="sm-profit-question">按旧机追后价，换哪些新机会亏损？</h3>
+      <label className="sm-profit-field sm-profit-field-wide"><strong>选择工作台旧机报价</strong>
+        <select className={input} aria-label="选择工作台旧机报价" value={product?.id || ''} onChange={event => onChange({productId: event.target.value})} disabled={!workspace.products.length}>
           {!workspace.products.length && <option value="">工作台暂无旧机报价</option>}
           {workspace.products.map(item => <option key={item.id} value={item.id}>{item.oldModel} · {item.ppv} → {item.newSeries} · ¥{money(item.recommendJdPrice)}</option>)}
         </select>
@@ -51,9 +61,10 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
       </div>}
       {!product && <p className="border border-[#141414] bg-[#F0EFEC] p-3 text-xs">工作台暂无旧机报价，载入本次测算后再查看亏损组合。</p>}
     </>}
-    <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+    <div className="sm-risk-toolbar">
       <RiskSummary results={model.riskResults}/>
-      <label className="flex items-center gap-1"><input type="checkbox" checked={selection.onlyRisks} onChange={event => onChange({onlyRisks: event.target.checked})}/>只看亏损和低利润</label>
+      <label className="sm-risk-only"><input type="checkbox" checked={selection.onlyRisks} onChange={event => onChange({onlyRisks: event.target.checked})}/>只看亏损和低利润</label>
+    </div>
     </div>
     <div className="sm-results" data-perspective={selection.view}><table>
       <thead><tr>{(selection.view === 'new' ? ['竞争旧机 / PPV', '京东物品价-追价后', '换到该新机承担', '预计利润', '对应关系 / 结论', '操作'] : ['换成哪个新机系列', '补贴比当前', '换新后预计利润', '结论', '操作']).map((title, index) => <th key={index}>{title}</th>)}</tr></thead>
