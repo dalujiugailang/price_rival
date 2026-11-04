@@ -268,3 +268,14 @@ test('threshold clicks cycle descending, ascending, default; a different thresho
   assert.deepEqual(cycleMatrixSort(second, '1000'), {groupKey: '1000', direction: 'descending'});
   assert.deepEqual(cycleMatrixSort(third, '500'), first);
 });
+
+test('target-only scope clears an unavailable selected series and retains target rows with missing rules', () => {
+  const matrix = buildWorkspaceMatrix(liveRules, products);
+  const selected = resolveMatrixFilters(matrix.rows, 'active', '', '未用新机');
+  assert.equal(selected.series, '');
+  const targets = filterMatrixRows(matrix.rows, {scope: 'active', brand: selected.brand, series: selected.series});
+  assert.deepEqual(new Set(targets.map(row => row.series)), new Set(products.map(row => row.newSeries)));
+  assert.ok(targets.every(row => row.activeCount > 0));
+  assert.ok(targets.some(row => row.series === '缺规则系列'));
+  assert.ok(filterMatrixRows(matrix.rows, {scope: 'all', brand: ''}).some(row => row.series === '未用新机'));
+});

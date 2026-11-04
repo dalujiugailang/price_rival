@@ -15,7 +15,8 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
   marginBottomLine: number;
   onOpenSources?: () => void;
 }) {
-  const scope = 'all';
+  const [onlyTargets, setOnlyTargets] = useState(false);
+  const scope = onlyTargets ? 'active' : 'all';
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [sort, setSort] = useState({groupKey: '', direction: 'descending' as 'descending' | 'ascending'});
@@ -110,6 +111,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
       <div className="sm-filter-heading">
         <strong className="sm-filter-tag">矩阵筛选</strong>
         <span className="text-xs text-[#555]">显示 <b className="sm-filter-count">{rows.length}</b> 个系列 · <b className="sm-filter-count">{groups.length}</b> 档门槛</span>
+        <button type="button" className={`sm-target-filter ${onlyTargets ? 'sm-selected' : ''}`} aria-pressed={onlyTargets} onClick={() => setOnlyTargets(value => !value)} title="只显示当前工作台已设为目标的新机系列">{onlyTargets && <span aria-hidden="true">✓ </span>}只看目标新机系列</button>
         <span className="text-xs text-[#555]">行：新机系列 ｜ 列：合并门槛 ｜ 金额单位：元</span>
       </div>
       <div className="sm-toolbar-row text-xs">

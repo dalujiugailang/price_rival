@@ -139,3 +139,7 @@
 .sm-filters .sm-toolbar-row input:hover,.sm-filters .sm-toolbar-row select:hover{border-color:#141414}
 .sm-filters .sm-toolbar-row input:focus-visible,.sm-filters .sm-toolbar-row select:focus-visible{background:#fff;outline-offset:2px}
 @media(prefers-reduced-motion:reduce){.sm-filters .sm-toolbar-row input,.sm-filters .sm-toolbar-row select{transition:none}}
+
+.sm-target-filter{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:24px;padding:2px 8px;border:1px solid #141414;background:#fff;color:#141414;font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
+.sm-target-filter:hover{background:#e6e5e1}.sm-target-filter.sm-selected:hover{background:#333}
+.sm-target-filter:focus-visible{outline:2px solid #141414;outline-offset:2px}
