@@ -3,15 +3,14 @@ import {freezePanes, mergeCells, setCell, setColumnWidth, setRowHeight} from '@o
 import {setCellStyle} from '@office-kit/xlsx/styles';
 import type {CellValue} from '@office-kit/xlsx/cell';
 import type {MatrixGroup, MatrixRow, MatrixWorkspace} from './types';
-import {amountColors, amountLabels, ratioLabels, heatmapCell, ratioSpread, type HeatmapMode} from './heatmapStyle';
+import {amountColors, amountLabels, ratioLabels, heatmapCell, spreadText, type HeatmapMode} from './heatmapStyle';
 
-export function createMatrixWorkbook({workspace, rows, groups, columnWidth = 88, mode = 'amount', spreadRows = rows}: {
+export function createMatrixWorkbook({workspace, rows, groups, columnWidth = 88, mode = 'amount'}: {
   workspace: MatrixWorkspace;
   rows: MatrixRow[];
   groups: MatrixGroup[];
   columnWidth?: number;
   mode?: HeatmapMode;
-  spreadRows?: MatrixRow[];
 }) {
   const book = createWorkbook();
   const sheet = addWorksheet(book, '补贴承担热力图');
@@ -46,7 +45,7 @@ export function createMatrixWorkbook({workspace, rows, groups, columnWidth = 88,
   write(4, 1, '品牌 / 新机系列', '#F0EFEC', '#141414', true, 8.25, true);
   groups.forEach((g, i) => write(4, i + 2, {kind: 'rich-text', runs: [
     {text: `${g.label}\n`, font: {b: true, sz: 8.25}},
-    {text: `最大差额 Δ ${mode === 'ratio' ? ratioSpread(spreadRows, g.key) : g.delta.toLocaleString('en-US')}`, font: {b: false, sz: 7.5, color: color('#555555')}}
+    {text: `最大差额 Δ ${spreadText(rows, g.key, mode)}`, font: {b: false, sz: 7.5, color: color('#555555')}}
   ]}, '#F0EFEC', '#141414', true));
   setRowHeight(sheet, 4, 51 * .75);
   rows.forEach((row, i) => {

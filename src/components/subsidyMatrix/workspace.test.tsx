@@ -1,4 +1,4 @@
-import {heatmapCell, ratioSpread} from './heatmapStyle';
+import {heatmapCell, ratioSpread, heatmapSpread, spreadText} from './heatmapStyle';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
@@ -6,7 +6,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import * as XLSX from 'xlsx';
 import {workbookToBytes} from '@office-kit/xlsx/io';
 import type {CalculatedProduct, SubsidyRule, TrackingBatch} from '../../types';
-import {buildNewSeriesScenarios, buildProfitView, buildSeriesProfitResults, buildWorkspaceMatrix, filterMatrixRows, getSeriesRuleDetails, resolveMatrixFilters, resolveMatrixWorkspace, sortMatrixRows, cycleMatrixSort} from './model';
+import {buildNewSeriesScenarios, buildProfitView, buildSeriesProfitResults, buildWorkspaceMatrix, filterMatrixRows, getSeriesRuleDetails, resolveMatrixFilters, resolveMatrixWorkspace, sortMatrixRows, cycleMatrixSort, selectHeatmapGroups} from './model';
 import {createMatrixWorkbook} from './workbook';
 import SubsidyMatrixPanel from './SubsidyMatrixPanel';
 import ProfitPerspectives from './ProfitPerspectives';
@@ -301,7 +301,7 @@ test('ratio sorting uses actual ratios in both directions and export keeps nativ
   assert.deepEqual(descending.map(r => r.series), ['A', 'B', 'range', 'missing']);
   assert.deepEqual(sortMatrixRows(matrix.rows, groups[0].key, 'ascending', 'ratio').map(r => r.series), ['range', 'B', 'A', 'missing']);
   assert.equal(ratioSpread(matrix.rows, groups[0].key), '20.00pp');
-  const book = createMatrixWorkbook({workspace, rows: descending, groups, mode: 'ratio', spreadRows: matrix.rows});
+  const book = createMatrixWorkbook({workspace, rows: descending, groups, mode: 'ratio'});
   const loaded = XLSX.read(await workbookToBytes(book), {type: 'array', cellStyles: true});
   const sheet = loaded.Sheets[loaded.SheetNames[0]];
   assert.ok(sheet.A1.v.includes('承担比例'));
@@ -312,4 +312,37 @@ test('ratio sorting uses actual ratios in both directions and export keeps nativ
   assert.equal(sheet.B8.v, '—');
   const details = renderToStaticMarkup(<RuleTable rules={matrix.rules.filter(r => r.series === 'range')} showRatio/>);
   assert.ok(details.includes('承担比例') && details.includes('20.00%') && details.includes('35.93%'));
+});
+
+test('column gap and Excel headers follow brand, target, series and search filters in both modes', async () => {
+  const source = [rule('target A', 500, 100, 'brand A'), rule('target B', 501, 200, 'brand A'), rule('other', 500, 800, 'brand B')];
+  const matrix = buildWorkspaceMatrix(source, [product('a', 'target A'), product('b', 'target B')]);
+  const group = matrix.groups[0];
+  assert.equal(heatmapSpread(matrix.rows, group.key, 'amount'), 700);
+  for (const filters of [{scope: 'active', brand: ''}, {scope: 'all', brand: 'brand A'}, {scope: 'all', brand: '', search: 'target'}]) {
+    const visible = filterMatrixRows(matrix.rows, filters);
+    assert.equal(spreadText(visible, group.key, 'amount'), '100');
+    assert.equal(spreadText(visible, group.key, 'ratio'), '19.92pp');
+    for (const mode of ['amount', 'ratio'] as const) {
+      const book = createMatrixWorkbook({workspace, rows: visible, groups: [group], mode});
+      const loaded = XLSX.read(await workbookToBytes(book), {type: 'array'});
+      assert.equal(loaded.Sheets[loaded.SheetNames[0]].B4.v, `500–501\n最大差额 Δ ${mode === 'amount' ? '100' : '19.92pp'}`);
+    }
+  }
+  const one = filterMatrixRows(matrix.rows, {scope: 'all', brand: '', series: 'target A'});
+  assert.equal(spreadText(one, group.key, 'amount'), '0');
+  assert.equal(spreadText(one, group.key, 'ratio'), '0.00pp');
+  assert.equal(spreadText([], group.key, 'amount'), '—');
+});
+
+test('TOP 10 reranks thresholds for filtered rows and current display mode', () => {
+  const source = Array.from({length: 11}, (_, i) => [rule('target A', (i + 1) * 100, 0), rule('target B', (i + 1) * 100, i === 10 ? 400 : 100), rule('other', (i + 1) * 100, i === 10 ? 0 : 1000)]).flat();
+  const matrix = buildWorkspaceMatrix(source, [product('a', 'target A'), product('b', 'target B')]);
+  const targets = filterMatrixRows(matrix.rows, {scope: 'active', brand: ''});
+  assert.ok(!selectHeatmapGroups(matrix.groups, matrix.rows, 'top', 'amount').some(g => g.min === 1100));
+  assert.ok(selectHeatmapGroups(matrix.groups, targets, 'top', 'amount').some(g => g.min === 1100));
+  assert.ok(!selectHeatmapGroups(matrix.groups, targets, 'top', 'amount').some(g => g.min === 1000));
+  assert.ok(!selectHeatmapGroups(matrix.groups, targets, 'top', 'ratio').some(g => g.min === 1000));
+  assert.deepEqual(selectHeatmapGroups(matrix.groups, [], 'top', 'amount'), []);
+  assert.equal(selectHeatmapGroups(matrix.groups, targets, 'all', 'amount').length, 11);
 });

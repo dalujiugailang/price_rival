@@ -1,4 +1,4 @@
-import {heatmapValues, type HeatmapMode} from './heatmapStyle';
+import {heatmapSpread, heatmapValues, type HeatmapMode} from './heatmapStyle';
 import type {CalculatedProduct, SourceUploadRecord, SubsidyRule, TrackingBatch} from '../../types';
 import {buildMatrix, compareSubsidyProfit, hitWorkspaceSeriesRules} from '../../../shared/subsidyMatrix.mjs';
 import type {ExchangeScenario, MatrixGroup, MatrixRow, MatrixRule, MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
@@ -171,4 +171,13 @@ export function sortMatrixRows(rows: MatrixRow[], groupKey: string, direction: M
     if (bv === null) return -1;
     return direction === 'descending' ? bv - av : av - bv;
   });
+}
+
+// Rank columns using only the rows currently visible under the linked filters.
+export function selectHeatmapGroups(groups: MatrixGroup[], rows: MatrixRow[], range: string, mode: HeatmapMode) {
+  if (range === 'top') return groups.map(group => ({group, spread: heatmapSpread(rows, group.key, mode)}))
+    .filter(entry => entry.spread !== null)
+    .sort((a, b) => b.spread - a.spread || a.group.min - b.group.min)
+    .slice(0, 10).map(entry => entry.group).sort((a, b) => a.min - b.min);
+  return groups.filter(group => range === 'all' || (range === 'low' ? group.min <= 1000 : range === 'mid' ? group.max >= 1100 && group.min <= 3001 : group.max >= 3500));
 }

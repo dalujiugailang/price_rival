@@ -20,7 +20,15 @@ export function heatmapCell(rules: {ahs: number; threshold: number}[], mode: Hea
   const index = mode === 'ratio' ? ratioBand(max) : amountBand(max);
   return {min, max, text: min === max ? format(max) : `${format(min)}–${format(max)}`, background: amountColors[index], foreground: index === 5 ? '#FFFFFF' : '#141414'};
 }
-export function ratioSpread(rows: {cells: Record<string, {ahs: number; threshold: number}[]>}[], groupKey: string) {
-  const values = rows.flatMap(row => heatmapValues(row.cells[groupKey] || [], 'ratio') || []);
-  return values.length ? `${((Math.max(...values) - Math.min(...values)) * 100).toFixed(2)}pp` : '—';
+type HeatmapRows = {cells: Record<string, {ahs: number; threshold: number}[]>}[];
+export function heatmapSpread(rows: HeatmapRows, groupKey: string, mode: HeatmapMode) {
+  const values = rows.flatMap(row => heatmapValues(row.cells[groupKey] || [], mode) || []);
+  return values.length ? Math.max(...values) - Math.min(...values) : null;
+}
+export function spreadText(rows: HeatmapRows, groupKey: string, mode: HeatmapMode) {
+  const spread = heatmapSpread(rows, groupKey, mode);
+  return spread === null ? '—' : mode === 'ratio' ? `${(spread * 100).toFixed(2)}pp` : spread.toLocaleString('zh-CN', {maximumFractionDigits: 2});
+}
+export function ratioSpread(rows: HeatmapRows, groupKey: string) {
+  return spreadText(rows, groupKey, 'ratio');
 }
