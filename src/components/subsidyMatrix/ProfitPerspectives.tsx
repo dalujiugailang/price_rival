@@ -5,7 +5,6 @@ import {deltaLabel, input, money, percent, riskClass} from './ui';
 
 function RiskSummary({results}: {results: SeriesProfitResult[]}) {
   return <div className="sm-risk-counts" aria-label="换新风险概况">
-    <span className="sm-risk-scope">当前范围</span>
     <span className="sm-risk-item"><span>亏损</span><strong className="text-red-700">{results.filter(r => r.comparison?.risk === '亏损风险').length}</strong></span>
     <span className="sm-risk-item"><span>低利润</span><strong className="text-amber-800">{results.filter(r => r.comparison?.risk === '低利润风险').length}</strong></span>
     <span className="sm-risk-item"><span>待核验</span><strong>{results.filter(r => !r.comparison).length}</strong></span>
@@ -26,10 +25,9 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
     <div className="sm-analysis-panel">
       <div className="sm-analysis-heading">
         <strong className="sm-filter-tag">利润风险分析</strong>
-        <span className="sm-margin-floor">工作台利润底线 <b>{percent(floor)}</b><i aria-hidden="true">｜</i>不修改原报价</span>
+        <span className="sm-margin-floor">工作台利润底线 <b>{percent(floor)}</b></span>
       </div>
       <div className="sm-analysis-view">
-        <span className="sm-switch-label">分析视角</span>
         <div className="sm-mode-switch" role="group" aria-label="换新分析视角">
           <button type="button" className={`sm-target-filter ${selection.view === 'new' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'new'} onClick={() => onChange({view: 'new'})}>新机视角</button>
           <button type="button" className={`sm-target-filter ${selection.view === 'old' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'old'} onClick={() => onChange({view: 'old'})}>旧机视角</button>
@@ -42,9 +40,7 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
           {!target && <option value="">当前范围暂无新机系列</option>}
           {model.results.map(result => <option key={result.row.key} value={result.row.series}>{result.row.series}</option>)}
         </select></label>
-        <div className="sm-profit-coverage"><span>测算范围</span><p>全部 <strong>{workspace.products.length}</strong> 条工作台 PPV 报价</p></div>
       </div>
-      <p className="sm-profit-note">按每条 PPV 的“京东物品价-追价后”，判断换到所选新机后是否亏损；包含原本对应其他新机的报价，亏损最多的优先显示。此处为换新风险测算，不代表实际换新订单。</p>
     </> : <>
       <h3 className="sm-profit-question">按旧机追后价，换哪些新机会亏损？</h3>
       <label className="sm-profit-field sm-profit-field-wide"><strong>选择工作台旧机报价</strong>
@@ -91,7 +87,7 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
     <details className="text-xs text-[#555]"><summary className="cursor-pointer">怎么算的？</summary><div className="mt-2 space-y-1 leading-relaxed">
       <p>两种视角都逐条使用工作台的“京东物品价-追价后”命中最高已达原始门槛，不用合并档最大值，也不叠加补贴。</p>
       <p>预计利润＝该条工作台原利润 − 补贴增量 × 1.0466；利润率分母仍为该旧机基准价。每多承担 100 元补贴，利润减少 104.66 元。当前方案保留工作台已算结果。</p>
-      <p>同门槛金额冲突、规则或基准数据缺失显示待核验。不同 PPV、等级或来源方案保留为不同报价；不据此预测换新订单量。</p>
+      <p>同门槛金额冲突、规则或基准数据缺失显示待核验。不同 PPV、等级或来源方案保留为不同报价；此处为换新风险测算，不代表实际换新订单，不据此预测换新订单量。</p>
       <p>系列范围跟随上方筛选；门槛范围只控制矩阵展示，不限制实际命中。列表按预计亏损额从高到低排列。</p>
     </div></details>
   </section>;
