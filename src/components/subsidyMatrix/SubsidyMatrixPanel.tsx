@@ -114,16 +114,22 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
       <div className="sm-filter-heading">
         <strong className="sm-filter-tag">矩阵筛选</strong>
         <span className="text-xs text-[#555]">显示 <b className="sm-filter-count">{rows.length}</b> 个系列 · <b className="sm-filter-count">{groups.length}</b> 档门槛</span>
-        <button type="button" className={`sm-target-filter ${onlyTargets ? 'sm-selected' : ''}`} aria-pressed={onlyTargets} onClick={() => setOnlyTargets(value => !value)} title="只显示当前工作台已设为目标的新机系列">{onlyTargets && <span aria-hidden="true">✓ </span>}只看目标新机系列</button>
+        <span className="text-xs text-[#555]">行：新机系列 ｜ 列：合并门槛 ｜ {heatmapMode === 'ratio' ? `比例：${subsidyLabel(metric)} ÷ 原始门槛` : '金额单位：元'}</span>
+      </div>
+      <div className="sm-view-controls">
+        <div className="sm-switch-field"><span className="sm-switch-label">补贴口径</span>
         <div className="sm-mode-switch" role="group" aria-label="补贴口径">
           <button type="button" className={`sm-target-filter ${metric === 'ahs' ? 'sm-selected' : ''}`} aria-pressed={metric === 'ahs'} onClick={() => setMetric('ahs')}>爱回收承担</button>
           <button type="button" className={`sm-target-filter ${metric === 'total' ? 'sm-selected' : ''}`} aria-pressed={metric === 'total'} onClick={() => setMetric('total')}>总补贴（含京东券）</button>
         </div>
-        <div className="sm-mode-switch" role="group" aria-label="热力图显示方式">
-          <button type="button" className={`sm-target-filter ${heatmapMode === 'amount' ? 'sm-selected' : ''}`} aria-pressed={heatmapMode === 'amount'} onClick={() => setHeatmapMode('amount')}>{valueLabel(metric, 'amount')}</button>
-          <button type="button" className={`sm-target-filter ${heatmapMode === 'ratio' ? 'sm-selected' : ''}`} aria-pressed={heatmapMode === 'ratio'} onClick={() => setHeatmapMode('ratio')}>{valueLabel(metric, 'ratio')}</button>
         </div>
-        <span className="text-xs text-[#555]">行：新机系列 ｜ 列：合并门槛 ｜ {heatmapMode === 'ratio' ? `比例：${subsidyLabel(metric)} ÷ 原始门槛` : '金额单位：元'}</span>
+        <div className="sm-switch-field"><span className="sm-switch-label">显示方式</span>
+        <div className="sm-mode-switch" role="group" aria-label="热力图显示方式">
+          <button type="button" className={`sm-target-filter ${heatmapMode === 'amount' ? 'sm-selected' : ''}`} aria-pressed={heatmapMode === 'amount'} onClick={() => setHeatmapMode('amount')}>金额</button>
+          <button type="button" className={`sm-target-filter ${heatmapMode === 'ratio' ? 'sm-selected' : ''}`} aria-pressed={heatmapMode === 'ratio'} onClick={() => setHeatmapMode('ratio')}>比例</button>
+        </div>
+        </div>
+        <button type="button" className={`sm-target-filter ${onlyTargets ? 'sm-selected' : ''}`} aria-pressed={onlyTargets} onClick={() => setOnlyTargets(value => !value)} title="只显示当前工作台已设为目标的新机系列">{onlyTargets && <span aria-hidden="true">✓ </span>}只看目标新机系列</button>
       </div>
       <div className="sm-toolbar-row text-xs">
         <label>关键词<input className={`${input} sm-toolbar-search`} aria-label="型号搜索" placeholder="搜索品牌 / 型号" value={search} onChange={event => setSearch(event.target.value)}/></label>

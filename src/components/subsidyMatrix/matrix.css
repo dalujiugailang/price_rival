@@ -151,3 +151,13 @@
 .sm-metric-rules summary{cursor:pointer;font-weight:600;line-height:20px}
 
 .sm-detail-table[data-ratio="true"] thead th{white-space:normal}
+
+/* Separate subsidy basis from display units without adding another card. */
+.sm-view-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px 24px;margin-bottom:12px;padding:10px 0;border-top:1px solid #d6d5d1;border-bottom:1px solid #d6d5d1}
+.sm-switch-field{display:flex;align-items:center;gap:10px;min-width:0}
+.sm-switch-label{flex-shrink:0;color:#555;font-size:11px;font-weight:600;line-height:18px}
+.sm-view-controls .sm-mode-switch{align-items:stretch}
+.sm-view-controls .sm-mode-switch button{min-height:28px;padding:4px 12px;font-size:12px;line-height:18px}
+.sm-view-controls>.sm-target-filter{margin-left:auto;min-height:28px;padding:4px 10px;font-weight:400}
+.sm-view-controls>.sm-target-filter.sm-selected{font-weight:600}
+@media(max-width:700px){.sm-view-controls{gap:10px}.sm-switch-field{display:grid;grid-template-columns:56px minmax(0,1fr);width:100%}.sm-switch-field .sm-mode-switch{display:flex;min-width:0}.sm-switch-field .sm-mode-switch button{flex:1;min-width:0;white-space:normal;padding-right:8px;padding-left:8px}.sm-view-controls>.sm-target-filter{margin-left:66px}}
