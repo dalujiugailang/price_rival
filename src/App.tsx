@@ -1398,6 +1398,7 @@ export default function App() {
                   <MainTable
                     readOnly={!canEditWorkspace || useSharedSnapshot}
                     strategyReadOnly={!canEditWorkspace}
+                    riskWorkspace={activeChannelId === 'tradeIn' ? matrixWorkspace : undefined}
                     products={activeCalculatedItems}
                     marginBottomLine={effectiveMarginBottomLine}
                     pricingMode={effectivePricingMode}

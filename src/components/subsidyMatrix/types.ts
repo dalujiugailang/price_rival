@@ -39,6 +39,7 @@ export interface MatrixWorkspace {
   label: string;
   uploadedAt?: string;
   snapshotId?: string;
+  unavailableReason?: string;
 }
 
 export interface ProfitComparison {
@@ -70,4 +71,6 @@ export interface ProfitViewSelection {
   productId: string;
   targetSeries: string;
   onlyRisks: boolean;
+  search?: string;
+  oldSearch?: string;
 }

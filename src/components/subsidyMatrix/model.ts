@@ -132,25 +132,32 @@ export function resolveMatrixFilters(rows: MatrixRow[], scope: string, brand: st
   return {brand: effectiveBrand, series: effectiveSeries, availableRows};
 }
 
-export function buildProfitView({selection, rows, rules, products, floor, invalidSeries}: {
+export function buildProfitView({selection, rows, rules, products, floor, invalidSeries, focusedQuote}: {
   selection: ProfitViewSelection;
   rows: MatrixRow[];
   rules: MatrixRule[];
   products: CalculatedProduct[];
   floor: number;
   invalidSeries?: Set<string>;
+  focusedQuote?: CalculatedProduct;
 }) {
-  const product = products.find(row => row.id === selection.productId) || products[0];
-  const target = rows.find(row => row.series === selection.targetSeries) || rows[0];
+  const product = focusedQuote ?? (products.find(row => row.id === selection.productId) || products[0]);
+  const target = focusedQuote
+    ? rows.find(row => row.series === focusedQuote.newSeries)
+    : rows.find(row => row.series === selection.targetSeries) || rows[0];
   const results = buildSeriesProfitResults({rows, rules, product, floor, invalidSeries});
   const scenarios = buildNewSeriesScenarios({target, rules, products, floor, invalidSeries});
+  const keywords = (selection.search || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const searchedScenarios = scenarios.filter(({product}) => keywords.every(keyword => `${product.brand} ${product.oldModel} ${product.ppv}`.toLowerCase().includes(keyword)));
+  const oldKeywords = (selection.oldSearch || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const searchedResults = results.filter(({row}) => oldKeywords.every(keyword => `${row.brand} ${row.series}`.toLowerCase().includes(keyword)));
   const isRisk = (result: SeriesProfitResult) => result.comparison && result.comparison.risk !== '正常';
   return {
     product, target, results, scenarios,
-    visibleResults: product ? selection.onlyRisks ? results.filter(isRisk) : results : [],
-    visibleScenarios: selection.onlyRisks ? scenarios.filter(row => isRisk(row.result)) : scenarios,
+    visibleResults: product ? selection.onlyRisks ? searchedResults.filter(isRisk) : searchedResults : [],
+    visibleScenarios: selection.onlyRisks ? searchedScenarios.filter(row => isRisk(row.result)) : searchedScenarios,
     linkedCount: scenarios.filter(row => row.relation === 'workspace').length,
-    riskResults: selection.view === 'new' ? scenarios.map(row => row.result) : product ? results.filter(row => !row.current) : []
+    riskResults: selection.view === 'new' ? searchedScenarios.map(row => row.result) : product ? searchedResults.filter(row => !row.current) : []
   };
 }
 

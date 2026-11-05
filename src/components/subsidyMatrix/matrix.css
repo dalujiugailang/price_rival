@@ -173,6 +173,7 @@
 .sm-profit-context{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 24px}
 .sm-profit-field{display:flex;flex-direction:column;gap:5px;width:min(360px,100%);min-width:0;font-size:11px;color:#444;line-height:16px}
 .sm-profit-field>strong{font-weight:600}
+.subsidy-matrix .sm-profit-field input{height:32px;width:100%;max-width:none;border-color:#999994;font-size:12px;color:#141414}
 .subsidy-matrix .sm-profit-field select{height:32px;width:100%;max-width:none;border-color:#999994;font-size:12px;color:#141414}
 .sm-profit-field select:hover{border-color:#141414}.sm-profit-field select:focus-visible{outline:1px solid #141414;outline-offset:2px}
 .sm-profit-field-wide{width:min(900px,100%)}

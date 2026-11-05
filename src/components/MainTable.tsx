@@ -26,6 +26,8 @@ import ColumnFilterButton from './ColumnFilterButton';
 import { retainFilterScope, resolveFilteredRows, type RetainedFilterScope } from '../utils/retainedFilterScope';
 import RepricingControlsPopover from './RepricingControlsPopover';
 import * as XLSX from 'xlsx';
+import RowProfitAnalysis from './subsidyMatrix/RowProfitAnalysis';
+import type {MatrixWorkspace} from './subsidyMatrix/types';
 
 interface Props {
   readOnly?: boolean;
@@ -33,6 +35,7 @@ interface Props {
   snapshot?: TrackingBatch;
   focusPpv?: string;
   products: CalculatedProduct[];
+  riskWorkspace?: MatrixWorkspace;
   marginBottomLine: number;
   pricingMode: PricingMode;
   channelId?: ChannelId;
@@ -90,6 +93,7 @@ export default function MainTable({
   snapshot,
   focusPpv,
   products,
+  riskWorkspace,
   marginBottomLine,
   pricingMode,
   channelId = 'tradeIn',
@@ -115,11 +119,27 @@ export default function MainTable({
   const [selectedDisplayColumns, setSelectedDisplayColumns] = useState<number[]>([]);
   const [focusedDisplayColumns, setFocusedDisplayColumns] = useState<number[] | null>(null);
   const [showDisplayColumns, setShowDisplayColumns] = useState(false);
+  const [riskMode, setRiskMode] = useState(false);
+  const [riskRowKey, setRiskRowKey] = useState<string | null>(null);
+  const showRowRisk = Boolean(riskWorkspace && riskMode);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const [riskPanelWidth, setRiskPanelWidth] = useState(0);
+  useEffect(() => {
+    const scroll = tableScrollRef.current;
+    if (!showRowRisk || !scroll) return;
+    const measure = () => setRiskPanelWidth(scroll.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroll);
+    return () => observer.disconnect();
+  }, [showRowRisk]);
   const displayColumnsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setSelectedDisplayColumns([]);
     setFocusedDisplayColumns(null);
     setShowDisplayColumns(false);
+    setRiskMode(false);
+    setRiskRowKey(null);
   }, [channelId]);
   useEffect(() => {
     if (!showDisplayColumns) return;
@@ -721,6 +741,7 @@ export default function MainTable({
         return (
           <td key={index} style={style}
             className={`px-2 py-1 text-right border-r border-[#141414]/20 font-mono ${p.manualBasePrice !== undefined ? 'text-blue-700 font-bold' : ''}`}
+            data-price-editor={!readOnly && Boolean(onManualBasePriceChange) || undefined}
             onDoubleClick={readOnly || !onManualBasePriceChange ? undefined : () => {
               baseEditActive.current = true;
               setEditingBaseId(p.id);
@@ -766,6 +787,7 @@ export default function MainTable({
             data-tour="manual-price"
             style={style}
             className={`px-2 py-1 text-right border-r border-[#141414]/20 bg-[#D8D7D2] font-extrabold ${p.manualRecommendJdPrice !== undefined ? 'text-blue-700' : ''}`}
+            data-price-editor={!readOnly || undefined}
             onDoubleClick={readOnly ? undefined : () => beginRecommendEdit(p)}
             title={readOnly ? '只读快照' : '双击手动改价'}
           >
@@ -923,7 +945,18 @@ export default function MainTable({
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {riskWorkspace && <button type="button" aria-pressed={showRowRisk}
+            className={`pricing-risk-toggle inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-bold text-red-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 ${showRowRisk ? 'border-red-500 bg-red-200 hover:bg-red-300' : 'border-red-300 bg-red-50 hover:bg-red-100'}`}
+            onClick={() => {setRiskMode(!riskMode); setRiskRowKey(null);}}>
+            <svg className="pricing-risk-icon shrink-0" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path className="pricing-risk-outline" pathLength="1" d="M12 2.5C9.4 4.3 6.7 5.4 4 5.7v6.1c0 4.9 3 7.8 8 9.7 5-1.9 8-4.8 8-9.7V5.7c-2.7-.3-5.4-1.4-8-3.2Z"/>
+              <path className="pricing-risk-mark" pathLength="1" d="M12 8v4.5"/>
+              <circle className="pricing-risk-dot" cx="12" cy="16" r="1" fill="currentColor" stroke="none"/>
+            </svg>
+            风险提示
+          </button>}
           <div className="relative" ref={displayColumnsRef}>
             <button type="button" aria-expanded={showDisplayColumns} aria-haspopup="dialog" onClick={() => setShowDisplayColumns(value => !value)} className={`flex items-center gap-2 border border-[#141414] px-3 py-1.5 text-xs font-bold ${showDisplayColumns ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#141414] hover:text-white'}`}>
               显示列
@@ -1089,15 +1122,18 @@ export default function MainTable({
         </div>
       )}
 
-      <div className="tracking-table-scroll">
+      {showRowRisk && <p role="status" className="border-b border-[#141414]/20 bg-[#F0EFEC] px-3 py-2 text-xs font-bold italic text-red-800 underline">
+        点击任一报价行，在该行下方查看对应新机系列和旧机 PPV 的利润风险。
+      </p>}
+      <div className="tracking-table-scroll" ref={tableScrollRef}>
         <style>{`
           .pricing-crosshair [data-hover-row] > td, .pricing-crosshair [data-hover-row] > th { box-shadow: inset 0 0 0 9999px rgba(56,189,248,.16); }
           .pricing-crosshair [data-hover-cell] { outline: 1px solid #38bdf8; outline-offset: -1px; }
-          ${fixedCodes.map((_, index) => `.pricing-crosshair[data-hover-column="${index}"] tr > :nth-child(${index + 1}) { box-shadow: inset 0 0 0 9999px rgba(56,189,248,.16); }`).join('\n')}
+          ${fixedCodes.map((_, index) => `.pricing-crosshair[data-hover-column="${index}"] > :is(thead, tbody) > tr:not(.pricing-risk-detail) > :nth-child(${index + 1}) { box-shadow: inset 0 0 0 9999px rgba(56,189,248,.16); }`).join('\n')}
         `}</style>
         <table className="pricing-crosshair table-fixed text-[11px] leading-tight" onClick={updateCrosshair}
           onKeyDown={event => { if (event.key === 'Escape') clearCrosshair(event.currentTarget); }}
-          style={{ width: tableWidth, minWidth: tableWidth }}>
+          style={{ width: tableWidth, minWidth: riskRowKey && showRowRisk ? Math.max(tableWidth, riskPanelWidth) : tableWidth }}>
           <colgroup>
             {fixedColumnWidths.map((width, index) => (
               <col key={`fixed-${index}`} style={isFixedColumnVisible(index) ? { width } : { display: 'none', width: 0 }} />
@@ -1160,10 +1196,33 @@ export default function MainTable({
           <tbody>
             {filteredProducts.map((p, rowIndex) => {
               const savedValues = snapshot ? getFixedExportValues(p) : undefined;
+              const rowKey = handPriceRowKey(p);
+              const riskOpen = showRowRisk && riskRowKey === rowKey;
+              const toggleRisk = () => setRiskRowKey(previous => previous === rowKey ? null : rowKey);
               return (
-                <tr ref={p.ppv===focusPpv?focusedRowRef:undefined} aria-label={p.ppv===focusPpv?`已定位 PPV：${p.ppv}`:undefined} key={`${p.id}-${rowIndex}`} className={`border-b border-[#141414]/20 ${p.ppv===focusPpv?'bg-sky-100 [&>td]:!bg-sky-100 outline outline-2 outline-inset outline-sky-300':p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
+                <React.Fragment key={`${p.id}-${rowIndex}`}>
+                <tr tabIndex={showRowRisk ? 0 : undefined} data-risk-open={riskOpen || undefined}
+                  onClick={showRowRisk ? event => {
+                    if (!(event.target as HTMLElement).closest('button, input, select, textarea, a, label, [role="button"], [data-price-editor]')) toggleRisk();
+                  } : undefined}
+                  onKeyDown={showRowRisk ? event => {
+                    if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      toggleRisk();
+                    }
+                  } : undefined}
+                  ref={p.ppv===focusPpv?focusedRowRef:undefined} aria-label={p.ppv===focusPpv?`已定位 PPV：${p.ppv}`:undefined} className={`border-b border-[#141414]/20 ${showRowRisk ? 'cursor-pointer focus-visible:outline focus-visible:outline-sky-500' : ''} ${riskOpen ? '[&>td]:!bg-sky-50' : ''} ${p.ppv===focusPpv?'bg-sky-100 [&>td]:!bg-sky-100 outline outline-2 outline-inset outline-sky-300':p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
                   {fixedCodes.map((_, index) => renderFixedCell(p, index, savedValues))}
                 </tr>
+                {riskOpen && riskWorkspace && <tr className="pricing-risk-detail">
+                  <td colSpan={fixedCodes.length} className="border-b border-[#141414]/20 bg-[#F0EFEC] p-0">
+                    <div key={rowKey} className="sticky left-0 p-2" style={{width: riskPanelWidth || undefined}}>
+                      <RowProfitAnalysis quote={p} workspace={riskWorkspace}
+                        floor={marginBottomLine} onClose={() => setRiskRowKey(null)}/>
+                    </div>
+                  </td>
+                </tr>}
+                </React.Fragment>
               );
             })}
             {filteredProducts.length === 0 && (
@@ -1245,11 +1304,12 @@ const emptySnapshotSubsidies: SubsidyRule[] = [];
 const emptySelfSnapshotSubsidies: SelfOperatedSubsidyRule[] = [];
 const emptySnapshotSelection: string[] = [];
 
-export function SnapshotTable({ batch, focusPpv }: { batch: TrackingBatch; focusPpv?: string }) {
+export function SnapshotTable({ batch, focusPpv, riskWorkspace }: { batch: TrackingBatch; focusPpv?: string; riskWorkspace?: MatrixWorkspace }) {
   return (
     <MainTable
       readOnly
       snapshot={batch}
+      riskWorkspace={riskWorkspace}
       focusPpv={focusPpv}
       products={batch.products}
       channelId={batch.channelId || 'tradeIn'}

@@ -32,6 +32,33 @@
   border-right: none;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .pricing-risk-toggle:is(:hover, :focus-visible) .pricing-risk-outline {
+    stroke-dasharray: 1 1;
+    animation: pricing-risk-trace 320ms ease-out both;
+  }
+
+  .pricing-risk-toggle:is(:hover, :focus-visible) .pricing-risk-mark {
+    stroke-dasharray: 1 1;
+    animation: pricing-risk-trace 125ms ease-out 280ms both;
+  }
+
+  .pricing-risk-toggle:is(:hover, :focus-visible) .pricing-risk-dot {
+    animation: pricing-risk-dot-in 90ms ease-out 405ms both;
+  }
+}
+
+@keyframes pricing-risk-trace {
+  from { stroke-dashoffset: 1; opacity: 0; }
+  12% { opacity: 1; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes pricing-risk-dot-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .tracking-table-scroll {
   max-height: 72vh;
   overflow: auto;

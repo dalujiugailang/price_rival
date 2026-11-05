@@ -14,7 +14,7 @@ import {
 } from '../utils/snapshotHistory';
 import { SnapshotTable } from './MainTable';
 import AuthorizedPriceAnalysis from './AuthorizedPriceAnalysis';
-import GradeSnapshotHistory from './GradeSnapshotHistory';
+import TradeInSnapshotDetails from './TradeInSnapshotDetails';
 import {calculateBrandCompetitionInvestmentMetrics} from '../utils/investment';
 import SourceFileDownloadLink from './SourceFileDownloadLink';
 import { getSnapshotSourceFiles } from '../utils/snapshotSourceFiles';
@@ -251,7 +251,7 @@ export default function HistoryPanel({
             </div>
           ) : hasSnapshotDetails(inspectedBatch) ? (
             (inspectedBatch.channelId || 'tradeIn') === 'tradeIn'
-              ? <div key={inspectedBatch.id}><GradeSnapshotHistory batchId={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></GradeSnapshotHistory></div>
+              ? <div key={inspectedBatch.id}><TradeInSnapshotDetails batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></div>
               : <div key={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></div>
           ) : (
             <div className="border border-[#141414] bg-white p-6">

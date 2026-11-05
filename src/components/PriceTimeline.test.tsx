@@ -21,3 +21,10 @@ assert.ok(detailHtml.includes('物品价差')&&detailHtml.includes('到手价差
 assert.ok(!detailHtml.includes('<svg'),'chronological detail is a numeric table');
 assert.ok(html.includes('详情'),'each timeline row provides a detail action');
 console.log('Timeline details: saved-period records, chronological source and platform gaps passed.');
+
+const missingSearch=renderToStaticMarkup(<PriceTimeline batches={batches} brand="华为" newSeries="Mate 80" search="no-matching-ppv"/>);
+assert.ok(!missingSearch.includes('ONE-PERIOD-PPV'),'shared keyword filters timeline rows and the selected chart');
+const emptyBatch=renderToStaticMarkup(<PriceTimeline batches={batches} brand="华为" newSeries="Mate 80" batchId="B"/>);
+assert.ok(!emptyBatch.includes('ONE-PERIOD-PPV'),'shared source-batch filter restricts PPVs while retaining full-history semantics');
+assert.ok(!html.includes('历史列表筛选')&&!html.includes('搜索时序PPV'),'the timeline no longer duplicates shared controls');
+console.log('Controlled timeline: shared keyword and source-batch filtering passed.');

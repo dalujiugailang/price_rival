@@ -271,7 +271,7 @@ const parseCompetitivenessHistory = async (file: File): Promise<TrackingBatch[]>
     .filter((batch): batch is TrackingBatch => batch !== null);
 };
 
-const parseSubsidyRules = async (file: File): Promise<SubsidyRule[]> => {
+export const parseSubsidyRules = async (file: File): Promise<SubsidyRule[]> => {
   const parsed = await parseWorkbook(file, ['新机系列']);
   const thresholdAliases = ['jd裸机价门槛', '价格门槛', '门槛', '价格下限', '起始价'];
   const ahsAliases = ['对应新品型号ahs投入', 'ahs投入', 'AHS投入', '爱回收承担总补贴'];

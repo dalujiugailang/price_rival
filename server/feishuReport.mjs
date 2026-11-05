@@ -80,3 +80,19 @@ export const reportCard = (report, imageKey, actorName, sentAt) => ({
     {tag: 'action', actions: [{tag: 'button', text: {tag: 'plain_text', content: '查看本批次详情'}, type: 'primary', url: report.url}]},
     {tag: 'note', elements: [{tag: 'plain_text', content: `${report.weightLabel}\n推送人：${actorName} · ${sentAt}`}]}]
 });
+
+export const brandAssignmentCard = (report, images, missing, actorName, sentAt) => ({
+  config: {wide_screen_mode: true},
+  header: {template: 'blue', title: {tag: 'plain_text', content: report.title}},
+  elements: [
+    {tag: 'div', text: {tag: 'plain_text', content: `${report.date} · ${report.typeLabel}\n批次：${report.batchId}`}},
+    ...images.flatMap(({label,imageKey,url})=>[
+      {tag:'hr'},
+      {tag:'div',text:{tag:'lark_md',content:`**${label}｜竞争力趋势**`}},
+      {tag:'img',img_key:imageKey,alt:{tag:'plain_text',content:`${label}竞争力趋势`},mode:'fit_horizontal'},
+      {tag:'action',actions:[{tag:'button',text:{tag:'plain_text',content:`查看${label}详情`},url,type:'primary'}]}
+    ]),
+    ...(missing.length ? [{tag:'div',text:{tag:'plain_text',content:`本批次暂无明细：${missing.join('、')}`}}] : []),
+    {tag:'note',elements:[{tag:'plain_text',content:`推送人：${actorName} · ${sentAt}`}]}
+  ]
+});

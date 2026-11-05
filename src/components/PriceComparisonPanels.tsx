@@ -76,17 +76,15 @@ function PriceMove({first, last, showRate = true, showTrend = true}: {first: num
 }
 
 type ComparisonRow = {ppv: string; a?: CalculatedProduct; b?: CalculatedProduct};
-export function PpvPriceChanges({rows, limit, onMore}: {rows: ComparisonRow[]; limit: number; onMore: () => void}) {
+export function PpvPriceChanges({rows, limit, onMore, presence='common'}: {rows: ComparisonRow[]; limit: number; onMore: () => void; presence?: string}) {
   const [pairIndex, setPairIndex] = useState(2);
   const [expanded, setExpanded] = useState('');
-  const [presence, setPresence] = useState('common');
   const [jd, tm, label] = pairs[pairIndex];
   const visible = useMemo(() => rows.filter(row => presence === 'all' || (presence === 'common' ? row.a && row.b : presence === 'added' ? !row.a : !row.b)), [rows, presence]);
   return <section className="border border-[#141414] bg-white" aria-label="PPV价格变化">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] px-4 py-3">
       <div className="flex flex-wrap items-center gap-3"><h3 className="text-sm font-bold">PPV 价格对比</h3><span className="text-xs text-[#777]">{visible.length} 条 · 基准期 → 对比期</span></div>
       <div className="flex flex-wrap gap-2">{pairs.map(([, , title], i) => <button key={title} className={`${button} ${pairIndex === i ? '!bg-[#141414] text-white' : ''}`} aria-pressed={pairIndex === i} onClick={() => setPairIndex(i)}>{title}</button>)}
-        <select aria-label="PPV匹配范围" className="border border-[#141414] bg-white px-2 py-1 text-xs" value={presence} onChange={e => setPresence(e.target.value)}><option value="common">两期共有</option><option value="all">全部 PPV</option><option value="added">对比期新增</option><option value="removed">对比期未包含</option></select>
       </div>
     </div>
     <div className="max-h-[650px] overflow-auto"><table className="w-full min-w-[960px] text-xs">

@@ -406,3 +406,51 @@ test('TOP10 follows selected total subsidy metric and retains duplicate rules fo
   assert.ok(selectHeatmapGroups(matrix.groups, matrix.rows, 'top', 'ratio', 'total').some(g => g.min === 1100));
   assert.equal(matrix.rows.find(r => r.series === 'B').cells[matrix.groups[0].key].length, 2);
 });
+
+test('profit search matches old model and PPV, combines keywords and keeps risk counts in scope', () => {
+  const matrix = buildWorkspaceMatrix(liveRules, products);
+  const selection = {view: 'new' as const, productId: '', targetSeries: '目标新机', onlyRisks: false};
+  const args = {rows: matrix.rows, rules: matrix.rules, products, floor: .03};
+  const all = buildProfitView({...args, selection});
+  const query = `  旧机型号  ${products[0].ppv.toLowerCase()}  `;
+  const filtered = buildProfitView({...args, selection: {...selection, search: query}});
+  assert.ok(filtered.visibleScenarios.length > 0);
+  assert.ok(filtered.visibleScenarios.every(row => row.product.ppv.toLowerCase().includes(products[0].ppv.toLowerCase())));
+  assert.equal(filtered.riskResults.length, filtered.visibleScenarios.length);
+  const risks = buildProfitView({...args, selection: {...selection, search: query, onlyRisks: true}});
+  assert.ok(risks.visibleScenarios.every(row => row.result.comparison && row.result.comparison.risk !== '正常'));
+  assert.equal(buildProfitView({...args, selection: {...selection, search: '不存在的型号'}}).visibleScenarios.length, 0);
+  assert.equal(buildProfitView({...args, selection: {...selection, search: '   '}}).visibleScenarios.length, all.visibleScenarios.length);
+});
+
+test('old perspective searches new series independently and updates risk counts', () => {
+  const matrix = buildWorkspaceMatrix(liveRules, products);
+  const selection = {view: 'old' as const, productId: products[0].id, targetSeries: '', onlyRisks: false, search: 'unrelated old model', oldSearch: '  新机品牌  目标新机 '};
+  const args = {rows: matrix.rows, rules: matrix.rules, products, floor: .03};
+  const model = buildProfitView({...args, selection});
+  assert.deepEqual(model.visibleResults.map(result => result.row.series), ['目标新机']);
+  assert.equal(model.riskResults.length, 1);
+  const risks = buildProfitView({...args, selection: {...selection, onlyRisks: true}});
+  assert.ok(risks.visibleResults.every(result => result.comparison && result.comparison.risk !== '正常'));
+  assert.equal(buildProfitView({...args, selection: {...selection, oldSearch: '不存在'}}).visibleResults.length, 0);
+  assert.equal(buildProfitView({...args, selection: {...selection, oldSearch: ' '}}).visibleResults.length, matrix.rows.length);
+  const html = renderToStaticMarkup(<ProfitPerspectives workspace={workspace} model={model} selection={selection} onChange={() => {}} floor={.03} onDetail={() => {}}/>);
+  assert.ok(html.includes('aria-label="搜索换新品牌或系列"'));
+});
+
+test('row profit views use the clicked quote even if another row has the same ID and PPV', () => {
+  const first = product('shared');
+  const clicked = {...first, newSeries: '目标新机', recommendJdPrice: 450, ahsSubsidyAfter: 0};
+  const quotes = [first, clicked];
+  const matrix = buildWorkspaceMatrix(liveRules, quotes);
+  const selection = {view: 'old' as const, productId: '', targetSeries: '', onlyRisks: false};
+  const args = {rows: matrix.rows, rules: matrix.rules, products: quotes, floor: .03, selection};
+  const model = buildProfitView({...args, focusedQuote: clicked});
+  assert.equal(model.product, clicked);
+  assert.equal(model.target?.series, '目标新机');
+  assert.equal(model.scenarios.length, 2);
+  const otherSeries = model.visibleResults.find(result => result.row.series === first.newSeries);
+  assert.equal(otherSeries?.hit.status, 'below');
+  assert.equal(otherSeries?.comparison?.delta, 0);
+  assert.equal(buildProfitView({...args, focusedQuote: {...clicked, newSeries: ''}}).target, undefined);
+});

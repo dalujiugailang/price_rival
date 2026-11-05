@@ -3,7 +3,7 @@ import type {CalculatedProduct} from '../../types';
 import type {SeriesProfitResult} from './types';
 import {button, money, percent, riskClass} from './ui';
 
-export default function ProfitChangeVisual({product, result, floor, onOldView}: {product: CalculatedProduct; result: SeriesProfitResult; floor: number; onOldView: () => void}) {
+export default function ProfitChangeVisual({product, result, floor, onOldView}: {product: CalculatedProduct; result: SeriesProfitResult; floor: number; onOldView?: () => void}) {
   const original = product.postMarginalProfit * product.basePrice;
   const comparison = result.comparison;
   const targetSubsidy = result.current ? product.ahsSubsidyAfter : result.hit.ahs;
@@ -12,7 +12,7 @@ export default function ProfitChangeVisual({product, result, floor, onOldView}: 
   return <div className="sm-change-visual space-y-3">
     <div className="border border-[#141414] p-3 text-xs"><strong>旧机：{product.oldModel}</strong><p className="mt-1 text-[#555]">{product.ppv}</p><p className="mt-1">京东物品价-追价后：{money(product.recommendJdPrice)} 元</p></div>
     <div className="sm-combination-grid">
-      <div><small>原始新旧机组合</small><strong className="sm-pair-devices"><span><em>旧机</em><span>{product.oldModel}</span></span><span><em>新机</em><span>{product.newSeries}</span></span></strong><span>原承担 {money(product.ahsSubsidyAfter)} 元</span><strong className={riskClass(original < 0 ? '亏损风险' : product.postMarginalProfit < floor ? '低利润风险' : '正常')}>{money(original)} 元 / {percent(product.postMarginalProfit)}</strong><button className="sm-original-link text-xs underline" onClick={onOldView}>进入该报价的旧机视角 ↗</button></div>
+      <div><small>原始新旧机组合</small><strong className="sm-pair-devices"><span><em>旧机</em><span>{product.oldModel}</span></span><span><em>新机</em><span>{product.newSeries}</span></span></strong><span>原承担 {money(product.ahsSubsidyAfter)} 元</span><strong className={riskClass(original < 0 ? '亏损风险' : product.postMarginalProfit < floor ? '低利润风险' : '正常')}>{money(original)} 元 / {percent(product.postMarginalProfit)}</strong>{onOldView && <button className="sm-original-link text-xs underline" onClick={onOldView}>进入该报价的旧机视角 ↗</button>}</div>
       <span className="sm-change-arrow" aria-hidden="true">→</span>
       <div><small>换新后的组合</small><strong className="sm-pair-devices"><span><em>旧机</em><span>{product.oldModel}</span></span><span><em>新机</em><span>{result.row.series}</span></span></strong><span>新承担 {money(targetSubsidy)} 元</span><strong className={riskClass(comparison?.risk)}>{comparison ? `${money(comparison.profit)} 元 / ${percent(comparison.rate)}` : '待核验'}</strong></div>
     </div>

@@ -50,3 +50,12 @@ assert.ok(compact.includes('京东到手价')&&compact.includes('天猫到手价
 assert.ok(!compact.includes('NEW-ONLY'),'default view compares common PPVs; additions remain available through the match selector');
 assert.ok(compact.includes('已显示全部'),'do not keep offering more rows when no rows remain');
 console.log('Compact comparison: rise/fall colors, missing values and common-PPV default passed.');
+
+assert.equal((html.match(/aria-label="价格分析统一筛选"/g)||[]).length,1,'all analysis filters share one panel');
+assert.ok(html.indexOf('两期对比</button>')<html.indexOf('aria-label="价格分析统一筛选"')&&html.indexOf('aria-label="价格分析统一筛选"')<html.indexOf('全部已保存快照'),'shared filters sit directly below the three tabs');
+assert.equal((html.match(/aria-label="PPV匹配范围"/g)||[]).length,1,'PPV range is not duplicated in the comparison table');
+assert.ok(!html.includes('aria-label="时序PPV所属批次"'),'timeline-only batch filtering is absent in comparison');
+assert.ok(!html.includes('aria-label="搜索时序PPV"'),'timeline-only search is absent in comparison');
+const addedOnly=renderToStaticMarkup(<PpvPriceChanges rows={[{ppv:first.ppv,a:first,b:last},{ppv:'NEW-ONLY',b:{...last,ppv:'NEW-ONLY'}}]} presence="added" limit={50} onMore={()=>{}}/>);
+assert.ok(addedOnly.includes('NEW-ONLY')&&!addedOnly.includes('title="PPV-0"'),'the shared PPV selector drives comparison rows');
+console.log('Unified filters: position, view-specific controls, single PPV selector and controlled matching passed.');

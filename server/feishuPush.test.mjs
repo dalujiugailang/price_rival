@@ -69,3 +69,26 @@ test('routes enforce privileges, freeze results, prevent concurrent and repeated
  } finally {await new Promise(resolve=>server.close(resolve));store.close();}
  const reopened=createPushStore(path.join(directory,'test.sqlite'));assert.equal(reopened.history('tradeIn').length,2);reopened.close();
 });
+
+test('brand send groups labeled images into one card per owner without cross-brand routing', async()=>{
+ const store=createPushStore(':memory:'), batch=fixture(), calls=[];
+ batch.products.push({...product,brand:'vivo'});
+ const members=[{name:'朱沛佳',openId:'ou_zhu',enabled:true},{name:'王芊',openId:'ou_wang',enabled:true}];
+ const app=express();app.use(express.json());app.use((req,_res,next)=>{req.authUser=req.headers['x-recipient']?{openId:req.headers['x-recipient'],role:'viewer',scopes:['tradeIn.competitiveness']}:{openId:'ou_owner',role:'admin',name:'测试',scopes:['feishu.push']};next();});
+ const db={getBatch:()=>batch,listBatches:()=>[batch],listMembers:()=>members,writeAudit(){}};
+ registerFeishuPushRoutes(app,{db,store,appUrl:'https://price.example',auth:{requestContext:()=>({}),lookupMessageRecipient:async id=>members.find(m=>m.openId===id)},client:{configured:true,uploadImage:async png=>String(png),send:async(target,card)=>{calls.push({target,card});return 'mock-message';}}});
+ const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
+ const root=`http://127.0.0.1:${server.address().port}/api/feishu-push`;
+ const send=previews=>fetch(root+'/send-by-brand',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({channelId:'tradeIn',batchId:batch.id,previews})});
+ try {
+  const ids=['华为','vivo','小米'].map(brand=>store.preview('ou_owner',prepareTracker(db,batch,{brand},'https://price.example').report,Buffer.from(brand)));
+  assert.equal((await send(ids.slice(0,2))).status,400);assert.equal(calls.length,0);
+  const result=await (await send(ids)).json();assert.equal(result.results.filter(r=>r.status==='sent').length,2);
+  assert.deepEqual(calls.map(({target,card})=>[target.id,card.elements.filter(e=>e.tag==='img').map(e=>e.img_key)]),[['ou_zhu',['华为','vivo']],['ou_wang',['小米']]]);
+  assert.match(JSON.stringify(calls[0].card),/华为｜竞争力趋势/);
+  assert.match(JSON.stringify(calls[1].card),/本批次暂无明细：iQOO/);
+  assert.equal((await fetch(root+'/reports/'+ids[1],{headers:{'x-recipient':'ou_zhu'}})).status,200);
+  assert.equal((await fetch(root+'/reports/'+ids[1],{headers:{'x-recipient':'ou_wang'}})).status,403);
+  await send(ids);assert.equal(calls.length,2);
+ } finally {await new Promise(resolve=>server.close(resolve));store.close();}
+});

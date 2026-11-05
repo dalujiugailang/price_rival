@@ -6,7 +6,7 @@ import {DetailDialog, RuleTable, button, deltaLabel, input, money, percent, risk
 import {createMatrixWorkbook} from './workbook';
 import type {MatrixGroup, MatrixRow, MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
 
-import {amountColors, amountLabels, ratioLabels, heatmapCell, heatmapSpread, spreadText, ratioText, metricAmount, subsidyLabel, heatmapTitle, valueLabel, type HeatmapMode, type SubsidyMetric} from './heatmapStyle';
+import {amountColors, amountLabels, ratioLabels, heatmapCell, heatmapSpread, spreadText, ratioText, metricAmount, subsidyLabel, valueLabel, type HeatmapMode, type SubsidyMetric} from './heatmapStyle';
 
 type DetailSelection = {kind: 'matrix'; series: string; groupKey: string} | {kind: 'profit'; series: string; productId: string};
 
@@ -92,7 +92,10 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
 
   return <section className="subsidy-matrix space-y-4 p-4" aria-label="补贴承担矩阵">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h2 className="text-lg font-black">{heatmapTitle(metric)}{heatmapMode === 'ratio' ? ` · ${valueLabel(metric, heatmapMode)}` : ''}</h2>
+      <div className="space-y-1">
+        <h2 className="text-lg font-black">新机补贴承担矩阵</h2>
+        <p className="text-xs text-[#777]">按新机系列 × 补贴门槛，分析 爱回收补贴承担金额/总补贴 及差异分布</p>
+      </div>
       <button className={button} disabled={!workspace.subsidyRules.length || exporting} onClick={exportWorkbook}>{exporting ? '正在导出…' : '导出 Excel'}</button>
     </div>
     {exportError && <p role="alert" className="text-xs text-red-700">{exportError}</p>}
@@ -182,7 +185,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     <p className="text-xs text-[#555]">合并门槛仅用于展示。实际追价利润测算必须以原始触发门槛和适用补贴规则为准。</p>
     {!!matrix.issues.length && <details className="border border-[#141414] p-3 text-xs"><summary className="cursor-pointer font-bold">本次补贴规则提示（{matrix.issues.length}）</summary><div className="mt-2 max-h-40 overflow-auto">{matrix.issues.map((issue, index) => <p key={index}>{issue}</p>)}</div></details>}
 
-    <ProfitPerspectives workspace={workspace} model={profit} selection={profitSelection} onChange={patch => setProfitSelection(old => ({...old, ...patch}))} floor={marginBottomLine} onDetail={showProfit}/>
+    <ProfitPerspectives workspace={workspace} model={profit} selection={profitSelection} onChange={patch => setProfitSelection(old => ({...old, ...patch}))} floor={marginBottomLine} onDetail={(product, series) => showProfit(product.id, series)}/>
 
     {detail && selectedRow && <DetailDialog title={`${selectedRow.series} · ${detail.kind === 'matrix' ? '补贴规则' : '利润变化原因'}`} onClose={() => setDetail(null)}>
       <p className="text-xs text-[#555]">{workspace.fileName} · {workspace.label}</p>
