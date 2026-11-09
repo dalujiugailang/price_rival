@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {buildProfitView, buildSeriesProfitResults, buildWorkspaceMatrix, filterMatrixRows, getSeriesRuleDetails, resolveMatrixFilters, sortMatrixRows, cycleMatrixSort, selectHeatmapGroups} from './model';
 import ProfitPerspectives from './ProfitPerspectives';
+import RiskRankings from './RiskRankings';
 import ProfitChangeVisual from './ProfitChangeVisual';
 import {DetailDialog, RuleTable, button, deltaLabel, input, money, percent, riskClass, ruleLabel} from './ui';
 import {createMatrixWorkbook} from './workbook';
@@ -184,6 +185,8 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     </div></details>
     <p className="text-xs text-[#555]">合并门槛仅用于展示。实际追价利润测算必须以原始触发门槛和适用补贴规则为准。</p>
     {!!matrix.issues.length && <details className="border border-[#141414] p-3 text-xs"><summary className="cursor-pointer font-bold">本次补贴规则提示（{matrix.issues.length}）</summary><div className="mt-2 max-h-40 overflow-auto">{matrix.issues.map((issue, index) => <p key={index}>{issue}</p>)}</div></details>}
+
+    <RiskRankings products={workspace.products} rows={rows} rules={matrix.rules} invalidSeries={matrix.invalidSeries} floor={marginBottomLine}/>
 
     <ProfitPerspectives workspace={workspace} model={profit} selection={profitSelection} onChange={patch => setProfitSelection(old => ({...old, ...patch}))} floor={marginBottomLine} onDetail={(product, series) => showProfit(product.id, series)}/>
 
