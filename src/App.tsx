@@ -1,3 +1,4 @@
+import CompetitionEfficiencyPanel from './components/CompetitionEfficiencyPanel';
 import FeishuIcon from './components/FeishuIcon';
 import SubsidyMatrixPanel from './components/subsidyMatrix/SubsidyMatrixPanel';
 import {resolveMatrixWorkspace} from './components/subsidyMatrix/model';
@@ -129,7 +130,7 @@ type SaveBatchOptions = {
   pricingTimestamp: string;
 };
 
-type ViewTab = 'priceAnalysis' | 'riskLedger' | 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions' | 'tutorial';
+type ViewTab = 'competitionEfficiency' | 'priceAnalysis' | 'riskLedger' | 'workspace' | 'upload' | 'history' | 'competitiveness' | 'tmHandGap' | 'audit' | 'permissions' | 'tutorial';
 
 type ChannelWorkspaceState = {
   productsMaster: Product[];
@@ -186,7 +187,7 @@ export default function App() {
   const initialChannel = channelOrder.includes(linkedChannel) ? linkedChannel : channelOrder[0] || DEFAULT_CHANNEL_ID;
   const [activeChannelId, setActiveChannelId] = useState<ChannelId>(initialChannel);
   const [pushOpen, setPushOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<ViewTab>(() => { const tab = deepLink.get('tab'); return tab && ACCESS_PAGES.some(p => p.id === tab) && canAccess(user, initialChannel, tab) ? tab as ViewTab : firstPage(initialChannel); });
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => { const tab = deepLink.get('tab'); return tab && (ACCESS_PAGES.some(p => p.id === tab) || (tab === 'competitionEfficiency' && initialChannel === 'tradeIn')) && canAccess(user, initialChannel, tab === 'competitionEfficiency' ? 'competitiveness' : tab) ? tab as ViewTab : firstPage(initialChannel); });
   const [restoredSnapshotFiles, setRestoredSnapshotFiles] = useState<{
     channelId: ChannelId;
     batchId: string;
@@ -1143,7 +1144,7 @@ export default function App() {
 
   useEffect(() => {
     if (!channelOrder.includes(activeChannelId) && channelOrder[0]) setActiveChannelId(channelOrder[0]);
-    if (activeTab === 'permissions' ? !(isAdmin && activeChannelId === 'tradeIn') : !canAccess(user, activeChannelId, activeTab)) {
+    if (activeTab === 'permissions' ? !(isAdmin && activeChannelId === 'tradeIn') : !(activeTab === 'competitionEfficiency' ? activeChannelId === 'tradeIn' && canAccess(user, activeChannelId, 'competitiveness') : canAccess(user, activeChannelId, activeTab))) {
       setActiveTab(firstPage(activeChannelId));
     }
   }, [activeChannelId, activeTab, user]);
@@ -1152,8 +1153,12 @@ export default function App() {
     .filter(page => page.id !== 'priceAnalysis' && canAccess(user, activeChannelId, page.id))
     .map(page => ({ id: page.id as ViewTab, label: page.id === 'history' ? `历史 (${activeState.historyBatches.length})`
       : isSelfOperated && page.selfName ? page.selfName : page.name }));
+  if (activeChannelId === 'tradeIn' && canAccess(user, activeChannelId, 'competitiveness')) {
+    const index = viewButtons.findIndex(button => button.id === 'competitiveness');
+    viewButtons.splice(index + 1, 0, { id: 'competitionEfficiency', label: '竞争投入效率' });
+  }
   if (isAdmin && activeChannelId === 'tradeIn') viewButtons.push({ id: 'permissions', label: '权限管理' });
-  const showWorkspaceControls = !(deepLink.get('reportId') && activeTab === 'competitiveness') && canViewWorkspace && !['riskLedger', 'permissions', 'history', 'priceAnalysis', 'tutorial'].includes(activeTab);
+  const showWorkspaceControls = !(deepLink.get('reportId') && activeTab === 'competitiveness') && canViewWorkspace && !['riskLedger', 'permissions', 'history', 'priceAnalysis', 'tutorial', 'competitionEfficiency'].includes(activeTab);
   const hasPausedTour = !tourOpen && tourStepIndex > 0;
   const channelTargetLabel = (channelId: ChannelId) => (
     CHANNELS[channelId].targetCompetitor === 'zz' ? '转转裸机价×103%' : '天猫裸机价×103%'
@@ -1161,8 +1166,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans overflow-x-hidden selection:bg-[#141414] selection:text-[#E4E3E0]">
-      <div className={`flex min-h-screen ${['tutorial', 'riskLedger'].includes(activeTab) ? 'flex-col md:flex-row' : ''}`}>
-        <aside className={`${['tutorial', 'riskLedger'].includes(activeTab) ? 'w-full md:w-[260px]' : 'w-[260px]'} shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col`}>
+      <div className={`flex min-h-screen ${['tutorial', 'riskLedger', 'competitionEfficiency'].includes(activeTab) ? 'flex-col md:flex-row' : ''}`}>
+        <aside className={`${['tutorial', 'riskLedger', 'competitionEfficiency'].includes(activeTab) ? 'w-full md:w-[260px]' : 'w-[260px]'} shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col`}>
           <div className="p-5 border-b border-[#141414] bg-[#E4E3E0]">
             <h1 className="text-lg font-black leading-tight">线上竞争追价系统</h1>
           </div>
@@ -1201,7 +1206,7 @@ export default function App() {
                   </button>
 
                   {selected && (
-                    <nav className={`${['tutorial', 'riskLedger'].includes(activeTab) ? 'grid grid-cols-2 gap-2 md:block md:ml-6 md:space-y-2' : 'ml-6 space-y-2'} text-sm font-bold`}>
+                    <nav className={`${['tutorial', 'riskLedger', 'competitionEfficiency'].includes(activeTab) ? 'grid grid-cols-2 gap-2 md:block md:ml-6 md:space-y-2' : 'ml-6 space-y-2'} text-sm font-bold`}>
                       {viewButtons.map((button, index) => {
                         const active = activeTab === button.id;
                         const marker = index === viewButtons.length - 1 ? '└' : '├';
@@ -1272,7 +1277,7 @@ export default function App() {
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-xs font-black text-white">{activeChannel.name}</span>
-                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'riskLedger' ? '旧机压价台账' : activeTab === 'tutorial' ? '产品教程' : activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'priceAnalysis' ? '价格分析' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
+                <h2 className="text-xl font-bold tracking-tight uppercase">{activeTab === 'competitionEfficiency' ? '竞争投入效率' : activeTab === 'riskLedger' ? '旧机压价台账' : activeTab === 'tutorial' ? '产品教程' : activeTab === 'permissions' ? '人员与访问权限' : activeTab === 'priceAnalysis' ? '价格分析' : activeTab === 'history' ? '历史快照' : '竞争追价控制台'}</h2>
               </div>
               {!['permissions', 'riskLedger'].includes(activeTab) && <div className="flex flex-wrap gap-4 mt-1">
                 {activeTab !== 'history' && <div className="flex items-center gap-2 text-xs text-[#141414]/70">
@@ -1470,6 +1475,8 @@ export default function App() {
                   channelName={activeChannel.name}
                 />
               )}
+
+              {activeTab === 'competitionEfficiency' && activeChannelId === 'tradeIn' && canAccess(user, activeChannelId, 'competitiveness') && <CompetitionEfficiencyPanel historyBatches={activeState.historyBatches} />}
 
               {activeTab === 'tmHandGap' && canAccess(user, activeChannelId, 'tmHandGap') && (
                 <TmHandPriceGapPanel

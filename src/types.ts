@@ -248,6 +248,7 @@ export interface CalculatedProduct extends Product {
 export type BatchType = 'regular' | 'launch';
 
 export interface TrackingBatch {
+  competitionCoveragePpvs?: string[];
   batchType?: BatchType;
   launchActivity?: string;
   id: string;

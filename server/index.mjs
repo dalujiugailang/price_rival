@@ -155,6 +155,14 @@ app.get('/api/price-analysis/batches', requirePage('tradeIn', 'priceAnalysis'), 
   }catch(error){res.status(error.statusCode||500).json({success:false,error:error.message||'价格分析加载失败'});}
 });
 
+app.get('/api/competition-efficiency', requirePage('tradeIn', 'competitiveness'), (_req, res) => {
+  const file = path.join(appRoot, 'data/competition-efficiency/latest.json');
+  res.set('Cache-Control', 'private, no-store');
+  if (!fs.existsSync(file)) return res.status(404).json({ success: false, error: '经营分析数据尚未生成' });
+  try { res.json({ success: true, data: JSON.parse(fs.readFileSync(file, 'utf8')) }); }
+  catch { res.status(500).json({ success: false, error: '经营分析数据读取失败' }); }
+});
+
 app.get('/api/tracking-batches', (req, res) => {
   const channelId = req.query.channelId ? String(req.query.channelId) : null;
   if (channelId && !accessibleChannels(req.authUser).some(channel => channel.id === channelId)) {

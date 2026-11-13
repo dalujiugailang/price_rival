@@ -4,7 +4,7 @@ const TREND = ['quoteVolume', 'soldVolume', 'recommendJdPrice', 'recommendPrice'
   'tmPrice', 'tmHandPrice', 'tmRecyclerQuotedPrice', 'tmRecyclerSubsidy', 'tmSubsidyManual', 'totalSubsidy', 'zzPrice', 'zzHandPrice',
   'postTmItemWin', 'postTmHandWin', 'postAhsTmRecyclerWin', 'postZzItemWin', 'postAhsZzHandWin', 'postJdZzHandWin'];
 const GAP = ['postAhsPrice', 'postJdHandPrice', 'tmHandPrice', 'zzHandPrice', 'postTmHandWin', 'postAhsZzHandWin'];
-const META = ['id', 'channelId', 'channelName', 'date', 'dataDate', 'operator', 'remarks', 'isSummaryOnly',
+const META = ['id', 'channelId', 'channelName', 'batchType', 'launchActivity', 'date', 'dataDate', 'operator', 'remarks', 'isSummaryOnly',
   'isCompetitivenessConfirmed', 'competitivenessDate', 'pricingTimestamp', 'confirmedAt', 'serverCreatedAt', 'serverCreatedBy'];
 const pick = (object, keys) => Object.fromEntries(keys.filter(key => Object.hasOwn(object, key)).map(key => [key, object[key]]));
 export const projectBatch = (batch, user, isLatest = true) => {
@@ -18,6 +18,8 @@ export const projectBatch = (batch, user, isLatest = true) => {
   return {
     ...pick(batch, META),
     ...(trend ? { competitivenessMetrics: batch.competitivenessMetrics } : {}),
+    ...(trend && Array.isArray(batch.restorePayload?.selectedCompetitionPpvs)
+      ? { competitionCoveragePpvs: batch.restorePayload.selectedCompetitionPpvs } : {}),
     ...(upload ? { sourceUploadRecords: batch.sourceUploadRecords || [] } : {}),
     products: (batch.products || []).map(product => ({
       ...pick(product, allowed),
