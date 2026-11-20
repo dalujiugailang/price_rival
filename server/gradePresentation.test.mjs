@@ -40,5 +40,5 @@ test('grade plan inherits anchor series while an already priced grade keeps its 
 test('old saved run display is frozen and falls back only to its saved anchor',()=>{
   const p=gradeRowDisplay({...row,newSeries:undefined},{prices:[{ppv:row.anchorPpv,price:row.anchorPrice,skuId:'1',newSeries:'保存系列'}]});
   assert.equal(p.newSeries,'保存系列');assert.equal(p.recommendJdPrice,1100);assert.equal(p.tmPrice,undefined);
-  assert.equal(pricingColumnKeys.length,45);assert.equal(pricingColumnLabels().length,45);assert.equal(pricingColumnCodes.length,45);assert.equal(pricingColumnWidths.length,45);
+  assert.equal(pricingColumnKeys.length,46);assert.equal(pricingColumnLabels().length,46);assert.equal(pricingColumnCodes.length,46);assert.equal(pricingColumnWidths.length,46);
 });

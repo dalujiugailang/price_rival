@@ -25,7 +25,7 @@ export default function EfficiencyInteractiveChart({ periods, selected, onSelect
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 id="efficiency-interactive-title" className="text-sm font-bold">竞争力与报价提交表现</h2><p className="mt-1 text-xs text-black/60">点击数据点选中期别，与下方明细联动；红色为当前选中期。</p></div>
       <div className="flex flex-wrap gap-2"><button type="button" aria-pressed={!fullRange} onClick={() => setFullRange(false)} className={`${control} ${!fullRange ? 'bg-[#141414] text-white hover:bg-[#333]' : 'bg-white'}`}>聚焦数据</button><button type="button" aria-pressed={fullRange} onClick={() => setFullRange(true)} className={`${control} ${fullRange ? 'bg-[#141414] text-white hover:bg-[#333]' : 'bg-white'}`}>0–100% 全范围</button></div>
     </div>
-    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-black/20 py-2 text-xs"><label className="flex min-h-11 cursor-pointer items-center gap-2"><input type="checkbox" checked={showCurve} disabled={!model} onChange={e => setShowCurve(e.target.checked)} className="h-4 w-4 accent-black" />显示探索曲线（未验证）</label><label className="flex min-h-11 cursor-pointer items-center gap-2"><input type="checkbox" checked={showDates} onChange={e => setShowDates(e.target.checked)} className="h-4 w-4 accent-black" />显示各期日期</label><span className="ml-auto text-black/60">X 轴 {xDomain[0]}%–{xDomain[1]}% · 仅调整视图，不重算数据</span></div>
+    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-black/20 py-2 text-xs"><label className="flex min-h-11 cursor-pointer items-center gap-2"><input type="checkbox" checked={showCurve} disabled={!model} onChange={e => setShowCurve(e.target.checked)} className="h-4 w-4 accent-black" />显示拟合线（非因果）</label><label className="flex min-h-11 cursor-pointer items-center gap-2"><input type="checkbox" checked={showDates} onChange={e => setShowDates(e.target.checked)} className="h-4 w-4 accent-black" />显示各期日期</label><span className="ml-auto text-black/60">X 轴 {xDomain[0]}%–{xDomain[1]}% · 仅调整视图，不重算数据</span></div>
     <div className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_245px]">
       <div className="min-w-0"><div className="h-[350px] w-full md:h-[390px]" aria-label="可交互期别散点图，数据点可点击或通过键盘选择">
         <ResponsiveContainer width="100%" height="100%"><ScatterChart margin={{ top: 26, right: 25, bottom: 30, left: 0 }}>
@@ -36,9 +36,9 @@ export default function EfficiencyInteractiveChart({ periods, selected, onSelect
           {selected && <ReferenceLine x={selected.score} stroke="#b91c1c" strokeOpacity={.35} strokeDasharray="3 3" />}
           <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
             const p = payload?.[0]?.payload as Period;
-            return active && p ? <div className="max-w-[260px] border border-[#141414] bg-white p-3 text-xs leading-6"><b>{p.batchId ? `${p.start} — ${p.end}` : '探索曲线（未验证）'}</b><div>竞争力：{pct(p.score)}</div><div>{p.batchId ? '实际差值' : '预测差值'}：{pp(p.difference)}</div>{p.batchId && <div className="text-black/60">点击选中，查看样本与分层</div>}</div> : null;
+            return active && p ? <div className="max-w-[260px] border border-[#141414] bg-white p-3 text-xs leading-6"><b>{p.batchId ? `${p.start} — ${p.end}` : '模型拟合线（非因果）'}</b><div>竞争力：{pct(p.score)}</div><div>{p.batchId ? '实际差值' : '预测差值'}：{pp(p.difference)}</div>{p.batchId && <div className="text-black/60">点击选中，查看样本与分层</div>}</div> : null;
           }} />
-          {showCurve && model && <Scatter name="探索曲线（未验证）" data={model.curve} line={{ stroke: '#a16207', strokeDasharray: '5 5' }} shape={() => null} isAnimationActive={false} />}
+          {showCurve && model && <Scatter name="模型拟合线（非因果）" data={model.curve} line={{ stroke: '#a16207', strokeDasharray: '5 5' }} shape={() => null} isAnimationActive={false} />}
           <Scatter name="完整覆盖期" data={periods} isAnimationActive={false} shape={(props: any) => {
             const p = props.payload as Period;
             const active = selected?.batchId === p.batchId;
@@ -51,7 +51,7 @@ export default function EfficiencyInteractiveChart({ periods, selected, onSelect
             </g>;
           }} />
         </ScatterChart></ResponsiveContainer>
-      </div><p className="text-xs leading-5 text-black/60">Y：调整后报价提交率差值（pp）。保留全部期别；棕色虚线是未通过预测校验的探索模型。</p></div>
+      </div><p className="text-xs leading-5 text-black/60">Y：调整后报价提交率差值（pp）。保留全部期别；棕色虚线为本窗口业务参考曲线的拟合线，不代表竞争力的因果效果。</p></div>
       <aside className="min-w-0 border border-[#141414] bg-white p-4" aria-live="polite"><div className="mb-3 flex items-center justify-between"><h3 className="text-xs font-bold">所选覆盖期</h3><span className="font-mono text-xs text-black/60">{index + 1} / {periods.length}</span></div>
         <label className="block text-xs"><span className="sr-only">选择图表覆盖期</span><select aria-label="选择图表覆盖期" value={selected?.batchId || ''} onChange={e => onSelect(e.target.value)} className="min-h-11 w-full min-w-0 border border-[#141414] bg-white px-2 text-xs">{periods.map(p => <option key={p.batchId} value={p.batchId}>{p.start} — {p.end}</option>)}</select></label>
         <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" className={`${control} flex items-center justify-center gap-1 bg-white`} disabled={index <= 0} onClick={() => onSelect(periods[index-1].batchId)}><ChevronLeft size={14} />上一期</button><button type="button" className={`${control} flex items-center justify-center gap-1 bg-white`} disabled={index < 0 || index >= periods.length-1} onClick={() => onSelect(periods[index+1].batchId)}>下一期<ChevronRight size={14} /></button></div>

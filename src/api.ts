@@ -215,3 +215,7 @@ export const sendFeishuByBrand = (batchId: string, previews: string[]) => reques
 export const sendFeishuPush = (channelId: string, previewId: string, targets: FeishuTarget[]) => requestJson<{ results: FeishuDelivery[] }>('/api/feishu-push/send', { method: 'POST', body: JSON.stringify({ channelId, previewId, targets }) });
 export const feishuPushHistory = (channelId: string) => requestJson<{ deliveries: Array<FeishuDelivery & { id: string; batchId: string; scopeLabel: string; createdAt: string }> }>(`/api/feishu-push/history?channelId=${channelId}`);
 export const getFeishuReport = (id: string) => requestJson<{ report: FeishuReport }>(`/api/feishu-push/reports/${encodeURIComponent(id)}`);
+
+export interface SeriesCatalogResponse { success: true; entries: import('./types').SeriesCatalogEntry[]; revision: number; backfilledBatchIds: string[]; }
+export const getSeriesCatalog = () => requestJson<SeriesCatalogResponse>('/api/series-catalog');
+export const saveSeriesCatalog = (entries: import('./types').SeriesCatalogEntry[], revision: number) => requestJson<SeriesCatalogResponse>('/api/series-catalog', {method:'PUT',body:JSON.stringify({entries,revision})});

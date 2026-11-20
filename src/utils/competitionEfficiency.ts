@@ -21,16 +21,17 @@ const shanghaiDay = (timestamp: string) => {
     ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
     : null;
 };
-const nextDay = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+const effectiveHour = (timestamp: string) => new Date(Math.ceil(Date.parse(timestamp) / 3600000) * 3600000 + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
 
 export function buildEfficiencyPeriods(batches: TrackingBatch[]): { periods: EfficiencyPeriod[]; excluded: number; sameDayReplaced: number } {
   const candidates = batches.filter(b => (b.channelId || 'tradeIn') === 'tradeIn' && b.batchType === 'regular'
     && !b.isSummaryOnly && !/^(RECOVERED|COMP)-/.test(b.id) && b.serverCreatedAt && shanghaiDay(b.serverCreatedAt));
   const sorted = [...candidates].sort((a, b) => Date.parse(a.serverCreatedAt!) - Date.parse(b.serverCreatedAt!) || a.id.localeCompare(b.id));
   const days = new Map<string, TrackingBatch>();
-  for (const batch of sorted) days.set(shanghaiDay(batch.serverCreatedAt!)!, batch);
+  for (const batch of sorted) days.set(effectiveHour(batch.serverCreatedAt!), batch);
   const chosen = [...days.entries()];
-  const periods = chosen.map(([savedDay, batch], index): EfficiencyPeriod => {
+  const periods = chosen.map(([start, batch], index): EfficiencyPeriod => {
+    const savedDay = shanghaiDay(batch.serverCreatedAt!)!;
     const selected = batch.restorePayload?.selectedCompetitionPpvs ?? batch.competitionCoveragePpvs;
     const selectedSet = selected ? new Set(selected) : null;
     const products = selectedSet ? batch.products.filter(p => selectedSet.has(p.ppv)) : [];
@@ -52,7 +53,6 @@ export function buildEfficiencyPeriods(batches: TrackingBatch[]): { periods: Eff
     const end = chosen[index + 1]?.[0] || null;
     if (!end) warnings.push('开放期');
     if (batch.pricingTimestamp && batch.pricingTimestamp.slice(0, 10) !== savedDay) warnings.push('追价日与保存日不同');
-    const start = nextDay(savedDay);
     if (batches.some(b => b.batchType === 'launch' && (b.channelId || 'tradeIn') === 'tradeIn' && b.serverCreatedAt
       && (() => { const day = shanghaiDay(b.serverCreatedAt); return day && day >= savedDay && (!end || day <= end); })())) warnings.push('期内存在新品活动，需核验覆盖重叠');
     return { batch, savedDay, start, end, score: eligibleQuotes > 0 && !duplicate && !warnings.includes('覆盖名单与价格明细未完全匹配') ? 100 * winningQuotes / eligibleQuotes : null,

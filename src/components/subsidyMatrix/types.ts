@@ -73,4 +73,7 @@ export interface ProfitViewSelection {
   onlyRisks: boolean;
   search?: string;
   oldSearch?: string;
+  oldModel?: string;
+  lossesOnly?: boolean;
+  excludeCurrent?: boolean;
 }

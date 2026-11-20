@@ -48,3 +48,42 @@ test('ratio summaries use AHS divided by original threshold, preserve over 100% 
     assert.deepEqual([...group.tiers.values()].map(tier => tier.ratio), [1.2, .2, null]);
   }
 });
+
+test('all losing thresholds retain global exact-threshold ranks, ties and original plans', () => {
+  const products = [500, 1000, 1500].map((price, index) => ({
+    id: String(index), ppv: String(index), oldModel: '旧机', newSeries: '原系列',
+    basePrice: 1000, postMarginalProfit: .01, recommendJdPrice: price, ahsSubsidyAfter: 20
+  })) as CalculatedProduct[];
+  const rules = [500, 1000, 1500].flatMap(threshold => [
+    {newSeries: '原系列', threshold, ahsInput: 20, jdSubsidy: 500},
+    {newSeries: '目标', threshold, ahsInput: 100, jdSubsidy: 500},
+    {newSeries: '并列', threshold, ahsInput: 100, jdSubsidy: 500},
+    {newSeries: '更高', threshold, ahsInput: 200, jdSubsidy: 500}
+  ]) as SubsidyRule[];
+  const matrix = buildWorkspaceMatrix(rules, products);
+  const result = buildRiskRankings({products, rows: matrix.rows.filter(row => row.series === '目标'), rules: matrix.rules, invalidSeries: matrix.invalidSeries, floor: .03});
+  assert.equal(result.newSeries[0].tiers.size, 3);
+  assert.deepEqual([...result.newSeries[0].tiers.values()].map(t => [t.rank, t.rankTotal]), [[2, 4], [2, 4], [2, 4]]);
+  assert.deepEqual([...result.oldModels[0].originalTiers.values()].map(t => [t.series, t.threshold, t.ahs, t.rank]), [
+    ['原系列', 500, 20, 4], ['原系列', 1000, 20, 4], ['原系列', 1500, 20, 4]
+  ]);
+});
+
+test('model drill-down includes all PPVs and exactly reconciles ranking losses', async () => {
+  const {buildProfitView} = await import('./model');
+  const products = [
+    {id:'a',ppv:'A',oldModel:'同型号',newSeries:'原配',basePrice:1000,postMarginalProfit:.01,recommendJdPrice:500,ahsSubsidyAfter:20},
+    {id:'b',ppv:'B',oldModel:'同型号',newSeries:'原配',basePrice:1000,postMarginalProfit:.01,recommendJdPrice:1000,ahsSubsidyAfter:20},
+    {id:'c',ppv:'C',oldModel:'其他型号',newSeries:'原配',basePrice:1000,postMarginalProfit:.01,recommendJdPrice:1000,ahsSubsidyAfter:20}
+  ] as CalculatedProduct[];
+  const rules = ['原配','高承担','另一系列'].map((newSeries,i) => ({newSeries, threshold:500,ahsInput:20+i*100,jdSubsidy:500})) as SubsidyRule[];
+  const matrix=buildWorkspaceMatrix(rules,products);
+  const args={products, rows:matrix.rows, rules:matrix.rules,invalidSeries:matrix.invalidSeries,floor:.03};
+  const ranking=buildRiskRankings(args);
+  const old=buildProfitView({...args,selection:{view:'old',productId:'a',targetSeries:'',onlyRisks:true,lossesOnly:true,excludeCurrent:true,oldModel:'同型号'}});
+  assert.equal(old.oldScenarios.length,ranking.oldModels.find(row=>row.name==='同型号')!.losses);
+  assert.deepEqual(new Set(old.oldScenarios.map(row=>row.product.ppv)),new Set(['A','B']));
+  assert.ok(old.oldScenarios.every(row=>!row.result.current&&row.result.comparison?.risk==='亏损风险'));
+  const fresh=buildProfitView({...args,selection:{view:'new',productId:'',targetSeries:'高承担',onlyRisks:true,lossesOnly:true,excludeCurrent:true}});
+  assert.equal(fresh.visibleScenarios.length,ranking.newSeries.find(row=>row.name==='高承担')!.losses);
+});

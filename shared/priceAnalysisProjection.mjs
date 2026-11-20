@@ -1,5 +1,5 @@
 // Preserve every field consumed by price analysis and its unchanged saved-rule replay.
-const PRODUCT_FIELDS=['id','ppv','brand','newSeries','oldModel','model','quoteVolume','basePrice','recommendJdPrice','totalSubsidy','postJdHandPrice','tmPrice','tmSubsidyManual','tmHandPrice','maxPriceByMargin','postMarginalProfit','ahsInput','pricingRemark','jdPrice','jdSubsidy','tmRecyclerQuotedPrice','zzPrice','zzHandPrice'];
+const PRODUCT_FIELDS=['id','ppv','brand','newSeries','newSeriesPosition','oldModel','model','quoteVolume','basePrice','recommendJdPrice','totalSubsidy','postJdHandPrice','tmPrice','tmSubsidyManual','tmHandPrice','maxPriceByMargin','postMarginalProfit','ahsInput','pricingRemark','jdPrice','jdSubsidy','tmRecyclerQuotedPrice','zzPrice','zzHandPrice'];
 const BATCH_FIELDS=['id','channelId','date','operator','remarks','batchType','launchActivity','pricingTimestamp','serverCreatedAt','isSummaryOnly','marginBottomLine'];
 const pick=(source,fields)=>Object.fromEntries(fields.filter(key=>Object.hasOwn(source,key)).map(key=>[key,source[key]]));
 export function projectPriceAnalysisBatch(batch) {

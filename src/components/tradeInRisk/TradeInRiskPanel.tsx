@@ -1,3 +1,4 @@
+import { useUrlState } from '../../utils/urlState';
 import React, { useEffect, useState, useId } from 'react';
 import './risk.css';
 import { LayoutGroup, motion, useReducedMotion } from 'motion/react';
@@ -20,7 +21,7 @@ export default function TradeInRiskPanel({admin}:{admin:boolean}){
  const [recognizing,setRecognizing]=useState(false);
  const recognize=async()=>{if(!draft?.screenshot)return;setRecognizing(true);setError('');try{const response=await request('/api/tradein-risk/ocr',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({image:draft.screenshot})});const lines:OcrLine[]=response.lines;const result=parseOcrStrategyText(ocrText(lines,true));const low=lines.filter(x=>x.confidence<.85);setDraft({...draft,...(result.name?{name:result.name}:{}),...(result.models.length?{models:result.models}:{}),...(result.brand?{brand:result.brand}:{}),...(result.ratio!==undefined?{ratio:result.ratio}:{}),...(result.note?{note:result.note}:{}),...(result.start?{start:result.start}:{}),...(result.end?{end:result.end}:{}),fields:{...draft.fields,...result.fields},ocrText:ocrText(lines),ocrLines:lines});setPaste(true);setParseNotice('\u8bc6\u522b\u5b8c\u6210\uff0c\u8bf7\u6838\u5bf9\u540e\u4fdd\u5b58\u3002'+result.warnings.join('\uff1b')+(low.length?'\u4f4e\u7f6e\u4fe1\u5ea6\u6587\u5b57\u672a\u81ea\u52a8\u586b\u5165\uff1a'+low.map(x=>x.text).join('\uff1b'):''));}catch(e){setError((e as Error).message);}finally{setRecognizing(false);}};
  const parseText=()=>{if(!draft?.ocrText.trim()){setParseNotice('请先粘贴文字');return;}const result=(draft.screenshot?parseOcrStrategyText:parseCopiedStrategyText)(draft.ocrText);setDraft({...draft,...(result.name?{name:result.name}:{}),...(result.models.length?{models:result.models}:{}),...(result.brand?{brand:result.brand}:{}),...(result.ratio!==undefined?{ratio:result.ratio}:{}),...(result.note?{note:result.note}:{}),...(result.start?{start:result.start}:{}),...(result.end?{end:result.end}:{}),fields:{...draft.fields,...result.fields}});setParseNotice('已填入明确字段，请核对后保存。'+result.warnings.join('；'));};
- const [page,setPage]=useState(1);
+ const [page,setPage]=useUrlState('TradeInRiskPanel.page', 1);
  const [targetId,setTargetId]=useState<string|null>(null);
  const jumpToStrategy=(strategy:Strategy)=>{const index=strategies.findIndex(item=>item.id===strategy.id);if(index<0||!strategy.id)return;setPage(Math.floor(index/3)+1);setTargetId(strategy.id);};
  useEffect(()=>{if(!targetId)return;const frame=requestAnimationFrame(()=>{const card=document.getElementById(`risk-strategy-${targetId}`);card?.scrollIntoView({behavior:'smooth',block:'center'});card?.focus({preventScroll:true});});return()=>cancelAnimationFrame(frame);},[targetId,page]);

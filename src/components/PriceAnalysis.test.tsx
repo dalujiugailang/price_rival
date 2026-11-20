@@ -59,3 +59,16 @@ assert.ok(!html.includes('aria-label="搜索时序PPV"'),'timeline-only search i
 const addedOnly=renderToStaticMarkup(<PpvPriceChanges rows={[{ppv:first.ppv,a:first,b:last},{ppv:'NEW-ONLY',b:{...last,ppv:'NEW-ONLY'}}]} presence="added" limit={50} onMore={()=>{}}/>);
 assert.ok(addedOnly.includes('NEW-ONLY')&&!addedOnly.includes('title="PPV-0"'),'the shared PPV selector drives comparison rows');
 console.log('Unified filters: position, view-specific controls, single PPV selector and controlled matching passed.');
+
+const defaultPeriodBatches = [
+  {...batches[0], id:'REG-OLD', batchType:'regular' as const, pricingTimestamp:'2026-11-16T10:00:00+08:00'},
+  {...batches[0], id:'REG-NEW', batchType:'regular' as const, pricingTimestamp:'2026-11-17T10:00:00+08:00'},
+  {...batches[0], id:'LAUNCH-NEWEST', batchType:'launch' as const, pricingTimestamp:'2026-11-18T10:00:00+08:00'}
+];
+const periodsHtml=renderToStaticMarkup(<PriceAnalysis batches={defaultPeriodBatches}/>);
+const selectedPeriod=(label:string)=>periodsHtml.match(new RegExp(`aria-label="${label}"[^>]*>([\\s\\S]*?)</select>`))?.[1].match(/<option value="([^"]+)" selected=""/g)?.[0];
+assert.ok(selectedPeriod('对比期')?.includes('REG-NEW'));
+assert.ok(selectedPeriod('基准期')?.includes('REG-OLD'));
+const singleRegularHtml=renderToStaticMarkup(<PriceAnalysis batches={defaultPeriodBatches.slice(1)}/>);
+assert.equal((singleRegularHtml.match(/value="REG-NEW" selected=""/g)||[]).length,2);
+console.log('Default periods: newest regular comparison, second-newest regular baseline; launch periods excluded.');

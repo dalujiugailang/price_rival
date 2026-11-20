@@ -10,6 +10,7 @@ export interface Product {
   sourceFieldCount: number;
   rawFields: Record<string, string | number | boolean | null>;
   newSeries: string;
+  newSeriesPosition?: string;
   oldModel: string;
   ppv: string;
   brand: string;
@@ -303,3 +304,5 @@ export interface OperationsLog {
   module: string;
   details: string;
 }
+
+export interface SeriesCatalogEntry { brand: string; newSeries: string; newSeriesPosition: string; }

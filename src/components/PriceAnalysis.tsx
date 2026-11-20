@@ -1,3 +1,4 @@
+import { useUrlState } from '../utils/urlState';
 import React, {forwardRef,useMemo,useState} from 'react';
 import {AnimatePresence,LayoutGroup,motion,useIsPresent,useReducedMotion} from 'motion/react';
 import PriceTimeline from './PriceTimeline';
@@ -5,6 +6,7 @@ import DailyAdvicePanel from './DailyAdvicePanel';
 import {TrackingBatch} from '../types';
 import {BrandPriceChanges, ChangeNumber, PpvPriceChanges} from './PriceComparisonPanels';
 import {advice,aggregate,analysisTimeLabel,analysisHierarchy,matchesAnalysisScope,comparisonScope,chronological,indexPpv} from '../utils/priceAnalysis';
+import {batchTypeLabel} from '../utils/batchScope';
 import {hasSnapshotDetails} from '../utils/snapshotHistory';
 const pct=(n:unknown)=>typeof n==='number'?`${(n*100).toFixed(1)}%`:'—';
 const control='inline-flex items-center justify-center gap-1.5 border border-[#141414] bg-white px-3 py-1.5 text-xs font-bold hover:bg-[#E4E3E0] disabled:cursor-not-allowed disabled:opacity-40';
@@ -25,19 +27,14 @@ function BatchFilterRow({children}:{children:React.ReactNode;key?:string}){
 }
 export default function PriceAnalysis({batches:all,onOpenSnapshot}:{batches:TrackingBatch[];onOpenSnapshot?:(batchId:string,ppv:string)=>void}){
  const batches=useMemo(()=>chronological(all.filter(b=>(b.channelId||'tradeIn')==='tradeIn'&&hasSnapshotDetails(b))),[all]);
- const [view,setView]=useState('compare'),[aId,setA]=useState(''),[bId,setB]=useState(''),[brand,setBrand]=useState(''),[series,setSeries]=useState('');
- const b=batches.find(b=>b.id===bId)||batches.at(-1);
- const defaultA=useMemo(()=>{
-   if(!b)return undefined;
-   const keys=indexPpv(b).rows;
-   let best=b, bestScore=-1;
-   for(let i=batches.length-1;i>=0;i--){const candidate=batches[i];if(candidate===b)continue;
-     let score=0;for(const ppv of indexPpv(candidate).rows.keys())if(keys.has(ppv))score++;
-     if(score>bestScore){best=candidate;bestScore=score;}
-   }
-   return best;
- },[b,batches]);
- const a=batches.find(b=>b.id===aId)||defaultA;
+ const [view,setView]=useUrlState('PriceAnalysis.view', 'compare'),[aId,setA]=useState(''),[bId,setB]=useState(''),[brand,setBrand]=useState(''),[series,setSeries]=useState('');
+ const defaultPeriods=useMemo(()=>{
+   const regular=batches.filter(batch=>batch.batchType==='regular');
+   const available=regular.length?regular:batches;
+   return {comparison:available.at(-1),baseline:available.at(-2)||available.at(-1)};
+ },[batches]);
+ const b=batches.find(batch=>batch.id===bId)||(view==='advice'?defaultPeriods.comparison:defaultPeriods.baseline);
+ const a=batches.find(batch=>batch.id===aId)||defaultPeriods.comparison;
  const [limit,setLimit]=useState(50),[presence,setPresence]=useState('common'),[timelineBatchId,setTimelineBatchId]=useState(''),[timelineSearch,setTimelineSearch]=useState('');
  const comparison=useMemo(()=>view==='compare'&&a&&b?comparisonScope(a,b):null,[view,a,b]);
  const compare=comparison?.rows||[];
@@ -52,7 +49,7 @@ export default function PriceAnalysis({batches:all,onOpenSnapshot}:{batches:Trac
  const filtered=compare.filter(r=>matches((r.a||r.b)!));
  const summary=useMemo(()=>aggregate(view==='compare'?groupBatches:[],selectedBrand,selectedSeries),[view,groupBatches,selectedBrand,selectedSeries]);
  const brandGroups=useMemo(()=>view!=='compare'?[]:(selectedBrand?[selectedBrand]:['',...brands]).map(br=>({br,agg:br===selectedBrand?summary:aggregate(groupBatches,br,selectedSeries)})),[view,selectedBrand,selectedSeries,brands,groupBatches,summary]);
- const selector=(id:string,onChange:(id:string)=>void,label:string,disabled=false)=><label className="flex min-w-0 items-center gap-2 text-xs"><span className="shrink-0 font-bold">{label}</span><select aria-label={label} className={control+' min-w-0 w-full flex-1'} value={id} disabled={disabled} title={disabled?'当前视图不使用此筛选':undefined} onChange={e=>onChange(e.target.value)}>{batches.map(batch=><option key={batch.id} value={batch.id}>{analysisTimeLabel(batch)} · {batch.batchType==='launch'?'发新期':'常规/未分类'} · {batch.remarks||batch.id}</option>)}</select></label>;
+ const selector=(id:string,onChange:(id:string)=>void,label:string,disabled=false)=><label className="flex min-w-0 items-center gap-2 text-xs"><span className="shrink-0 font-bold">{label}</span><select aria-label={label} className={control+' min-w-0 w-full flex-1'} value={id} disabled={disabled} title={disabled?'当前视图不使用此筛选':undefined} onChange={e=>onChange(e.target.value)}>{batches.map(batch=><option key={batch.id} value={batch.id}>{analysisTimeLabel(batch)} · {batchTypeLabel(batch)} · {batch.remarks||batch.id}</option>)}</select></label>;
  const adviceRows=useMemo(()=>view==='advice'&&b?advice(b):[],[view,b]);
  if(!batches.length||!a||!b)return <div className="p-8">暂无包含 PPV 明细的京东换新快照，无法分析。</div>;
  const warnings=groupBatches.map(b=>({b,i:indexPpv(b)})).filter(({i})=>i.conflicts.size||i.missing);
@@ -90,7 +87,7 @@ export default function PriceAnalysis({batches:all,onOpenSnapshot}:{batches:Trac
 
  <div className="grid gap-3 lg:grid-cols-2">{[['itemWin','物品价竞争力'],['handWin','到手价竞争力']].map(([key,label])=>{const first=summary.points[0]?.[key],last=summary.points.at(-1)?.[key];return <div className="border border-[#141414] bg-white p-3" key={key}><strong>{label}</strong><p><span className="text-xs text-[#777]">{pct(first)} → {pct(last)}</span><span className="ml-3 text-sm"><ChangeNumber delta={typeof first==='number'&&typeof last==='number'?(last-first)*100:null} suffix="个百分点"/></span></p></div>})}</div>
  {summary.count===0&&<p className="text-amber-800 text-xs">所选批次没有共同有效样本，指数不可计算；可调整对比批次，PPV 明细仍可查看。</p>}
- <BrandPriceChanges groups={brandGroups} onBrand={changeBrand}/>
+ <BrandPriceChanges groups={brandGroups} onBrand={changeBrand} batches={groupBatches} series={selectedSeries}/>
 
  </>}
  {view==='compare'&&<PpvPriceChanges rows={filtered} presence={presence} limit={limit} onMore={()=>setLimit(n=>n+50)}/>}

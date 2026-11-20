@@ -475,7 +475,7 @@ export default function MainTable({
   const fixedColumnWidths = pricingColumnWidths;
   const fixedCodes = pricingColumnCodes;
   const fixedLabels = pricingColumnLabels(isSelfOperated);
-  const selfHiddenExportColumnIndexes = new Set([0, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 30, 33, 35, 36, 38, 39, 40, 43]);
+  const selfHiddenExportColumnIndexes = new Set([45, 0, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 30, 33, 35, 36, 38, 39, 40, 43]);
   const noteDisplayHiddenColumnIndexes = new Set([28, 37]);
   const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
   const isAvailableDisplayColumn = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
@@ -539,7 +539,8 @@ export default function MainTable({
     booleanValue(p.postZzItemWin),
     booleanValue(p.postAhsZzHandWin),
     booleanValue(p.postJdZzHandWin),
-    p.brand || ''
+    p.brand || '',
+    p.newSeriesPosition || ''
     ];
   };
 
@@ -609,7 +610,7 @@ export default function MainTable({
         label={label}
         options={isOpen ? getFilterButtonOptions(columnKey) : []}
         activeValues={columnFilters[columnKey] || []}
-        numeric={![0, 1, 2, 3, 4, 28, 30, 37, 39, 44].includes(Number(columnKey.slice(6)))}
+        numeric={![0, 1, 2, 3, 4, 28, 30, 37, 39, 44, 45].includes(Number(columnKey.slice(6)))}
         numericScale={percentColumnIndexes.has(Number(columnKey.slice(6))) ? 100 : 1}
         activeNumeric={numericFilters[columnKey]}
         onApplyNumeric={filter => { setRetainedFilterRows(null); setNumericFilters(current => {
@@ -864,6 +865,8 @@ export default function MainTable({
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postAhsZzHandWin ? 1 : 0}</td>;
       case 43:
         return <td key={index} style={style} className="px-2 py-1 text-center border-r border-[#141414]/20 font-mono">{p.postJdZzHandWin ? 1 : 0}</td>;
+      case 45:
+        return <td key={index} style={style} className={bodyClass}>{p.newSeriesPosition || ''}</td>;
       case 44:
         return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 font-bold">{p.brand || '-'}</td>;
       default:

@@ -1,3 +1,4 @@
+import { useUrlState } from '../utils/urlState';
 import { batchTypeLabel } from '../utils/batchScope';
 /**
  * @license
@@ -47,12 +48,12 @@ export default function HistoryPanel({
   const inspectedId = inspectedBatch?.id;
   const investmentMetrics=inspectedBatch?.totalInvestmentRateMetrics || inspectedBatch?.investmentRateMetrics;
   const brandInvestments=useMemo(()=>inspectedBatch?calculateBrandCompetitionInvestmentMetrics(inspectedBatch.products,inspectedBatch.investmentBrandSalesAmounts30d||[],inspectedBatch.gradeInvestment):[],[inspectedBatch]);
-  const [historyPane, setHistoryPane] = useState<'snapshots' | 'analysis'>('snapshots');
+  const [historyPane, setHistoryPane] = useUrlState<'snapshots' | 'analysis'>('HistoryPanel.historyPane', 'snapshots');
   const [snapshotFocus,setSnapshotFocus] = useState<{batchId:string;ppv:string}|null>(null);
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useUrlState('HistoryPanel.search', '');
   const [showComparison, setShowComparison] = useState(false);
-  const [comparisonBatchId, setComparisonBatchId] = useState('');
+  const [comparisonBatchId, setComparisonBatchId] = useUrlState('HistoryPanel.comparisonBatchId', '');
   const stripRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const detailBatches = batches.filter(hasSnapshotDetails);

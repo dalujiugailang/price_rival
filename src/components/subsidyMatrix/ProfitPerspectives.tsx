@@ -33,8 +33,8 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
       </div>
       <div className="sm-analysis-view">
         <div className="sm-mode-switch" role="group" aria-label="换新分析视角">
-          <button type="button" className={`sm-target-filter ${selection.view === 'new' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'new'} onClick={() => onChange({view: 'new'})}>新机视角</button>
-          <button type="button" className={`sm-target-filter ${selection.view === 'old' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'old'} onClick={() => onChange({view: 'old'})}>旧机视角</button>
+          <button type="button" className={`sm-target-filter ${selection.view === 'new' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'new'} onClick={() => onChange({view: 'new', oldModel: '', lossesOnly: false, excludeCurrent: false})}>新机视角</button>
+          <button type="button" className={`sm-target-filter ${selection.view === 'old' ? 'sm-selected' : ''}`} aria-pressed={selection.view === 'old'} onClick={() => onChange({view: 'old', oldModel: '', lossesOnly: false, excludeCurrent: false})}>旧机视角</button>
         </div>
       </div>
     {selection.view === 'new' ? <>
@@ -50,16 +50,17 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
       </div>
     </> : <>
       <h3 className="sm-profit-question">按旧机追后价，换哪些新机会亏损？</h3>
-      <label className="sm-profit-field sm-profit-field-wide"><strong>选择工作台旧机报价</strong>
+      {selection.oldModel && <p className="text-xs font-bold text-blue-700">旧机型号：{selection.oldModel} · 全部 PPV 报价 <button type="button" className="ml-2 underline" onClick={() => onChange({oldModel: '', lossesOnly: false, excludeCurrent: false})}>切换到单条报价</button></p>}
+      {!selection.oldModel && <label className="sm-profit-field sm-profit-field-wide"><strong>选择工作台旧机报价</strong>
         <select className={input} aria-label="选择工作台旧机报价" value={product?.id || ''} onChange={event => onChange({productId: event.target.value})} disabled={fixedQuote || !workspace.products.length}>
           {!workspace.products.length && <option value="">工作台暂无旧机报价</option>}
           {(fixedQuote && product ? [product] : workspace.products).map(item => <option key={item.id} value={item.id}>{item.oldModel} · {item.ppv} → {item.newSeries} · ¥{money(item.recommendJdPrice)}</option>)}
         </select>
-      </label>
+      </label>}
       <label className="sm-profit-field"><strong>搜索新机系列</strong>
         <input type="search" className={input} aria-label="搜索换新品牌或系列" placeholder="输入品牌或新机系列" value={selection.oldSearch || ''} onChange={event => onChange({oldSearch: event.target.value})}/>
       </label>
-      {product && <div className="sm-baseline" aria-label="当前工作台方案">
+      {product && !selection.oldModel && <div className="sm-baseline" aria-label="当前工作台方案">
         <div><span>京东物品价-追价后</span><strong>¥{money(product.recommendJdPrice)}</strong></div>
         <div><span>当前换新系列</span><strong>{product.newSeries || '未提供'}</strong></div>
         <div><span>当前承担补贴</span><strong>¥{money(product.ahsSubsidyAfter)}</strong></div>
@@ -68,8 +69,9 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
       {!product && <p className="border border-[#141414] bg-[#F0EFEC] p-3 text-xs">工作台暂无旧机报价，载入本次测算后再查看亏损组合。</p>}
     </>}
     <div className="sm-risk-toolbar">
+      {selection.lossesOnly && <span className="text-xs font-bold text-red-700">当前仅看亏损组合 <button type="button" className="ml-2 underline" onClick={() => onChange({lossesOnly: false, excludeCurrent: false})}>查看全部风险</button></span>}
       <RiskSummary results={model.riskResults}/>
-      <label className="sm-risk-only"><input type="checkbox" checked={selection.onlyRisks} onChange={event => onChange({onlyRisks: event.target.checked})}/>只看亏损和低利润</label>
+      <label className="sm-risk-only"><input type="checkbox" checked={selection.onlyRisks} onChange={event => onChange({onlyRisks: event.target.checked, lossesOnly: false})}/>只看亏损和低利润</label>
     </div>
     </div>
     <div className="sm-results" data-perspective={selection.view}><table>
@@ -84,15 +86,15 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
           <td><span className={riskClass(result.comparison?.risk)}>{result.comparison?.risk || '待核验'}</span><small>{relation === 'workspace' ? '工作台对应' : `跨系列测算 · 原方案 ${old.newSeries}`}</small></td>
           <td><button className="whitespace-nowrap underline" aria-label={`查看${old.ppv}换到${target?.series}的利润变化原因`} onClick={() => onDetail(old, result.row.series)}>查看原因</button></td>
         </tr>;
-      }) : model.visibleResults.map(result => <tr key={result.row.key}>
-        <td><div className="flex items-center gap-2"><strong>{result.row.series}</strong>{result.current ? <span className="sm-current">当前方案</span> : result.row.activeCount > 0 ? <span className="sm-in-use">目标</span> : null}</div><small>{result.row.brand}</small></td>
+      }) : model.oldScenarios.map(({product: old, result}) => <tr key={`${old.id}:${result.row.key}`}>
+        <td>{selection.oldModel && <small>{old.oldModel} · {old.ppv} · 原配 {old.newSeries}</small>}<div className="flex items-center gap-2"><strong>{result.row.series}</strong>{result.current ? <span className="sm-current">当前方案</span> : result.row.activeCount > 0 ? <span className="sm-in-use">目标</span> : null}</div><small>{result.row.brand}</small></td>
         <td className={subsidyDeltaClass(result.comparison?.delta)}>{result.comparison ? deltaLabel(result.comparison.delta) : '待核验'}</td>
         <td><strong className={riskClass(result.comparison?.risk)}>{result.comparison ? `${money(result.comparison.profit)} 元` : '—'}</strong><small>{result.comparison ? percent(result.comparison.rate) : '规则或测算数据待核验'}</small></td>
         <td className={`font-bold ${riskClass(result.comparison?.risk)}`}>{result.comparison?.risk || '待核验'}</td>
-        <td><button className="whitespace-nowrap underline" aria-label={`查看${result.row.series}的利润变化原因`} onClick={() => product && onDetail(product, result.row.series)}>查看原因</button></td>
+        <td><button className="whitespace-nowrap underline" aria-label={`查看${result.row.series}的利润变化原因`} onClick={() => onDetail(old, result.row.series)}>查看原因</button></td>
       </tr>)}</tbody>
     </table>
-      {(selection.view === 'new' ? !model.visibleScenarios.length : !model.visibleResults.length) && <p className="p-4 text-xs text-[#555]">{selection.view === 'old' && selection.oldSearch?.trim() ? '没有匹配当前搜索及风险筛选的新机系列。' : selection.view === 'new' && selection.search?.trim() ? '没有匹配当前搜索及风险筛选的竞争旧机 / PPV。' : fixedQuote && selection.view === 'new' && !target ? '该报价缺少新机系列，无法进行新机视角测算。' : selection.onlyRisks ? '当前范围内没有已识别的亏损或低利润组合。' : selection.view === 'new' ? '工作台暂无可测算的 PPV 报价。' : '当前筛选范围没有可比较的新机系列。'}</p>}
+      {(selection.view === 'new' ? !model.visibleScenarios.length : !model.oldScenarios.length) && <p className="p-4 text-xs text-[#555]">{selection.view === 'old' && selection.oldSearch?.trim() ? '没有匹配当前搜索及风险筛选的新机系列。' : selection.view === 'new' && selection.search?.trim() ? '没有匹配当前搜索及风险筛选的竞争旧机 / PPV。' : fixedQuote && selection.view === 'new' && !target ? '该报价缺少新机系列，无法进行新机视角测算。' : selection.onlyRisks ? '当前范围内没有已识别的亏损或低利润组合。' : selection.view === 'new' ? '工作台暂无可测算的 PPV 报价。' : '当前筛选范围没有可比较的新机系列。'}</p>}
     </div>
     <details className="text-xs text-[#555]"><summary className="cursor-pointer">怎么算的？</summary><div className="mt-2 space-y-1 leading-relaxed">
       <p>两种视角都逐条使用工作台的“京东物品价-追价后”命中最高已达原始门槛，不用合并档最大值，也不叠加补贴。</p>

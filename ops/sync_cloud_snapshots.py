@@ -2,12 +2,17 @@
 import gzip
 import json
 import sqlite3
+import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FOLDER = ROOT / 'data/competition-efficiency/20261113'
 
 def main():
+    global FOLDER
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--folder', type=Path, default=FOLDER)
+    FOLDER = parser.parse_args().folder
     rows = json.loads(gzip.decompress((FOLDER / 'cloud-tracking-batches.json.gz').read_bytes()))
     connection = sqlite3.connect(ROOT / 'data/price-rival.sqlite')
     connection.row_factory = sqlite3.Row

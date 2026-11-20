@@ -151,13 +151,19 @@ export function buildProfitView({selection, rows, rules, products, floor, invali
   const searchedScenarios = scenarios.filter(({product}) => keywords.every(keyword => `${product.brand} ${product.oldModel} ${product.ppv}`.toLowerCase().includes(keyword)));
   const oldKeywords = (selection.oldSearch || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
   const searchedResults = results.filter(({row}) => oldKeywords.every(keyword => `${row.brand} ${row.series}`.toLowerCase().includes(keyword)));
-  const isRisk = (result: SeriesProfitResult) => result.comparison && result.comparison.risk !== '正常';
+  const isRisk = (result: SeriesProfitResult) => result.comparison && (selection.lossesOnly ? result.comparison.risk === '亏损风险' : result.comparison.risk !== '正常');
+  const eligibleScenarios = selection.excludeCurrent ? searchedScenarios.filter(row => !row.result.current) : searchedScenarios;
+  const modelProducts = !focusedQuote && selection.oldModel ? products.filter(row => (row.oldModel?.trim() || row.ppv || '未填写旧机型号') === selection.oldModel) : product ? [product] : [];
+  const oldScenarios = modelProducts.flatMap(product => buildSeriesProfitResults({rows, rules, product, floor, invalidSeries})
+    .filter(result => (!selection.excludeCurrent || !result.current) && oldKeywords.every(keyword => `${result.row.brand} ${result.row.series}`.toLowerCase().includes(keyword)))
+    .map(result => ({product, result}))).sort((a, b) => (a.result.comparison?.profit ?? Infinity) - (b.result.comparison?.profit ?? Infinity));
   return {
     product, target, results, scenarios,
+    oldScenarios: selection.onlyRisks ? oldScenarios.filter(row => isRisk(row.result)) : oldScenarios,
     visibleResults: product ? selection.onlyRisks ? searchedResults.filter(isRisk) : searchedResults : [],
-    visibleScenarios: selection.onlyRisks ? searchedScenarios.filter(row => isRisk(row.result)) : searchedScenarios,
+    visibleScenarios: selection.onlyRisks ? eligibleScenarios.filter(row => isRisk(row.result)) : eligibleScenarios,
     linkedCount: scenarios.filter(row => row.relation === 'workspace').length,
-    riskResults: selection.view === 'new' ? searchedScenarios.map(row => row.result) : product ? searchedResults.filter(row => !row.current) : []
+    riskResults: selection.view === 'new' ? eligibleScenarios.map(row => row.result) : oldScenarios.filter(row => !row.result.current).map(row => row.result)
   };
 }
 

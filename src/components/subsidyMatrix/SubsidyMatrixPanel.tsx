@@ -1,7 +1,9 @@
+import { useUrlState } from '../../utils/urlState';
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {buildProfitView, buildSeriesProfitResults, buildWorkspaceMatrix, filterMatrixRows, getSeriesRuleDetails, resolveMatrixFilters, sortMatrixRows, cycleMatrixSort, selectHeatmapGroups} from './model';
 import ProfitPerspectives from './ProfitPerspectives';
 import RiskRankings from './RiskRankings';
+import type {RiskRanking} from './riskRankingModel';
 import ProfitChangeVisual from './ProfitChangeVisual';
 import {DetailDialog, RuleTable, button, deltaLabel, input, money, percent, riskClass, ruleLabel} from './ui';
 import {createMatrixWorkbook} from './workbook';
@@ -20,6 +22,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
   const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>('amount');
   const [onlyTargets, setOnlyTargets] = useState(false);
   const scope = onlyTargets ? 'active' : 'all';
+  const profitRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [sort, setSort] = useState({groupKey: '', direction: 'descending' as 'descending' | 'ascending'});
@@ -31,8 +34,8 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     return () => observer.disconnect();
   }, []);
   const [brand, setBrand] = useState('');
-  const [range, setRange] = useState('top');
-  const [search, setSearch] = useState('');
+  const [range, setRange] = useUrlState('SubsidyMatrixPanel.range', 'top');
+  const [search, setSearch] = useUrlState('SubsidyMatrixPanel.search', '');
   const [seriesFilter, setSeriesFilter] = useState('');
   const [profitSelection, setProfitSelection] = useState<ProfitViewSelection>({view: 'new', productId: '', targetSeries: '', onlyRisks: false});
   const [detail, setDetail] = useState<DetailSelection | null>(null);
@@ -57,6 +60,15 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
   const detailProduct = detail?.kind === 'profit' ? workspace.products.find(row => row.id === detail.productId) : profit.product;
   const selectedProfit = selectedRow && detailProduct ? buildSeriesProfitResults({rows: [selectedRow], rules: matrix.rules, product: detailProduct, floor: marginBottomLine, invalidSeries: matrix.invalidSeries})[0] : null;
   const baseProfit = detailProduct ? detailProduct.postMarginalProfit * detailProduct.basePrice : NaN;
+
+  function openRanking(kind: 'new' | 'old', item: RiskRanking) {
+    setProfitSelection({view: kind, productId: item.worst?.product.id || '', targetSeries: kind === 'new' ? item.name : '',
+      oldModel: kind === 'old' ? item.name : '', search: '', oldSearch: '', onlyRisks: true, lossesOnly: true, excludeCurrent: true});
+    requestAnimationFrame(() => {
+      profitRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
+      profitRef.current?.focus({preventScroll: true});
+    });
+  }
 
   function showProfit(productId: string, series: string) {
     setDetail({kind: 'profit', series, productId});
@@ -186,9 +198,11 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     <p className="text-xs text-[#555]">合并门槛仅用于展示。实际追价利润测算必须以原始触发门槛和适用补贴规则为准。</p>
     {!!matrix.issues.length && <details className="border border-[#141414] p-3 text-xs"><summary className="cursor-pointer font-bold">本次补贴规则提示（{matrix.issues.length}）</summary><div className="mt-2 max-h-40 overflow-auto">{matrix.issues.map((issue, index) => <p key={index}>{issue}</p>)}</div></details>}
 
-    <RiskRankings products={workspace.products} rows={rows} rules={matrix.rules} invalidSeries={matrix.invalidSeries} floor={marginBottomLine}/>
+    <RiskRankings products={workspace.products} rows={rows} rules={matrix.rules} invalidSeries={matrix.invalidSeries} floor={marginBottomLine} onSelect={openRanking}/>
 
+    <div ref={profitRef} tabIndex={-1} className="scroll-mt-4" aria-label="利润风险分析明细">
     <ProfitPerspectives workspace={workspace} model={profit} selection={profitSelection} onChange={patch => setProfitSelection(old => ({...old, ...patch}))} floor={marginBottomLine} onDetail={(product, series) => showProfit(product.id, series)}/>
+    </div>
 
     {detail && selectedRow && <DetailDialog title={`${selectedRow.series} · ${detail.kind === 'matrix' ? '补贴规则' : '利润变化原因'}`} onClose={() => setDetail(null)}>
       <p className="text-xs text-[#555]">{workspace.fileName} · {workspace.label}</p>
@@ -196,10 +210,10 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
         <p className="text-xs leading-relaxed">{selectedRow.brand} · 合并门槛 {selectedGroup.label} 元；当前筛选内{valueLabel(metric, heatmapMode)}最大差额 Δ {spreadText(rows, selectedGroup.key, heatmapMode, metric)}{heatmapMode === 'amount' ? ' 元' : ''}。<br/>全系列共 {seriesDetails.rules.length} 条原始规则；黑框标注刚点击的 {selectedGroup.label} 元档，共 {highlightedRules.length} 条。</p>
         <RuleTable rules={seriesDetails.rules} highlightedIds={seriesDetails.highlightedIds} showRatio={heatmapMode === 'ratio'} metric={metric}/>
         <p className="text-xs text-[#555]">合并档最大值用于发现风险，实际换新承担按这台旧机达到的原始门槛重新命中。</p>
-        <button className={button} onClick={() => {setProfitSelection(old => ({...old, view: 'new', targetSeries: selectedRow.series})); setDetail(null); document.querySelector('[aria-label="换新利润比较"]')?.scrollIntoView({behavior: 'smooth', block: 'start'});}}>查看这个新机对应的竞争机型</button>
+        <button className={button} onClick={() => {setProfitSelection(old => ({...old, view: 'new', targetSeries: selectedRow.series, oldModel: '', lossesOnly: false, excludeCurrent: false})); setDetail(null); document.querySelector('[aria-label="换新利润比较"]')?.scrollIntoView({behavior: 'smooth', block: 'start'});}}>查看这个新机对应的竞争机型</button>
       </> : selectedProfit ? <>
         <p className="text-sm leading-relaxed">{resultReason(selectedProfit)}</p>
-        <ProfitChangeVisual product={detailProduct} result={selectedProfit} floor={marginBottomLine} onOldView={() => {setProfitSelection(old => ({...old, view: 'old', productId: detailProduct.id})); setDetail(null); document.querySelector('[aria-label="换新利润比较"]')?.scrollIntoView({behavior: 'smooth', block: 'start'});}}/>
+        <ProfitChangeVisual product={detailProduct} result={selectedProfit} floor={marginBottomLine} onOldView={() => {setProfitSelection(old => ({...old, view: 'old', productId: detailProduct.id, oldModel: '', lossesOnly: false, excludeCurrent: false})); setDetail(null); document.querySelector('[aria-label="换新利润比较"]')?.scrollIntoView({behavior: 'smooth', block: 'start'});}}/>
         {selectedProfit.hit.rules.length > 0 && <RuleTable rules={selectedProfit.hit.rules}/>}
       </> : <p className="text-xs">该系列不在当前比较范围内，请调整上方筛选后查看。</p>}
     </DetailDialog>}

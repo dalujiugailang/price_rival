@@ -9,13 +9,13 @@ const batch = (id: string, saved: string, extra = {}) => ({ id, channelId: 'trad
     { ppv: 'outside', quoteVolume: 1000, tmHandPrice: 100, postJdHandPrice: 200 },
   ], ...extra } as unknown as TrackingBatch);
 
-test('Shanghai save days produce inclusive next-save-day windows; same-day last version wins', () => {
+test('save times round upward; only snapshots in the same effective hour replace one another', () => {
   const result = buildEfficiencyPeriods([
-    batch('a', '2026-11-09T10:00:00Z'), batch('b-old', '2026-11-12T09:00:00Z'),
-    batch('b', '2026-11-12T10:00:00Z'), batch('c', '2026-11-16T09:00:00Z'),
+    batch('a', '2026-11-09T10:00:00Z'), batch('b-old', '2026-11-12T09:37:00Z'),
+    batch('b', '2026-11-12T09:58:00Z'), batch('c', '2026-11-16T09:00:00Z'),
   ]);
   assert.deepEqual(result.periods.map(p => [p.batch.id, p.start, p.end]), [
-    ['a', '2026-11-10', '2026-11-12'], ['b', '2026-11-13', '2026-11-16'], ['c', '2026-11-17', null],
+    ['a', '2026-11-09 18:00', '2026-11-12 18:00'], ['b', '2026-11-12 18:00', '2026-11-16 17:00'], ['c', '2026-11-16 17:00', null],
   ]);
   assert.equal(result.sameDayReplaced, 1);
   assert.equal(result.periods[0].score, 60);

@@ -1,3 +1,7 @@
+import SeriesCatalogPanel from './components/SeriesCatalogPanel';
+import {getSeriesCatalog,saveSeriesCatalog,type SeriesCatalogResponse} from './api';
+import {seriesCatalogIndex,positionProducts,missingSeries} from '../shared/seriesCatalog.mjs';
+import { readRoute, writeUrl, routeEvent, useUrlState } from './utils/urlState';
 import CompetitionEfficiencyPanel from './components/CompetitionEfficiencyPanel';
 import FeishuIcon from './components/FeishuIcon';
 import SubsidyMatrixPanel from './components/subsidyMatrix/SubsidyMatrixPanel';
@@ -39,6 +43,7 @@ import { createSnapshotSync } from './utils/snapshotSync';
 import { buildSnapshotRestore, snapshotPricingProducts } from './utils/snapshotPricingDraft';
 import { getSnapshotSourceFiles, selectSnapshotSourceFiles } from './utils/snapshotSourceFiles';
 import { 
+  Radar,
   TrendingDown, 
   Layers, 
   History, 
@@ -177,17 +182,44 @@ const normalizeState = (state: Partial<ChannelWorkspaceState>, fallbackProducts:
 });
 
 export default function App() {
+  const alignHeaderBorders = useCallback((header: HTMLElement | null) => {
+    if (!header) return;
+    const shell = header.closest<HTMLElement>('[data-app-shell]');
+    const syncHeight = () => shell?.style.setProperty('--app-header-height', `${header.getBoundingClientRect().height}px`);
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
   const { user, logout } = useAuth();
   const isReadOnly = !isEditor(user);
   const isAdmin = user.role === 'admin';
   const channelOrder = accessibleChannels(user).map(channel => channel.id) as ChannelId[];
   const firstPage = (channel: ChannelId) => ACCESS_PAGES.find(page => canAccess(user, channel, page.id))?.id as ViewTab || 'workspace';
-  const deepLink = new URLSearchParams(location.search);
+  const deepLink = readRoute();
   const linkedChannel = deepLink.get('channel') as ChannelId;
   const initialChannel = channelOrder.includes(linkedChannel) ? linkedChannel : channelOrder[0] || DEFAULT_CHANNEL_ID;
   const [activeChannelId, setActiveChannelId] = useState<ChannelId>(initialChannel);
   const [pushOpen, setPushOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<ViewTab>(() => { const tab = deepLink.get('tab'); return tab && (ACCESS_PAGES.some(p => p.id === tab) || (tab === 'competitionEfficiency' && initialChannel === 'tradeIn')) && canAccess(user, initialChannel, tab === 'competitionEfficiency' ? 'competitiveness' : tab) ? tab as ViewTab : firstPage(initialChannel); });
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => { const tab = deepLink.get('tab'); return tab && ACCESS_PAGES.some(p => p.id === tab) && canAccess(user, initialChannel, tab) ? tab as ViewTab : firstPage(initialChannel); });
+  useEffect(() => {
+    const restore = () => {
+      const params = readRoute();
+      setActiveChannelId(params.get('channel') as ChannelId || initialChannel);
+      setActiveTab(params.get('tab') as ViewTab || firstPage(initialChannel));
+    };
+    window.addEventListener(routeEvent, restore);
+    return () => window.removeEventListener(routeEvent, restore);
+  }, []);
+  useEffect(() => {
+    const current = readRoute();
+    const url = new URL(location.href);
+    url.pathname = `/channels/${activeChannelId}/${activeTab}`;
+    url.searchParams.delete('channel'); url.searchParams.delete('tab');
+    const legacy = !location.pathname.startsWith('/channels/');
+    if (legacy || current.get('channel') !== activeChannelId || current.get('tab') !== activeTab) writeUrl(url, legacy);
+  }, [activeChannelId, activeTab]);
   const [restoredSnapshotFiles, setRestoredSnapshotFiles] = useState<{
     channelId: ChannelId;
     batchId: string;
@@ -211,7 +243,18 @@ export default function App() {
     return states;
   });
   const [activeCalculatedItems, setActiveCalculatedItems] = useState<CalculatedProduct[]>([]);
-  const [workspacePane, setWorkspacePane] = useState<'pricing' | 'grades' | 'risk'>('pricing');
+  const seriesCatalogTriggerRef=useRef<HTMLButtonElement>(null);
+  const [seriesCatalog,setSeriesCatalog]=useState<SeriesCatalogResponse|null>(null);
+  const [seriesCatalogError,setSeriesCatalogError]=useState('');
+  const loadSeriesCatalog=useCallback(async()=>{
+    try{setSeriesCatalog(await getSeriesCatalog());setSeriesCatalogError('');}
+    catch(error){setSeriesCatalogError(error instanceof Error?error.message:'商品库加载失败');}
+  },[]);
+  const canReadSeriesCatalog=canAccess(user,'tradeIn','workspace') || canAccess(user,'tradeIn','upload');
+  useEffect(()=>{if(canReadSeriesCatalog)void loadSeriesCatalog();},[canReadSeriesCatalog,loadSeriesCatalog]);
+  const catalogIndex=useMemo(()=>seriesCatalogIndex(seriesCatalog?.entries || []),[seriesCatalog]);
+
+  const [workspacePane, setWorkspacePane] = useUrlState<'pricing' | 'grades' | 'risk'>('workspace.pane', 'pricing');
   const [handPriceUndo, setHandPriceUndo] = useState<{
     channel: ChannelId;
     before: HandPriceAdjustments;
@@ -661,7 +704,8 @@ export default function App() {
       };
     });
 
-    const calculated = runBatchCalculations(matchedProducts, activeState.marginBottomLine, activeState.subsidyRules, activeState.pricingMode, {
+    const positionedProducts = activeChannelId === 'tradeIn' ? positionProducts(matchedProducts,catalogIndex) : matchedProducts;
+    const calculated = runBatchCalculations(positionedProducts, activeState.marginBottomLine, activeState.subsidyRules, activeState.pricingMode, {
       channel: activeChannel,
       selfSubsidyRules: activeState.selfSubsidyRules
     });
@@ -687,10 +731,12 @@ export default function App() {
       ? withSmallGap.map(product => applyHandPriceAdjustment(product,
         activeState.handPriceAdjustments[handPriceRowKey(product)], activeState.subsidyRules, activeState.marginBottomLine))
       : withSmallGap);
-  }, [activeChannel, activeChannelId, useSharedSnapshot, readOnlySnapshot,
+  }, [activeChannel, activeChannelId, useSharedSnapshot, readOnlySnapshot, catalogIndex,
     activeState.productsMaster, activeState.dailyPriceRows, activeState.subsidyRules,
     activeState.selfSubsidyRules, activeState.marginBottomLine, activeState.pricingMode,
     activeState.manualRecommendPrices, activeState.smallGapToleranceMargin, activeState.handPriceAdjustments]);
+
+  const missingCatalogSeries=useMemo(()=>seriesCatalog && activeChannelId==='tradeIn' && !useSharedSnapshot ? missingSeries(activeCalculatedItems,catalogIndex) : [],[seriesCatalog,activeChannelId,useSharedSnapshot,activeCalculatedItems,catalogIndex]);
 
   const editableChannels = channelOrder.filter(channel => canEdit(user, channel, 'workspace') || canEdit(user, channel, 'upload'));
   const editableChannelKey = editableChannels.join(',');
@@ -1144,7 +1190,7 @@ export default function App() {
 
   useEffect(() => {
     if (!channelOrder.includes(activeChannelId) && channelOrder[0]) setActiveChannelId(channelOrder[0]);
-    if (activeTab === 'permissions' ? !(isAdmin && activeChannelId === 'tradeIn') : !(activeTab === 'competitionEfficiency' ? activeChannelId === 'tradeIn' && canAccess(user, activeChannelId, 'competitiveness') : canAccess(user, activeChannelId, activeTab))) {
+    if (activeTab === 'permissions' ? !(isAdmin && activeChannelId === 'tradeIn') : !(canAccess(user, activeChannelId, activeTab))) {
       setActiveTab(firstPage(activeChannelId));
     }
   }, [activeChannelId, activeTab, user]);
@@ -1153,10 +1199,6 @@ export default function App() {
     .filter(page => page.id !== 'priceAnalysis' && canAccess(user, activeChannelId, page.id))
     .map(page => ({ id: page.id as ViewTab, label: page.id === 'history' ? `历史 (${activeState.historyBatches.length})`
       : isSelfOperated && page.selfName ? page.selfName : page.name }));
-  if (activeChannelId === 'tradeIn' && canAccess(user, activeChannelId, 'competitiveness')) {
-    const index = viewButtons.findIndex(button => button.id === 'competitiveness');
-    viewButtons.splice(index + 1, 0, { id: 'competitionEfficiency', label: '竞争投入效率' });
-  }
   if (isAdmin && activeChannelId === 'tradeIn') viewButtons.push({ id: 'permissions', label: '权限管理' });
   const showWorkspaceControls = !(deepLink.get('reportId') && activeTab === 'competitiveness') && canViewWorkspace && !['riskLedger', 'permissions', 'history', 'priceAnalysis', 'tutorial', 'competitionEfficiency'].includes(activeTab);
   const hasPausedTour = !tourOpen && tourStepIndex > 0;
@@ -1166,10 +1208,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans overflow-x-hidden selection:bg-[#141414] selection:text-[#E4E3E0]">
-      <div className={`flex min-h-screen ${['tutorial', 'riskLedger', 'competitionEfficiency'].includes(activeTab) ? 'flex-col md:flex-row' : ''}`}>
+      <div data-app-shell className={`flex min-h-screen ${['tutorial', 'riskLedger', 'competitionEfficiency'].includes(activeTab) ? 'flex-col md:flex-row' : ''}`}>
         <aside className={`${['tutorial', 'riskLedger', 'competitionEfficiency'].includes(activeTab) ? 'w-full md:w-[260px]' : 'w-[260px]'} shrink-0 border-r border-[#141414] bg-[#F0EFEC] flex flex-col`}>
-          <div className="p-5 border-b border-[#141414] bg-[#E4E3E0]">
-            <h1 className="text-lg font-black leading-tight">线上竞争追价系统</h1>
+          <div className="flex shrink-0 items-center p-5 border-b border-[#141414] bg-[#E4E3E0] md:h-[var(--app-header-height,73px)]">
+            <div className="flex items-center gap-3">
+              <Radar size={32} strokeWidth={2.25} className="shrink-0 text-blue-600" aria-hidden="true" />
+              <h1 className="text-lg font-black leading-tight">线上竞争追价系统</h1>
+            </div>
           </div>
 
           <div className="flex-1 p-5 space-y-7">
@@ -1273,7 +1318,7 @@ export default function App() {
         <div className="min-w-0 flex-1">
           {pushOpen && canPushToFeishu && <FeishuPushDialog batches={activeState.historyBatches} channelId={activeChannelId} onClose={()=>setPushOpen(false)} />}
           {deepLink.get('reportId') && !canAccess(user, linkedChannel, 'competitiveness') && <div role="alert" className="bg-amber-50 p-4 text-sm">当前账号未开通该竞争力报告，请联系管理员。</div>}
-          <header className="flex flex-col md:flex-row items-start md:items-center justify-between px-6 py-4 border-b border-[#141414] bg-[#E4E3E0] gap-4">
+          <header ref={alignHeaderBorders} className="min-h-[73px] flex flex-col md:flex-row items-start md:items-center justify-between px-6 py-4 border-b border-[#141414] bg-[#E4E3E0] gap-4">
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="border border-[#141414] bg-[#141414] px-2 py-0.5 text-xs font-black text-white">{activeChannel.name}</span>
@@ -1400,6 +1445,11 @@ export default function App() {
                     automaticError={activeChannelId === 'tradeIn' && canEditWorkspace ? androidRevenueError : undefined}
                     onAutomaticRefresh={activeChannelId === 'tradeIn' && canEditWorkspace ? refreshAndroidRevenue : undefined}
                   />
+                  {activeChannelId==='tradeIn' && !useSharedSnapshot && (seriesCatalogError || missingCatalogSeries.length>0) && <div role="alert" className="border-b border-current bg-amber-50 p-3 text-xs">
+                    {seriesCatalogError ? `新机商品库加载失败：${seriesCatalogError}` : `请补充新机系列定位：${missingCatalogSeries.length} 组品牌＋新机系列未匹配。${missingCatalogSeries.slice(0,5).map(row=>`${row.brand || '品牌为空'} / ${row.newSeries || '系列为空'}`).join('、')}${missingCatalogSeries.length>5?'…':''}`}
+                    {canEditUpload && <button type="button" className="ml-2 underline" onClick={()=>setActiveTab('upload')}>前往数据源补充</button>}
+                    {seriesCatalogError && <button type="button" className="ml-2 underline" onClick={()=>void loadSeriesCatalog()}>重新加载</button>}
+                  </div>}
                   <MainTable
                     readOnly={!canEditWorkspace || useSharedSnapshot}
                     strategyReadOnly={!canEditWorkspace}
@@ -1433,7 +1483,21 @@ export default function App() {
               )}
 
               {activeTab === 'upload' && canAccess(user, activeChannelId, 'upload') && (canEditUpload ? (
+                <>
+
                 <UploadSection
+                  baseCatalogWarning={missingCatalogSeries.length>0 && <button
+                    type="button"
+                    aria-label={`有${missingCatalogSeries.length}组品牌与新机系列未维护，点击补充商品库`}
+                    title={`商品库待补充 ${missingCatalogSeries.length} 组：${missingCatalogSeries.map(row=>`${row.brand || '品牌为空'} / ${row.newSeries || '系列为空'}`).join('、')}。点击维护`}
+                    onClick={()=>seriesCatalogTriggerRef.current?.click()}
+                    className="inline-flex size-5 shrink-0 animate-bounce items-center justify-center rounded-full bg-amber-500 text-xs font-black text-white shadow-sm motion-reduce:animate-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                  >!</button>}
+                  headerActions={activeChannelId==='tradeIn' && <SeriesCatalogPanel triggerRef={seriesCatalogTriggerRef} entries={seriesCatalog?.entries || []} missing={missingCatalogSeries} loaded={Boolean(seriesCatalog)} error={seriesCatalogError} onRetry={()=>void loadSeriesCatalog()} onSave={async entries=>{
+                  if(!seriesCatalog)throw new Error('请先加载商品库');
+                  const next=await saveSeriesCatalog(entries,seriesCatalog.revision);setSeriesCatalog(next);
+                  await refreshServerBatches(true);
+                }}/>}
                   channelId={activeChannelId}
                   currentProducts={activeState.productsMaster}
                   dailyPrices={activeState.dailyPriceRows}
@@ -1447,6 +1511,7 @@ export default function App() {
                   onSelfSubsidyRulesLoaded={handleSelfSubsidyRulesLoaded}
                   onCompetitivenessHistoryLoaded={handleCompetitivenessHistoryLoaded}
                 />
+                </>
               ) : <SharedSourcesPanel batch={latestSnapshot} />)}
 
               {activeTab === 'priceAnalysis' && canAccess(user, activeChannelId, 'priceAnalysis') && <AuthorizedPriceAnalysis onOpenSnapshot={canAccess(user, activeChannelId, 'history') ? (batchId,ppv)=>{setSelectedHistoryBatchIds(previous=>({...previous,[activeChannelId]:batchId}));setAnalysisSnapshotFocus({batchId,ppv});setActiveTab('history');}:undefined}/>}
@@ -1476,7 +1541,7 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'competitionEfficiency' && activeChannelId === 'tradeIn' && canAccess(user, activeChannelId, 'competitiveness') && <CompetitionEfficiencyPanel historyBatches={activeState.historyBatches} />}
+              {activeTab === 'competitionEfficiency' && canAccess(user, activeChannelId, 'competitionEfficiency') && <CompetitionEfficiencyPanel historyBatches={activeState.historyBatches} />}
 
               {activeTab === 'tmHandGap' && canAccess(user, activeChannelId, 'tmHandGap') && (
                 <TmHandPriceGapPanel

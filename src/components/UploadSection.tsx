@@ -13,6 +13,10 @@ import { getDailyPriceLookupPpvs } from '../utils/dailyPriceLookup';
 import { gradeSourceUrl, listGradeSources, uploadGradeSource } from '../gradeApi';
 import { GradeSource } from '../gradeTypes';
 
+// Legacy upload timestamps were saved as UTC without a timezone suffix.
+export const uploadTimeMs = (value: string) => Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? value.replace(' ', 'T')+'Z' : value) || 0;
+const uploadTimeLabel = (value: string) => uploadTimeMs(value) ? new Date(uploadTimeMs(value)).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}) : value;
+
 type CellValue = string | number | boolean | null;
 type ParsedSheet = {
   fileName: string;
@@ -53,6 +57,8 @@ type SelfSubsidyGridRow = {
 };
 
 interface Props {
+  headerActions?: React.ReactNode;
+  baseCatalogWarning?: React.ReactNode;
   channelId: ChannelId;
   currentProducts: Product[];
   dailyPrices: DailyPriceRow[];
@@ -664,6 +670,8 @@ const DEFAULT_SELF_SUBSIDY_GRID_ROWS: SelfSubsidyGridRow[] = [
 
 export default function UploadSection({
   channelId,
+  headerActions,
+  baseCatalogWarning,
   currentProducts,
   dailyPrices,
   subsidyRules,
@@ -678,6 +686,7 @@ export default function UploadSection({
 }: Props) {
   const [busyType, setBusyType] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [subsidyStatus, setSubsidyStatus] = useState('');
   const [dailyApiStatus, setDailyApiStatus] = useState('');
   const [ppvAggregationStatus, setPpvAggregationStatus] = useState('');
   const [ppvFlowFile, setPpvFlowFile] = useState<File | null>(null);
@@ -721,15 +730,27 @@ export default function UploadSection({
       if (rows.length === 0) {
         throw new Error('没有解析到有效数据行。');
       }
-      const sourceFileId = type === 'base' || type === 'subsidy'
-        ? (await saveSourceFile(file, type, channelId)).id
-        : undefined;
-      callback(rows, file.name, sourceFileId);
+      const archive = type === 'base' || type === 'subsidy'
+        ? await saveSourceFile(file, type, channelId) : undefined;
+      callback(rows, archive?.fileName || file.name, archive?.id);
+      if(type === 'subsidy') setSubsidyStatus(`已上传并留档：${archive?.fileName}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '文件解析失败');
     } finally {
       setBusyType(null);
     }
+  };
+
+  const pullSubsidy = async () => {
+    setBusyType('subsidy'); setError(''); setSubsidyStatus('');
+    try {
+      const response=await fetch('/api/subsidy/feishu-pull',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({channelId})});
+      const result=await response.json();
+      if(!response.ok) throw new Error(result.error || '飞书拉取失败');
+      onSubsidyRulesLoaded(result.rules,result.fileName,result.id);
+      setSubsidyStatus(`已拉取 ${result.rules.length} 条规则并留档：${result.fileName}`);
+    } catch(error) {setError(error instanceof Error?error.message:'飞书拉取失败');}
+    finally {setBusyType(null);}
   };
 
   const syncDailyPriceApi = async () => {
@@ -901,17 +922,20 @@ export default function UploadSection({
 
   return (
     <div className="bg-[#F0EFEC]">
-      <div className="p-4 border-b border-[#141414]">
+      <div className="p-4 border-b border-[#141414] flex items-center justify-between gap-4">
+        <div className="min-w-0">
         <h2 className="text-base font-bold">数据上传与自动匹配流程</h2>
         <p className="mt-1 text-xs text-[#141414]/70">
           当前竞争表 {currentProducts.length} 行。{isSelfOperated ? '自营渠道补贴采用普发券粘贴规则。' : '现在只需要上传本次竞争追价表和补贴表。'}daily price API 按 ppv 自动匹配品牌名称、最终报价、BI基准价、ZZ券前价和等级id。
         </p>
+        </div>
+        {headerActions}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 p-4">
         <div className={cardClass} data-tour="base-upload">
           <div>
-            <div className="text-sm font-bold">1. 本次竞争追价表</div>
+            <div className="flex items-center gap-2 text-sm font-bold">1. 本次竞争追价表{baseCatalogWarning}</div>
             <div className="mt-1 text-[11px] text-[#141414]/70">
               {isSelfOperated
                 ? '需要字段：旧机型号 / ppv / zz裸机价。自营只对标转转裸机价，上传后替换本次竞争数据，并保留所有源字段。'
@@ -1094,12 +1118,14 @@ export default function UploadSection({
               <div className="text-sm font-bold">3. 补贴表</div>
               <div className="mt-1 text-[11px] text-[#141414]/70">按新机系列找到规则，再用 jd裸机价落入价格门槛，返回对应新品型号ahs投入。</div>
             </div>
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className={inputClass}
-              onChange={(event) => handleUpload(event.target.files?.[0], 'subsidy', parseSubsidyRules, onSubsidyRulesLoaded)}
-            />
+            <div className="flex items-center gap-2">
+              <input type="file" aria-label="手动上传补贴表" accept=".xlsx,.xls,.csv" className={inputClass} disabled={busyType !== null}
+                onChange={(event) => { const file=event.target.files?.[0]; event.target.value=''; void handleUpload(file, 'subsidy', parseSubsidyRules, onSubsidyRulesLoaded); }} />
+              <button type="button" className="shrink-0 border border-current px-3 py-2 text-xs disabled:opacity-50" disabled={busyType !== null} onClick={pullSubsidy}>
+                {busyType === 'subsidy' ? '处理中…' : '从飞书拉取'}
+              </button>
+            </div>
+            <p className="text-xs" role="status">{subsidyStatus || '可手动上传或由服务器从飞书拉取，每次导入均独立留档。'}</p>
             <div className={statClass}>已导入 {subsidyRules.length} 条规则，覆盖 {subsidySeriesMatched}/{currentSeries.size} 个新机系列</div>
             {uncoveredSubsidySeries.length > 0 && (
               <div className="border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
@@ -1157,7 +1183,12 @@ export default function UploadSection({
               </tr>
             </thead>
             <tbody>
-              {ppvSources.map(source => {
+              {[
+                ...ppvSources.map(source => ({kind:'ppv' as const,source,time:source.createdAt})),
+                ...uploadRecords.map(record => ({kind:'upload' as const,record,time:record.uploadedAt}))
+              ].sort((a,b)=>uploadTimeMs(b.time)-uploadTimeMs(a.time)).map(item => {
+                if(item.kind === 'ppv') {
+                const source=item.source;
                 const merged = /^(PPV流量成交汇总_|成交匹配_)/.test(source.fileName);
                 return <tr key={`ppv-${source.id}`} className="border-b border-[#141414]/20">
                   <td className="p-2 border-r border-[#141414]/20 font-bold">{merged ? 'PPV完整汇总表' : '历史流量底表'}</td>
@@ -1168,14 +1199,15 @@ export default function UploadSection({
                   <td className="p-2 border-r border-[#141414]/20">{merged ? '流量表与质检成交表按SKUID+LEVEL汇总，供等级推算使用' : '旧版底表，成交量未经独立质检成交表匹配'}</td>
                   <td className="p-2 text-center align-middle"><a href={gradeSourceUrl(source.id)} aria-label={`下载 ${source.fileName}`} className="inline-flex h-7 items-center gap-1 px-2 underline"><ArrowBigDownDash className="h-4 w-4" aria-hidden="true" />下载</a></td>
                 </tr>;
-              })}
-              {uploadRecords.map(record => (
+                }
+                const record=item.record;
+                return (
                 <tr key={record.id} className="border-b border-[#141414]/20">
                   <td className="p-2 border-r border-[#141414]/20 font-bold">{recordTypeLabel(record.type)}</td>
                   <td className="p-2 border-r border-[#141414]/20">
                     <span className="block truncate" title={record.fileName}>{record.fileName}</span>
                   </td>
-                  <td className="p-2 border-r border-[#141414]/20 font-mono">{record.uploadedAt}</td>
+                  <td className="p-2 border-r border-[#141414]/20 font-mono">{uploadTimeLabel(record.uploadedAt)}</td>
                   <td className="p-2 text-right border-r border-[#141414]/20 font-mono">{record.rowCount}</td>
                   <td className="p-2 text-right border-r border-[#141414]/20 font-mono">{record.matchedCount ?? ''}</td>
                   <td className="p-2 border-r border-[#141414]/20">{record.remarks || ''}</td>
@@ -1187,7 +1219,8 @@ export default function UploadSection({
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

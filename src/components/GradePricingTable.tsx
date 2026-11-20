@@ -1,3 +1,4 @@
+import { useUrlState } from '../utils/urlState';
 import React, { useMemo, useState } from 'react';
 import { GradeOutputRow, GradeRun } from '../gradeTypes';
 import { gradeRowDisplay, gradeResultStatus, gradeResultValue } from '../../shared/gradePresentation.mjs';
@@ -36,7 +37,7 @@ const getValue=(view:ViewRow,key:string)=>view.values[key];
 const button='border border-[#141414] bg-white px-3 py-2 text-xs font-bold disabled:opacity-40';
 
 export default function GradePricingTable({run}:{run:GradeRun;key?:string}) {
-  const [query,setQuery]=useState(''); const [onlyIssues,setOnlyIssues]=useState(false);
+  const [query,setQuery]=useUrlState('GradePricingTable.query', ''); const [onlyIssues,setOnlyIssues]=useState(false);
   const [filters,setFilters]=useState<ColumnFilters>({}); const [open,setOpen]=useState<string|null>(null);
   const views=useMemo(()=>run.rows.map(row=>({row,values:{...Object.fromEntries(Object.entries(gradeRowDisplay(row,run.request)).map(([key,value])=>[key,gradeResultValue(key,value)])),level:row.level,origin:row.origin,strategyPrice:row.strategyPrice,adjustment:row.adjustment,investment:row.investment,status:gradeResultStatus(row).join('；')}})),[run]);
   const searched=useMemo(()=>views.filter(v=>(!onlyIssues||Boolean(v.values.status))&&matchesTableSearch(v,query,v=>allColumns.map(c=>v.values[c.key]))),[views,query,onlyIssues]);
