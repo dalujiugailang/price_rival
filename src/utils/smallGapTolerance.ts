@@ -1,3 +1,4 @@
+import {hasInflationRules,findTradeInPrice,tradeInMarginUpper} from '../../shared/tradeInSubsidy.mjs';
 import {
   CalculatedProduct,
   ChannelConfig,
@@ -44,19 +45,21 @@ export const evaluateSmallGapTolerance = ({
   return products.map(product => {
     const hasTmPrice = product.tmPrice > 0;
     const hasRecommendAdjustment = round2(product.recommendAdjustment) !== 0;
-    const alreadyWonBefore = hasTmPrice && product.jdPrice >= product.tmPrice;
-    const alreadyWonAfter = hasTmPrice && product.recommendJdPrice >= product.tmPrice;
+    const alreadyWonBefore = hasTmPrice && (product.inflationItemPriceBefore ?? product.jdPrice) >= product.tmPrice;
+    const alreadyWonAfter = hasTmPrice && (product.inflationItemPriceAfter ?? product.recommendJdPrice) >= product.tmPrice;
     if (!hasTmPrice || !hasRecommendAdjustment || alreadyWonBefore || alreadyWonAfter) return product;
 
-    const gapToTm = round2(product.tmPrice - product.recommendJdPrice);
+    const gapToTm = round2(product.tmPrice - (product.inflationItemPriceAfter ?? product.recommendJdPrice));
     if (gapToTm <= 0 || gapToTm > SMALL_GAP_THRESHOLD) return product;
 
-    const tolerancePrice = getRoundedCompetitivePrice(product.tmPrice, product.tmPrice);
+    const rules=subsidyRules.filter(r=>r.newSeries===product.newSeries);
+    const found=hasInflationRules(rules)?findTradeInPrice({rules,basePrice:product.basePrice,min:product.recommendJdPrice,max:tradeInMarginUpper(product.basePrice,toleranceMargin),itemTarget:product.tmPrice,marginFloor:toleranceMargin}):null;
+    const tolerancePrice = hasInflationRules(rules)?(found?.price??0):getRoundedCompetitivePrice(product.tmPrice, product.tmPrice);
     if (tolerancePrice <= 0) return product;
 
     const simulated = applyManualRecommendedPrice(
       product,
-      tolerancePrice,
+      found?.rawPrice ?? tolerancePrice,
       toleranceMargin,
       subsidyRules,
       { channel, selfSubsidyRules }
@@ -81,6 +84,7 @@ export const evaluateSmallGapTolerance = ({
       smallGapOpportunity: true,
       smallGapOpportunityRemark: note,
       smallGapTolerancePrice: tolerancePrice,
+      smallGapToleranceRawPrice: found?.rawPrice,
       smallGapToleranceMargin: simulated.postMarginalProfit,
       smallGapToleranceEligible: toleranceEligible
     };
@@ -100,5 +104,5 @@ export const getSmallGapTolerancePrices = (
           && Number.isFinite(product.smallGapToleranceMargin)
           && (product.smallGapToleranceMargin as number) >= toleranceMargin)
     ))
-    .map(product => [product.ppv, product.smallGapTolerancePrice as number])
+    .map(product => [product.ppv, product.smallGapToleranceRawPrice ?? product.smallGapTolerancePrice as number])
 );

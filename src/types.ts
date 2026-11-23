@@ -11,6 +11,15 @@ export interface Product {
   rawFields: Record<string, string | number | boolean | null>;
   newSeries: string;
   newSeriesPosition?: string;
+  pricingAlgorithmVersion?: string;
+  inflationTotalBefore?: number;
+  inflationAhsBefore?: number;
+  inflationItemPriceBefore?: number;
+  inflationTotalAfter?: number;
+  inflationAhsAfter?: number;
+  inflationItemPriceAfter?: number;
+  subsidyMatchPriceBefore?: number;
+  subsidyMatchPriceAfter?: number;
   oldModel: string;
   ppv: string;
   brand: string;
@@ -58,6 +67,9 @@ export interface DailyPriceRow {
 }
 
 export interface SubsidyRule {
+  ruleVersion?: 2;
+  inflationTotal?: number;
+  inflationAhs?: number;
   newSeries: string;
   threshold: number;
   ahsInput: number;
@@ -166,6 +178,7 @@ export interface HandPriceAdjustment {
 }
 
 export interface CalculatedProduct extends Product {
+  smallGapToleranceRawPrice?: number;
   automaticHandTopUp?: {
     firstRoundPrice: number;
     firstRoundHandPrice: number;
@@ -249,6 +262,7 @@ export interface CalculatedProduct extends Product {
 export type BatchType = 'regular' | 'launch';
 
 export interface TrackingBatch {
+  pricingAlgorithmVersion?: string;
   competitionCoveragePpvs?: string[];
   batchType?: BatchType;
   launchActivity?: string;

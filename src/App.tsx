@@ -1,6 +1,7 @@
+import {hasInflationRules} from '../shared/tradeInSubsidy.mjs';
 import SeriesCatalogPanel from './components/SeriesCatalogPanel';
 import {getSeriesCatalog,saveSeriesCatalog,type SeriesCatalogResponse} from './api';
-import {seriesCatalogIndex,positionProducts,missingSeries} from '../shared/seriesCatalog.mjs';
+import {seriesCatalogIndex,positionProducts,missingSeries,syncCatalogHistory} from '../shared/seriesCatalog.mjs';
 import { readRoute, writeUrl, routeEvent, useUrlState } from './utils/urlState';
 import CompetitionEfficiencyPanel from './components/CompetitionEfficiencyPanel';
 import FeishuIcon from './components/FeishuIcon';
@@ -922,6 +923,7 @@ export default function App() {
       dataDate: todayStr,
       marginBottomLine: activeState.marginBottomLine,
       pricingMode: activeState.pricingMode,
+      pricingAlgorithmVersion: activeChannelId==='tradeIn'&&hasInflationRules(activeState.subsidyRules)?'inflation-v2':undefined,
       products: JSON.parse(JSON.stringify(activeCalculatedItems)),
       sourceUploadRecords: activeState.sourceUploadRecords,
       snapshotSourceFiles: selectSnapshotSourceFiles(activeState.sourceUploadRecords),
@@ -1495,8 +1497,12 @@ export default function App() {
                   >!</button>}
                   headerActions={activeChannelId==='tradeIn' && <SeriesCatalogPanel triggerRef={seriesCatalogTriggerRef} entries={seriesCatalog?.entries || []} missing={missingCatalogSeries} loaded={Boolean(seriesCatalog)} error={seriesCatalogError} onRetry={()=>void loadSeriesCatalog()} onSave={async entries=>{
                   if(!seriesCatalog)throw new Error('请先加载商品库');
-                  const next=await saveSeriesCatalog(entries,seriesCatalog.revision);setSeriesCatalog(next);
-                  await refreshServerBatches(true);
+                  const next=await saveSeriesCatalog(entries,seriesCatalog.revision);
+                  if(next.revision===seriesCatalog.revision)return;
+                  setSeriesCatalog(next);
+                  historySyncRef.current?.invalidate();
+                  setHistoryRefreshing(false);
+                  setChannelStates(previous=>({...previous,tradeIn:{...previous.tradeIn,historyBatches:syncCatalogHistory(previous.tradeIn.historyBatches,next)}}));
                 }}/>}
                   channelId={activeChannelId}
                   currentProducts={activeState.productsMaster}

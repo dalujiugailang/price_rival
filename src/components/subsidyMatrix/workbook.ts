@@ -1,3 +1,4 @@
+import {hasInflationRules} from '../../../shared/tradeInSubsidy.mjs';
 import {addWorksheet, createWorkbook} from '@office-kit/xlsx/workbook';
 import {freezePanes, mergeCells, setCell, setColumnWidth, setRowHeight} from '@office-kit/xlsx/worksheet';
 import {setCellStyle} from '@office-kit/xlsx/styles';
@@ -37,7 +38,7 @@ export function createMatrixWorkbook({workspace, rows, groups, columnWidth = 88,
   // CSS pixels to Excel points / character widths (96 dpi).
   setColumnWidth(sheet, 1, (185 - 5) / 7);
   groups.forEach((_, i) => setColumnWidth(sheet, i + 2, (columnWidth - 5) / 7));
-  across(1, `${heatmapTitle(metric)}${mode === 'ratio' ? ` · ${valueLabel(metric, mode)}` : ''}`, 13.5, true);
+  across(1, `${heatmapTitle(metric)}${hasInflationRules(workspace.subsidyRules)?'（剔除旧机膨胀）':''}${mode === 'ratio' ? ` · ${valueLabel(metric, mode)}` : ''}`, 13.5, true);
   setRowHeight(sheet, 1, 30);
   across(2, `补贴来源：${workspace.fileName} · ${workspace.label}${workspace.uploadedAt ? ` · ${workspace.uploadedAt}` : ''}`, 8.25);
   setRowHeight(sheet, 2, 22);

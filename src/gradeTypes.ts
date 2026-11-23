@@ -16,7 +16,7 @@ export interface GradeRequest {
   trackingBatchId?: string;
   volumeId: string; templateId: string; prices: GradePriceInput[]; skuIds: string[];
   priceChoices: Record<string, string>; workspaceVersion: string;
-  subsidyRules?: Array<{newSeries:string;threshold:number;ahsInput:number;jdSubsidy:number}>;
+  subsidyRules?: Array<{newSeries:string;threshold:number;ahsInput:number;jdSubsidy:number;ruleVersion?:2;inflationTotal?:number;inflationAhs?:number}>;
 }
 export interface GradeOutputRow {
   priceBeforeOrder?:number;

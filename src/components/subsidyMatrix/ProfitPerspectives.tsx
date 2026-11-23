@@ -1,7 +1,7 @@
 import React from 'react';
 import type {CalculatedProduct} from '../../types';
 import type {MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
-import type {buildProfitView} from './model';
+import {savedAhsSpend, type buildProfitView} from './model';
 import {deltaLabel, input, money, percent, riskClass} from './ui';
 
 const subsidyDeltaClass = (delta = 0) => delta > 0 ? 'text-red-700' : delta < 0 ? 'text-green-700' : '';
@@ -63,7 +63,7 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
       {product && !selection.oldModel && <div className="sm-baseline" aria-label="当前工作台方案">
         <div><span>京东物品价-追价后</span><strong>¥{money(product.recommendJdPrice)}</strong></div>
         <div><span>当前换新系列</span><strong>{product.newSeries || '未提供'}</strong></div>
-        <div><span>当前承担补贴</span><strong>¥{money(product.ahsSubsidyAfter)}</strong></div>
+        <div><span>{product.pricingAlgorithmVersion==='inflation-v2'?'当前ahs总承担（含膨胀）':'当前承担补贴'}</span><strong>¥{money(savedAhsSpend(product))}</strong>{product.pricingAlgorithmVersion==='inflation-v2' && <small>常规 ¥{money(product.ahsSubsidyAfter)} ＋ 膨胀 ¥{money(product.inflationAhsAfter)}</small>}</div>
         <div><span>当前利润</span><strong>¥{money(baseProfit)} <small> / {percent(product.postMarginalProfit)}</small></strong></div>
       </div>}
       {!product && <p className="border border-[#141414] bg-[#F0EFEC] p-3 text-xs">工作台暂无旧机报价，载入本次测算后再查看亏损组合。</p>}
@@ -97,8 +97,8 @@ export default function ProfitPerspectives({workspace, model, selection, onChang
       {(selection.view === 'new' ? !model.visibleScenarios.length : !model.oldScenarios.length) && <p className="p-4 text-xs text-[#555]">{selection.view === 'old' && selection.oldSearch?.trim() ? '没有匹配当前搜索及风险筛选的新机系列。' : selection.view === 'new' && selection.search?.trim() ? '没有匹配当前搜索及风险筛选的竞争旧机 / PPV。' : fixedQuote && selection.view === 'new' && !target ? '该报价缺少新机系列，无法进行新机视角测算。' : selection.onlyRisks ? '当前范围内没有已识别的亏损或低利润组合。' : selection.view === 'new' ? '工作台暂无可测算的 PPV 报价。' : '当前筛选范围没有可比较的新机系列。'}</p>}
     </div>
     <details className="text-xs text-[#555]"><summary className="cursor-pointer">怎么算的？</summary><div className="mt-2 space-y-1 leading-relaxed">
-      <p>两种视角都逐条使用工作台的“京东物品价-追价后”命中最高已达原始门槛，不用合并档最大值，也不叠加补贴。</p>
-      <p>预计利润＝该条工作台原利润 − 补贴增量 × 1.0466；利润率分母仍为该旧机基准价。每多承担 100 元补贴，利润减少 104.66 元。当前方案保留工作台已算结果。</p>
+      <p>两种视角都逐条使用工作台的追后裸机价。含旧机膨胀的规则先按裸机价选最大可达膨胀，再用裸机价＋膨胀总额命中常规补贴；利润比较同时计入常规承担和膨胀承担。旧规则仍按原裸机价匹配。</p>
+      <p>预计利润＝该条工作台原利润 − 爱回收总承担增量（常规＋膨胀）× 1.0466；利润率分母仍为该旧机基准价。每多承担 100 元补贴，利润减少 104.66 元。当前方案保留工作台已算结果。</p>
       <p>同门槛金额冲突、规则或基准数据缺失显示待核验。不同 PPV、等级或来源方案保留为不同报价；此处为换新风险测算，不代表实际换新订单，不据此预测换新订单量。</p>
       <p>系列范围跟随上方筛选；门槛范围只控制矩阵展示，不限制实际命中。列表按预计亏损额从高到低排列。</p>
     </div></details>

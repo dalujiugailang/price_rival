@@ -1,3 +1,4 @@
+import {hasInflationRules,prepareTradeInRules} from '../shared/tradeInSubsidy.mjs';
 import { resolveGradeVolume } from '../shared/gradeVolumeFallback.mjs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
@@ -148,7 +149,9 @@ export function registerGradeRoutes(app, { store, lookupPrices, getBatch = () =>
     const prices=input.prices.map(p=>({id:String(p.id || ''),ppv:String(p.ppv || ''),skuId:String(p.skuId || ''),model:String(p.model || ''),level:String(p.level || ''),price:p.price,newSeries:String(p.newSeries || ''),...(p.display ? {display:gradeSourceDisplay(p.display)} : {})}));
     if (prices.some(p=>!p.id || !p.ppv || !p.skuId || !p.model || !Number.isFinite(p.price) || p.price<=0)) throw new Error('已定价记录不完整');
     if (input.subsidyRules != null && (!Array.isArray(input.subsidyRules) || input.subsidyRules.length>10000 || input.subsidyRules.some(r=>!r || typeof r.newSeries!=='string' || ![r.threshold,r.ahsInput,r.jdSubsidy].every(n=>Number.isFinite(n)&&n>=0)))) throw new Error('补贴规则格式无效');
-    const subsidyRules=(input.subsidyRules || []).map(({newSeries,threshold,ahsInput,jdSubsidy})=>({newSeries,threshold,ahsInput,jdSubsidy}));
+    const subsidyRules=(input.subsidyRules || []).map(rule=>({newSeries:rule.newSeries,threshold:rule.threshold,ahsInput:rule.ahsInput,jdSubsidy:rule.jdSubsidy,
+      ...(hasInflationRules([rule])?{ruleVersion:2,inflationTotal:rule.inflationTotal ?? 0,inflationAhs:rule.inflationAhs ?? 0}:{})}));
+    for(const series of new Set(subsidyRules.map(rule=>rule.newSeries))){const rules=subsidyRules.filter(rule=>rule.newSeries===series);if(hasInflationRules(rules))prepareTradeInRules(rules);}
     const request={volumeId:volume.id,templateId:template.id,prices,subsidyRules,skuIds:[...new Set(input.skuIds.map(String))],priceChoices:input.priceChoices || {},workspaceVersion:String(input.workspaceVersion || '')};
     const parent = input.parentRunId ? store.getRun(String(input.parentRunId)) : null;
     if (input.parentRunId && !parent) throw new Error('原测算不存在，无法更新');

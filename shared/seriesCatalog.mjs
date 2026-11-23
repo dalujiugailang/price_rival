@@ -38,3 +38,10 @@ export function missingSeries(products,index) {
 export function positionBatch(batch,index) {
  return {...batch,products:positionProducts(batch.products || [],index),...(batch.restorePayload?{restorePayload:{...batch.restorePayload,productsMaster:positionProducts(batch.restorePayload.productsMaster || [],index)}}:{})};
 }
+
+// Use the server-frozen target IDs; never expand the historical backfill window.
+export function syncCatalogHistory(batches,catalog) {
+ const targets=new Set(catalog.backfilledBatchIds);
+ const index=seriesCatalogIndex(catalog.entries);
+ return batches.map(batch=>(batch.channelId || 'tradeIn')==='tradeIn' && targets.has(batch.id)?positionBatch(batch,index):batch);
+}

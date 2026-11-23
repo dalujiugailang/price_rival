@@ -17,6 +17,9 @@ export function createSeriesCatalog(databasePath) {
    const batch=JSON.parse(row.payload_json),next=positionBatch(batch,index);
    db.prepare('INSERT OR IGNORE INTO series_position_backups VALUES(?,?,?)').run(id,row.payload_json,new Date().toISOString());
    updatedProductCount+=next.products.filter((p,i)=>p.newSeriesPosition!==batch.products[i].newSeriesPosition).length;
+   const changed=next.products.some((product,i)=>product.newSeriesPosition!==batch.products[i].newSeriesPosition)
+    || (next.restorePayload?.productsMaster || []).some((product,i)=>product.newSeriesPosition!==batch.restorePayload?.productsMaster?.[i]?.newSeriesPosition);
+   if(!changed)continue;
    // Keep pricing, timestamps, confirmation and competitiveness values unchanged.
    db.prepare('UPDATE tracking_batches SET payload_json=? WHERE id=?').run(JSON.stringify(next),id);
   }
@@ -36,9 +39,13 @@ export function createSeriesCatalog(databasePath) {
    return transaction(()=>{
     const row=state();
     if(revision!==row.revision)throw Object.assign(new Error('商品库已被更新，请重新加载后再保存'),{statusCode:409});
+    const entriesJson=JSON.stringify(validated);
+    if(entriesJson===row.entries_json)return this.get();
     db.prepare('INSERT INTO series_catalog_archive(entries_json,actor,created_at) VALUES(?,?,?)').run(row.entries_json,actor || '',new Date().toISOString());
-    apply(validated,JSON.parse(row.targets_json));
-    db.prepare('UPDATE series_catalog_state SET entries_json=?,revision=revision+1 WHERE id=1').run(JSON.stringify(validated));
+    const beforeIndex=seriesCatalogIndex(JSON.parse(row.entries_json)),afterIndex=seriesCatalogIndex(validated);
+    const positionChanged=[...new Set([...beforeIndex.keys(),...afterIndex.keys()])].some(key=>beforeIndex.get(key)!==afterIndex.get(key));
+    if(positionChanged)apply(validated,JSON.parse(row.targets_json));
+    db.prepare('UPDATE series_catalog_state SET entries_json=?,revision=revision+1 WHERE id=1').run(entriesJson);
     return this.get();
    });
   },
@@ -52,7 +59,8 @@ export function registerSeriesCatalogRoutes(app,{catalog,auth,requirePage,canRea
   res.json({success:true,...catalog.get()});
  });
  app.put('/api/series-catalog',auth.requireEditor,requirePage('tradeIn','upload'),(req,res)=>{
-  try{const result=catalog.save(req.body?.entries,req.body?.revision,req.authUser.openId);
+  try{const start=performance.now();const result=catalog.save(req.body?.entries,req.body?.revision,req.authUser.openId);
+   res.set('Server-Timing',`catalog;dur=${(performance.now()-start).toFixed(1)}`);
    res.json({success:true,...result});
   }catch(error){res.status(error.statusCode || 400).json({success:false,error:error.message});}
  });

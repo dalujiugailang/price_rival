@@ -26,7 +26,7 @@ const labels = [
   '追后含AHS补贴报价',
   '追后京东总到手价',
   '追后边际利润率',
-  '追后tm物品价差',
+  '追后tm物品价差-含旧机膨胀ahs承担',
   '追后tm到手价差',
   '京东物品价-追价后 vs 天猫',
   '京东物品价+ahs补贴-追价后 vs天猫',
@@ -149,7 +149,7 @@ const testTradeInFormulas = () => {
   const postMarginCell = cellFor(pricingSheet, '追后边际利润率');
   const preItemGapCell = cellFor(pricingSheet, '追前tm物品价差');
   const preHandGapCell = cellFor(pricingSheet, '追前tm到手价差');
-  const postItemGapCell = cellFor(pricingSheet, '追后tm物品价差');
+  const postItemGapCell = cellFor(pricingSheet, '追后tm物品价差-含旧机膨胀ahs承担');
   const postHandGapCell = cellFor(pricingSheet, '追后tm到手价差');
   const tmRecyclerSubsidyCell = cellFor(pricingSheet, '对应新品型号tm回收商投入');
   const tmRecyclerQuotedPriceCell = cellFor(pricingSheet, '含tm回收商补贴后报价');
@@ -240,6 +240,75 @@ const testSelfOperatedFormulaAndNoRuleFallback = () => {
   assert.equal(cellFor(noRuleWorkbook.pricingSheet, '追后京东总补贴').f, 'E3');
 };
 
+const testInflationRulesAndDynamicColumns = (unifiedLabels = false) => {
+  const rules: SubsidyRule[] = [
+    {newSeries:'Pixel',threshold:100,jdSubsidy:300,ahsInput:80,inflationTotal:200,inflationAhs:40,ruleVersion:2,rawFields:{'京东总补贴':9999}},
+    {newSeries:'Pixel',threshold:500,jdSubsidy:500,ahsInput:150,inflationTotal:300,inflationAhs:50,ruleVersion:2,rawFields:{'京东总补贴':9999}},
+    {newSeries:'Pixel',threshold:900,jdSubsidy:600,ahsInput:200,inflationTotal:300,inflationAhs:80,ruleVersion:2,rawFields:{'京东总补贴':9999}},
+    {newSeries:'Pixel',threshold:1000,jdSubsidy:700,ahsInput:250,inflationTotal:100,inflationAhs:20,ruleVersion:2,rawFields:{'京东总补贴':9999}}
+  ];
+  const expectedMargin = 1 - (1260 * 1.0466 + 2000 * .0218 + 81) / 2000;
+  const row = {...product,newSeries:'Pixel',jdPrice:450,recommendJdPrice:950,basePrice:2000,tmPrice:1030,
+    tmHandPrice:1900,ahsInput:100,jdSubsidy:200,jdHandPrice:850,ahsSubsidyAfter:230,totalSubsidy:600,
+    recommendAdjustment:500,postAhsPrice:1260,postJdHandPrice:1850,postMarginalProfit:expectedMargin,
+    postTmItemWin:true,postTmHandWin:false,inflationTotalBefore:200,inflationAhsBefore:40,inflationItemPriceBefore:490,
+    inflationTotalAfter:300,inflationAhsAfter:80,inflationItemPriceAfter:1030} as CalculatedProduct;
+  const {workbook,pricingSheet}=makeWorkbook();
+  const extra=['旧机膨胀款-追价前','旧机膨胀款ahs承担部分-追价前','含旧机膨胀款ahs承担部分后物品价-追价前',
+    '旧机膨胀款-追价后','旧机膨胀款ahs承担部分-追价后','含旧机膨胀款ahs承担部分后物品价-追价后',
+    '含AHS补贴后报价','追前边际利润率'];
+  const aliases: Record<string,string> = {
+    '对应新品型号ahs投入':'以旧换新补贴ahs承担-追价前',
+    '对应新品型号jd总投入':'以旧换新总补贴-追价前',
+    '追后AHS补贴':'以旧换新补贴ahs承担-追价后',
+    '追后京东总补贴':'以旧换新总补贴-追价后',
+    '追后含AHS补贴报价':'含ahs全部承担后报价-追价后',
+    '含AHS补贴后报价':'含ahs全部承担后报价-追价前'
+  };
+  const labelFor=(label:string)=>unifiedLabels?(aliases[label] || label):label;
+  const allLabels=[...labels,...extra].map(labelFor);
+  XLSX.utils.sheet_add_aoa(pricingSheet,[extra.map((_,i)=>`EX${i}`),extra,extra.map(()=>0)],{origin:{r:0,c:labels.length}});
+  for(let i=0;i<allLabels.length;i++)pricingSheet[`${XLSX.utils.encode_col(i)}2`]={t:'s',v:allLabels[i]};
+  const ref=(label:string,r=3)=>`${XLSX.utils.encode_col(allLabels.indexOf(labelFor(label)))}${r}`;
+  const cell=(label:string)=>pricingSheet[ref(label)] as XLSX.CellObject;
+  [['新机系列','Pixel'],['jd裸机价',450],['试算追后价',950],['基准价',2000],['tm裸机价',1030],['tm总到手价',1900]].forEach(([label,value])=>{
+    pricingSheet[ref(String(label))]={t:typeof value==='string'?'s':'n',v:value};
+  });
+  addDynamicPricingWorkbookSheets({workbook,pricingSheet,pricingSheetName:'询价表_京东换新追价',products:[row],channelId:'tradeIn',subsidyRules:rules,selfSubsidyRules:[]});
+  assert.deepEqual(extra.slice(0,6).map(label=>cell(label).v),[200,40,490,300,80,1030]);
+  assert.equal(cell('含AHS补贴后报价').v,590);
+  assert.ok(cell('含AHS补贴后报价').f?.includes(ref(extra[2])));
+  assert.ok(Math.abs(Number(cell('追前边际利润率').v)-(1-(590*1.0466+2000*.0218+81)/2000))<1e-12);
+  assert.match(cell(extra[0]).f || '',/^_xlfn\.MAXIFS/,'E must be max within thresholds reachable by original P');
+  assert.match(cell(extra[1]).f || '',/\$E\$2:\$E\$5=/,'A must pair with the chosen maximum E');
+  assert.match(cell(extra[1]).f || '',/0,0,-1/,'tied E selects the highest reachable threshold');
+  assert.ok(!cell(extra[3]).f?.includes(ref(extra[3])),'inflation cannot recursively depend on itself');
+  assert.ok(!cell(extra[3]).f?.includes(ref(extra[5])),'inflation must use raw P, not the competitiveness amount');
+  assert.match(cell('追后AHS补贴').f || '',/\$H\$2:\$H\$5/);
+  assert.ok(cell('追后AHS补贴').f?.includes(`(${ref('试算追后价')}+${ref(extra[3])})`),'regular tier must use P+E');
+  assert.equal(cell('追后AHS补贴').v,230,'subtract the regular hit row own A=20, not selected inflation A=80');
+  assert.equal(cell('追后京东总补贴').v,600,'subtract regular hit row E=100, not selected E=300');
+  assert.equal(cell('追后含AHS补贴报价').v,1260);
+  assert.equal(cell('追后京东总到手价').v,1850);
+  assert.ok(Math.abs(Number(cell('追后边际利润率').v)-expectedMargin)<1e-12);
+  assert.ok(cell('追后边际利润率').f?.includes(ref(extra[5])),'profit includes inflation A once through P+A');
+  assert.equal(cell('追前tm物品价差').v,-540);
+  assert.equal(cell('追后tm物品价差-含旧机膨胀ahs承担').v,0);
+  assert.ok(cell('京东物品价-追价后 vs 天猫').f?.includes(ref(extra[5])));
+  assert.equal(cell('京东物品价-追价后 vs 天猫').v,1,'equality is competitive');
+  assert.equal(workbook.Sheets['补贴规则'].E5.v,100);
+  assert.equal(workbook.Sheets['补贴规则'].F5.v,20);
+  assert.equal(workbook.Sheets['补贴规则'].G5.v,600);
+  assert.equal(workbook.Sheets['补贴规则'].H5.v,230);
+  assert.equal(workbook.Sheets['补贴规则'].I5.v,9999,'archival-only columns stay intact after derived columns');
+  const reloaded=XLSX.read(XLSX.write(workbook,{bookType:'xlsx',type:'buffer'}),{type:'buffer',cellFormula:true,xlfn:true});
+  assert.equal(reloaded.Sheets['询价表_京东换新追价'][ref(extra[3])].v,300);
+  assert.match(reloaded.Sheets['询价表_京东换新追价'][ref(extra[3])].f || '',/MAXIFS/);
+  assert.ok(Math.abs(Number(reloaded.Sheets['询价表_京东换新追价'][ref('追后边际利润率')].v)-expectedMargin)<1e-12);
+};
+
 testTradeInFormulas();
 testSelfOperatedFormulaAndNoRuleFallback();
+testInflationRulesAndDynamicColumns();
+testInflationRulesAndDynamicColumns(true);
 console.log('pricing workbook checks passed');

@@ -1,3 +1,4 @@
+import {hasInflationRules,evaluateTradeInPrice,prepareTradeInRules} from '../../../shared/tradeInSubsidy.mjs';
 import {heatmapSpread, heatmapValues, type HeatmapMode, type SubsidyMetric} from './heatmapStyle';
 import type {CalculatedProduct, SourceUploadRecord, SubsidyRule, TrackingBatch} from '../../types';
 import {buildMatrix, compareSubsidyProfit, hitWorkspaceSeriesRules} from '../../../shared/subsidyMatrix.mjs';
@@ -45,19 +46,35 @@ export function buildWorkspaceMatrix(subsidyRules: SubsidyRule[], products: Calc
       if (rule.newSeries) invalidSeries.add(rule.newSeries);
       return;
     }
+    const inflation=hasInflationRules([rule]);
+    if(inflation){
+      try{prepareTradeInRules([rule]);}catch{
+        issues.push(`工作台规则第 ${index + 1} 条旧机膨胀或拆后补贴无效，未用于矩阵和换新比较。`);
+        invalidSeries.add(rule.newSeries);return;
+      }
+    }
     const raw = rule.rawFields || {};
     const brand = String(rawValue(raw, ['品牌', '新机品牌', '品牌名称', 'brand']) || '未提供品牌').trim();
     const sourceRow = Number(rawValue(raw, ['原始行号', '源行号', 'sourcerownumber']));
     const normalized: MatrixRule = {
       id: `workspace-rule-${index}`, sourceIndex: index + 1,
       sourceRow: Number.isInteger(sourceRow) && sourceRow > 0 ? sourceRow : null,
-      brand, series: rule.newSeries, threshold: rule.threshold, ahs: rule.ahsInput, jd: rule.jdSubsidy, raw
+      brand, series: rule.newSeries, threshold: rule.threshold,
+      ahs:inflation?rule.ahsInput-(rule.inflationAhs ?? 0):rule.ahsInput,
+      jd:inflation?rule.jdSubsidy-(rule.inflationTotal ?? 0):rule.jdSubsidy, raw,
+      ...(inflation?{ruleVersion:2 as const,inflationTotal:rule.inflationTotal ?? 0,inflationAhs:rule.inflationAhs ?? 0,grossAhs:rule.ahsInput,grossJd:rule.jdSubsidy}:{})
     };
-    const key = JSON.stringify([rule.newSeries, rule.threshold, rule.ahsInput, rule.jdSubsidy, brand]);
+    const key = JSON.stringify([rule.newSeries, rule.threshold, rule.ahsInput, rule.jdSubsidy, rule.inflationTotal,rule.inflationAhs,brand]);
     if (seen.has(key)) issues.push(`工作台规则第 ${index + 1} 条与第 ${seen.get(key)} 条重复，已保留全部明细。`);
     else seen.set(key, index + 1);
     rules.push(normalized);
   });
+  for(const series of new Set(rules.map(rule=>rule.series))){
+    const selected=rules.filter(rule=>rule.series===series);
+    if(hasInflationRules(selected))try{prepareTradeInRules(selected.map(rule=>({...rule,newSeries:series,ahsInput:rule.grossAhs ?? rule.ahs,jdSubsidy:rule.grossJd ?? rule.jd})));}catch{
+      invalidSeries.add(series);issues.push(`${series} 的膨胀补贴规则冲突，请核验原表。`);
+    }
+  }
   const matrix = buildMatrix(rules) as {groups: MatrixGroup[]; rows: Omit<MatrixRow, 'activeCount' | 'hasRules'>[]; stats: Record<string, number>};
   const usage = new Map<string, number>();
   for (const product of products) {
@@ -70,6 +87,8 @@ export function buildWorkspaceMatrix(subsidyRules: SubsidyRule[], products: Calc
   return {...matrix, rules, rows, usage, issues, missingSeries, invalidSeries};
 }
 
+export const savedAhsSpend=(product:CalculatedProduct)=>product.ahsSubsidyAfter+(product.pricingAlgorithmVersion==='inflation-v2' ? product.inflationAhsAfter || 0 : 0);
+
 export function buildSeriesProfitResults({rows, rules, product, floor, invalidSeries = new Set<string>()}: {
   rows: MatrixRow[];
   rules: MatrixRule[];
@@ -80,15 +99,24 @@ export function buildSeriesProfitResults({rows, rules, product, floor, invalidSe
   return rows.map(row => {
     const current = Boolean(product && row.series === product.newSeries);
     let hit = hitWorkspaceSeriesRules(rules, row.series, product?.recommendJdPrice) as SeriesProfitResult['hit'];
+    const targetRules=rules.filter(rule=>rule.series===row.series);
+    if(product && hasInflationRules(targetRules) && Number.isFinite(product.recommendJdPrice) && product.recommendJdPrice>=0){
+      try{
+        const matched=evaluateTradeInPrice(product.recommendJdPrice,targetRules.map(rule=>({...rule,ahsInput:rule.grossAhs ?? rule.ahs,jdSubsidy:rule.grossJd ?? rule.jd})),product.basePrice);
+        hit={status:matched.regularThreshold==null?'below':'hit',rules:targetRules.filter(rule=>rule.threshold===matched.regularThreshold),
+          ahs:matched.regularAhs+matched.inflationAhs,regularAhs:matched.regularAhs,
+          inflationAhs:matched.inflationAhs,inflationTotal:matched.inflationTotal,subsidyMatchPrice:matched.subsidyMatchPrice};
+      }catch{hit={...hit,status:'invalid',ahs:null};}
+    }
     if (invalidSeries.has(row.series)) hit = {...hit, status: 'invalid', ahs: null};
     const validBase = product && [product.basePrice, product.recommendJdPrice, product.ahsSubsidyAfter, product.postMarginalProfit].every(Number.isFinite)
       && product.basePrice > 0 && product.recommendJdPrice >= 0 && product.ahsSubsidyAfter >= 0;
     const comparison = validBase && (current || hit.ahs !== null) ? compareSubsidyProfit({
       baseProfit: product.postMarginalProfit * product.basePrice,
       basePrice: product.basePrice,
-      baselineSubsidy: product.ahsSubsidyAfter,
+      baselineSubsidy: savedAhsSpend(product),
       // The current row is the actual saved plan, not a newly inferred baseline.
-      subsidy: current ? product.ahsSubsidyAfter : hit.ahs,
+      subsidy: current ? savedAhsSpend(product) : hit.ahs,
       floor,
       mode: 'system'
     }) : null;

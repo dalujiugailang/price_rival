@@ -2,6 +2,7 @@ import React, {useMemo, useState} from 'react';
 import type {CalculatedProduct} from '../../types';
 import {buildRiskRankings, type RiskRanking, type Tier} from './riskRankingModel';
 import type {MatrixRow, MatrixRule} from './types';
+import {savedAhsSpend} from './model';
 import {input, money, percent} from './ui';
 
 function TierVisual({tiers, label}: {tiers: Tier[]; label: string}) {
@@ -11,7 +12,7 @@ function TierVisual({tiers, label}: {tiers: Tier[]; label: string}) {
     <h5 className="font-bold">{label} · {ordered.length} 档</h5>
     {ordered.map(tier => <div key={JSON.stringify([tier.series, tier.threshold, tier.ahs, tier.total])} className="rounded border border-slate-200 p-2">
       <div className="flex flex-wrap justify-between gap-1"><strong>{tier.series} · 门槛 ¥{money(tier.threshold)}</strong><span>{tier.losses} 个亏损组合</span></div>
-      <div className="mt-1 flex flex-wrap justify-between gap-1"><span>爱回收承担 ¥{money(tier.ahs)} / {tier.ratio === null ? '零门槛不计算比例' : percent(tier.ratio)}</span><strong className="text-blue-700">{tier.rank === null ? '同门槛排名不可比' : `同门槛第 ${tier.rank} / ${tier.rankTotal} 名`}</strong></div>
+      <div className="mt-1 flex flex-wrap justify-between gap-1"><span>{tier.ruleVersion===2?'常规爱回收承担（不含膨胀）':'爱回收承担'} ¥{money(tier.ahs)} / {tier.ratio === null ? '零门槛不计算比例' : percent(tier.ratio)}</span><strong className="text-blue-700">{tier.rank === null ? '同门槛排名不可比' : `同门槛第 ${tier.rank} / ${tier.rankTotal} 名`}</strong></div>
       <div className="mt-1 h-2 overflow-hidden rounded bg-slate-100" role="img" aria-label={`承担比例 ${tier.ratio === null ? '不可计算' : percent(tier.ratio)}`}>
         <div className="h-full bg-blue-600" style={{width: `${(tier.ratio || 0) / max * 100}%`}}/>
       </div>
@@ -39,7 +40,7 @@ function RankingList({items, limit, kind, onSelect}: {items: RiskRanking[]; limi
         {noTargetTier > 0 && <p className="mt-2">另有 {noTargetTier} 个亏损组合未达到换购最低门槛，爱回收承担 0 元；其原方案已亏损。</p>}
         {kind === 'old' && noOriginalTier > 0 && <p className="mt-2 text-amber-800">{noOriginalTier} 个亏损组合的原配方案未命中可核对的有效门槛，原门槛排名暂不可比较。</p>}
         <details className="mt-2"><summary className="cursor-pointer font-bold underline">最深亏损原因</summary>
-          <p className="mt-2">{example.product.oldModel} 换 {example.result.row.series}：追后价 ¥{money(example.product.recommendJdPrice)}，原配 {example.product.newSeries}，原利润 ¥{money(original)}。爱回收承担从 ¥{money(example.product.ahsSubsidyAfter)} 变为 ¥{money(example.result.hit.ahs)}，利润减少额按补贴增量 × 1.0466 计算，换新后利润 <strong className="text-red-800">¥{money(comparison.profit)}</strong>。</p>
+          <p className="mt-2">{example.product.oldModel} 换 {example.result.row.series}：追后价 ¥{money(example.product.recommendJdPrice)}，原配 {example.product.newSeries}，原利润 ¥{money(original)}。爱回收总承担（常规＋膨胀）从 ¥{money(savedAhsSpend(example.product))} 变为 ¥{money(example.result.hit.ahs)}，利润减少额按补贴增量 × 1.0466 计算，换新后利润 <strong className="text-red-800">¥{money(comparison.profit)}</strong>。</p>
         </details>
       </li>;
     })}
@@ -60,12 +61,12 @@ export default function RiskRankings({products, rows, rules, invalidSeries, floo
         </select>
       </label>
     </div>
-    <p className="text-xs leading-relaxed text-[#555]">跟随上方品牌、新机系列、目标系列及关键词筛选，使用本版全部旧机报价比较。按亏损组合次数降序排列，同次数按亏损占比排序。排除原换新组合；亏损指边际利润低于 0，待核验不计入占比分母。补贴承担比例＝爱回收承担金额 ÷ 对应原始门槛；门槛为 0 时比例待核验。同门槛排名按爱回收承担比例从高到低，比较本版补贴表全部新机系列（不受上方筛选影响）；相同比例并列，系列去重，冲突或无效规则不参与排名。蓝条长度表示承担比例，同一图内使用相同刻度。</p>
+    <p className="text-xs leading-relaxed text-[#555]">跟随上方品牌、新机系列、目标系列及关键词筛选，使用本版全部旧机报价比较。按亏损组合次数降序排列，同次数按亏损占比排序。排除原换新组合；亏损指边际利润低于 0，待核验不计入占比分母。补贴承担比例＝常规爱回收承担金额（不含旧机膨胀）÷ 对应原始门槛；门槛为 0 时比例待核验。同门槛排名按爱回收承担比例从高到低，比较本版补贴表全部新机系列（不受上方筛选影响）；相同比例并列，系列去重，冲突或无效规则不参与排名。蓝条长度表示承担比例，同一图内使用相同刻度。</p>
     <p className="text-xs">可测算 {ranking.checked} 组 · 亏损 <strong className="text-red-800">{ranking.losses} 组</strong> · 待核验 {ranking.unknown} 组</p>
     <div className="grid min-w-0 gap-4 xl:grid-cols-2">
       <div className="min-w-0 space-y-2"><h4 className="text-xs font-bold">新机系列 Top {limit} · 哪些新机换购容易亏</h4><RankingList items={ranking.newSeries} limit={limit} kind="new" onSelect={onSelect}/></div>
       <div className="min-w-0 space-y-2"><h4 className="text-xs font-bold">旧机型号 Top {limit} · 哪些旧机换其他系列容易亏</h4><RankingList items={ranking.oldModels} limit={limit} kind="old" onSelect={onSelect}/></div>
     </div>
-    <p className="text-xs text-[#555]">预计边际利润＝原方案边际利润 − 补贴承担增量 × 1.0466。每条旧机报价分别测算，型号排行合并其不同 PPV 的组合次数。</p>
+    <p className="text-xs text-[#555]">预计边际利润＝原方案边际利润 − 爱回收总承担增量（常规＋膨胀）× 1.0466。每条旧机报价分别测算，型号排行合并其不同 PPV 的组合次数。</p>
   </section>;
 }

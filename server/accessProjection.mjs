@@ -1,10 +1,10 @@
 import { canAccess } from '../shared/accessPolicy.mjs';
-const COMMON = ['id', 'ppv', 'brand', 'newSeries','newSeriesPosition', 'oldModel', 'model'];
+const COMMON = ['id', 'ppv', 'brand', 'newSeries','newSeriesPosition','pricingAlgorithmVersion','inflationTotalBefore','inflationAhsBefore','inflationItemPriceBefore','inflationTotalAfter','inflationAhsAfter','inflationItemPriceAfter','subsidyMatchPriceBefore','subsidyMatchPriceAfter', 'oldModel', 'model'];
 const TREND = ['quoteVolume', 'soldVolume', 'recommendJdPrice', 'recommendPrice', 'postAhsPrice', 'postJdHandPrice',
   'tmPrice', 'tmHandPrice', 'tmRecyclerQuotedPrice', 'tmRecyclerSubsidy', 'tmSubsidyManual', 'totalSubsidy', 'zzPrice', 'zzHandPrice',
   'postTmItemWin', 'postTmHandWin', 'postAhsTmRecyclerWin', 'postZzItemWin', 'postAhsZzHandWin', 'postJdZzHandWin'];
 const GAP = ['postAhsPrice', 'postJdHandPrice', 'tmHandPrice', 'zzHandPrice', 'postTmHandWin', 'postAhsZzHandWin'];
-const META = ['id', 'channelId', 'channelName', 'batchType', 'launchActivity', 'date', 'dataDate', 'operator', 'remarks', 'isSummaryOnly',
+const META = ['id', 'channelId', 'channelName','pricingAlgorithmVersion', 'batchType', 'launchActivity', 'date', 'dataDate', 'operator', 'remarks', 'isSummaryOnly',
   'isCompetitivenessConfirmed', 'competitivenessDate', 'pricingTimestamp', 'confirmedAt', 'serverCreatedAt', 'serverCreatedBy'];
 const pick = (object, keys) => Object.fromEntries(keys.filter(key => Object.hasOwn(object, key)).map(key => [key, object[key]]));
 export const projectBatch = (batch, user, isLatest = true) => {

@@ -1,3 +1,4 @@
+import {hasInflationRules} from '../../../shared/tradeInSubsidy.mjs';
 import { useUrlState } from '../../utils/urlState';
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {buildProfitView, buildSeriesProfitResults, buildWorkspaceMatrix, filterMatrixRows, getSeriesRuleDetails, resolveMatrixFilters, sortMatrixRows, cycleMatrixSort, selectHeatmapGroups} from './model';
@@ -162,6 +163,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
 
       </div>
     </div>
+    {hasInflationRules(workspace.subsidyRules)&&<p className="text-xs text-[#555]">以旧换新净补贴（已剔除旧机膨胀款）；膨胀承担计入下方利润测算。</p>}
     {matrix.missingSeries.length > 0 && <p className="text-xs text-amber-800">工作台有 {matrix.missingSeries.length} 个在用系列未匹配补贴规则：{matrix.missingSeries.join('、')}。已保留空行供核对。</p>}
     <div ref={scrollRef} className="sm-scroll" tabIndex={0} aria-label="可横向纵向滚动的补贴矩阵">
       <table className="sm-table" data-mode={heatmapMode} style={{width: 185 + groups.length * columnWidth}}>
@@ -191,7 +193,7 @@ export default function SubsidyMatrixPanel({workspace, marginBottomLine, onOpenS
     <div className="sm-legend">{amountColors.map((color, index) => <span key={color}><i style={{background: color}}/>{heatmapMode === 'ratio' ? ratioLabels[index] : `${amountLabels[index]} 元`}</span>)}<span>◈ 多条原始规则，点击可展开</span></div>
     {heatmapMode === 'ratio' && <p className="text-xs text-[#555]">{valueLabel(metric, heatmapMode)}＝{subsidyLabel(metric)} ÷ 每条规则的原始门槛；多规则显示比例范围，颜色与排序取最高比例。Δ 的 pp 表示百分点；门槛为 0 时待核验。</p>}
     <details className="sm-metric-rules text-xs text-[#555]"><summary>补贴口径与展示规则</summary><div className="mt-2 space-y-1 leading-relaxed">
-      <p>爱回收承担取本次补贴表的“爱回收承担总补贴”；总补贴直接取“京东总补贴（含京东券）”，不再加上爱回收承担。</p>
+      <p>{hasInflationRules(workspace.subsidyRules)?'当前展示以旧换新净补贴：原总额逐行剔除旧机膨胀。利润测算先按裸价取膨胀，再用裸价＋膨胀总额匹配净补贴；ahs成本包含膨胀与换新两部分。':'爱回收承担取本次补贴表的“爱回收承担总补贴”；总补贴直接取“京东总补贴（含京东券）”，不再加上爱回收承担。'}</p>
       <p>比例＝所选补贴金额 ÷ 每条规则原始门槛，可超过 100%；门槛为 0 时比例待核验。多规则保留范围，颜色和排序取最高值；Δ 和 TOP 10 按当前筛选范围、补贴口径及金额/比例重新计算。</p>
       <p>下方利润风险始终按爱回收实际承担成本测算；总补贴用于查询对比，不直接作为爱回收成本。</p>
     </div></details>

@@ -1,3 +1,4 @@
+import {validateMatrixRows} from '../../shared/subsidyMatrix.mjs';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -292,15 +293,21 @@ export const parseSubsidyRules = async (file: File): Promise<SubsidyRule[]> => {
     throw new Error(`补贴表缺少京东总补贴字段，可用字段名：${jdSubsidyAliases.join('、')}`);
   }
 
-  return parsed.records
-    .map(record => ({
-      newSeries: toText(getField(record, ['新机系列'])),
-      threshold: toNumber(getField(record, thresholdAliases)),
-      ahsInput: toNumber(getField(record, ahsAliases)),
-      jdSubsidy: toNumber(getField(record, jdSubsidyAliases)),
-      rawFields: record
-    }))
-    .filter(row => row.newSeries && row.ahsInput >= 0 && row.jdSubsidy >= 0);
+  const expanded=hasExactField(parsed.headers,['旧机膨胀款','旧机膨胀款-爱回收承担']);
+  if(expanded && !hasExactField(parsed.headers,['京东总补贴（含京东券）','京东总补贴(含京东券)','京东总补贴含京东券']))throw new Error('新补贴表必须提供京东总补贴（含京东券），不能使用仅存档的京东总补贴替代');
+  if(expanded){
+    const records=parsed.records.map(record=>({...record,品牌:toText(getField(record,['品牌','新机品牌'])) || '未提供品牌',新机系列:toText(getField(record,['新机系列'])),门槛:getField(record,thresholdAliases), '京东总补贴（含京东券）':getExactField(record,['京东总补贴（含京东券）','京东总补贴(含京东券)','京东总补贴含京东券']),爱回收承担总补贴:getField(record,ahsAliases)}));
+    const checked=validateMatrixRows(records);
+    if(checked.errors.length)throw new Error(checked.errors.slice(0,5).join('；'));
+    const conflicts=new Map<string,string>();
+    return checked.rules.map(r=>{
+      const key=r.series+'\0'+r.threshold,value=JSON.stringify([r.jd,r.ahs,r.inflationTotal,r.inflationAhs]);
+      if(conflicts.has(key)&&conflicts.get(key)!==value)throw new Error(`补贴规则冲突：${r.series}，门槛${r.threshold}`);
+      conflicts.set(key,value);
+      return {newSeries:r.series,threshold:r.threshold,ahsInput:r.ahs,jdSubsidy:r.jd,ruleVersion:2 as const,inflationTotal:r.inflationTotal,inflationAhs:r.inflationAhs,rawFields:r.raw};
+    });
+  }
+  return parsed.records.map(record=>({newSeries:toText(getField(record,['新机系列'])),threshold:toNumber(getField(record,thresholdAliases)),ahsInput:toNumber(getField(record,ahsAliases)),jdSubsidy:toNumber(getField(record,jdSubsidyAliases)),rawFields:record})).filter(row=>row.newSeries&&row.ahsInput>=0&&row.jdSubsidy>=0);
 };
 
 const parsePastedSelfSubsidyRules = (text: string): SelfOperatedSubsidyRule[] => {
@@ -1116,7 +1123,7 @@ export default function UploadSection({
           <div className={cardClass} data-tour="subsidy-upload">
             <div>
               <div className="text-sm font-bold">3. 补贴表</div>
-              <div className="mt-1 text-[11px] text-[#141414]/70">按新机系列找到规则，再用 jd裸机价落入价格门槛，返回对应新品型号ahs投入。</div>
+              <div className="mt-1 text-[11px] text-[#141414]/70">按裸机价先取可用膨胀最大值，再用裸机价＋膨胀总额匹配剔除膨胀后的以旧换新补贴。</div>
             </div>
             <div className="flex items-center gap-2">
               <input type="file" aria-label="手动上传补贴表" accept=".xlsx,.xls,.csv" className={inputClass} disabled={busyType !== null}
@@ -1126,6 +1133,7 @@ export default function UploadSection({
               </button>
             </div>
             <p className="text-xs" role="status">{subsidyStatus || '可手动上传或由服务器从飞书拉取，每次导入均独立留档。'}</p>
+
             <div className={statClass}>已导入 {subsidyRules.length} 条规则，覆盖 {subsidySeriesMatched}/{currentSeries.size} 个新机系列</div>
             {uncoveredSubsidySeries.length > 0 && (
               <div className="border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">

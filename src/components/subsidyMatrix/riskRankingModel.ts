@@ -1,5 +1,4 @@
 import type {CalculatedProduct} from '../../types';
-import {hitWorkspaceSeriesRules} from '../../../shared/subsidyMatrix.mjs';
 import {buildSeriesProfitResults} from './model';
 import type {MatrixRow, MatrixRule, SeriesProfitResult} from './types';
 
@@ -9,6 +8,7 @@ interface Example {
 }
 export interface Tier {
   series: string;
+  ruleVersion?:2;
   threshold: number;
   ahs: number;
   total: number;
@@ -43,12 +43,12 @@ export function makeTier(rule: MatrixRule, rules: MatrixRule[], invalidSeries: S
     if (candidate.threshold !== rule.threshold || invalidSeries.has(candidate.series)) continue;
     peers.set(candidate.series, [...(peers.get(candidate.series) || []), candidate.ahs]);
   }
-  const conflicts = new Set(rules.filter(candidate => candidate.threshold === rule.threshold).filter(candidate => rules.some(other => other.series === candidate.series && other.threshold === candidate.threshold && (other.ahs !== candidate.ahs || other.jd !== candidate.jd))).map(candidate => candidate.series));
+  const conflicts = new Set(rules.filter(candidate => candidate.threshold === rule.threshold).filter(candidate => rules.some(other => other.series === candidate.series && other.threshold === candidate.threshold && (other.ahs !== candidate.ahs || other.jd !== candidate.jd || other.inflationTotal!==candidate.inflationTotal || other.inflationAhs!==candidate.inflationAhs))).map(candidate => candidate.series));
   for (const series of conflicts) peers.delete(series);
   const values = [...peers.values()].filter(values => new Set(values).size === 1).map(values => values[0]);
   const comparable = peers.get(rule.series);
   const ranked = rule.threshold > 0 && comparable && new Set(comparable).size === 1 && comparable[0] === rule.ahs;
-  return {series: rule.series, threshold: rule.threshold, ahs: rule.ahs, total: rule.jd, losses: 0,
+  return {series: rule.series, ruleVersion:rule.ruleVersion, threshold: rule.threshold, ahs: rule.ahs, total: rule.jd, losses: 0,
     ratio: rule.threshold > 0 ? rule.ahs / rule.threshold : null,
     rank: ranked ? 1 + values.filter(value => value > rule.ahs).length : null, rankTotal: values.length};
 }
@@ -80,6 +80,7 @@ function add(group: RiskRanking, product: CalculatedProduct, result: SeriesProfi
     addTier(group.tiers, tier);
   }
   if (original.status === 'hit' && !invalidSeries.has(product.newSeries) && original.rules[0]) {
+    // Tier ranks compare regular net subsidies, while profit comparisons include inflation separately.
     const rule = {...original.rules[0], ahs: product.ahsSubsidyAfter};
     addTier(group.originalTiers, tierFor(rule));
   }
@@ -107,8 +108,8 @@ export function buildRiskRankings({products, rows, rules, invalidSeries, floor}:
   const newSeries = new Map<string, RiskRanking>();
   const oldModels = new Map<string, RiskRanking>();
   for (const product of products) {
-    const original = hitWorkspaceSeriesRules(rules, product.newSeries, product.recommendJdPrice) as SeriesProfitResult['hit'];
     const results = buildSeriesProfitResults({rows, rules, product, floor, invalidSeries});
+    const original = results.find(result=>result.current)?.hit ?? buildSeriesProfitResults({rows:[{key:product.newSeries,series:product.newSeries,brand:'',cells:{},activeCount:1,hasRules:true}],rules,product,floor,invalidSeries})[0].hit;
     for (const result of results) {
       if (result.current) continue;
       const oldName = product.oldModel?.trim() || product.ppv || '未填写旧机型号';

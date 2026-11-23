@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { pricingColumnWidths, pricingColumnCodes, pricingColumnLabels } from '../../shared/pricingColumns.mjs';
+import { pricingColumnKeys, pricingColumnWidths, pricingColumnCodes, pricingColumnLabels, pricingColumnOrder, pricingInflationGroup, pricingHeaderMerges } from '../../shared/pricingColumns.mjs';
 import { createPortal } from 'react-dom';
 import { CalculatedProduct, ChannelId, PricingMode, SelfOperatedSubsidyRule, SubsidyRule, TrackingBatch } from '../types';
 import { formatRMB, formatPercent } from '../utils/formulas';
@@ -390,6 +390,7 @@ export default function MainTable({
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(dataToExport);
+    ws['!merges'] = pricingHeaderMerges(exportColumns.map(column=>column.code));
     ws['!cols'] = exportColumns.map(column => ({ wch: Math.max(10, Math.round(column.width / 7)) }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, pricingSheetName);
@@ -474,17 +475,22 @@ export default function MainTable({
 
   const fixedColumnWidths = pricingColumnWidths;
   const fixedCodes = pricingColumnCodes;
+  const inflationMode=!isSelfOperated&&products.some(product=>product.pricingAlgorithmVersion==='inflation-v2');
   const fixedLabels = pricingColumnLabels(isSelfOperated);
-  const selfHiddenExportColumnIndexes = new Set([45, 0, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 30, 33, 35, 36, 38, 39, 40, 43]);
+  if(inflationMode){fixedLabels[8]='以旧换新补贴ahs承担-追价前';fixedLabels[9]='含ahs全部承担后报价-追价前';fixedLabels[10]='以旧换新总补贴-追价前';fixedLabels[31]='以旧换新补贴ahs承担-追价后';fixedLabels[32]='含ahs全部承担后报价-追价后';}
+  const selfHiddenExportColumnIndexes = new Set([46,47,48,49,50,51,52,53,45, 0, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 30, 33, 35, 36, 38, 39, 40, 43]);
   const noteDisplayHiddenColumnIndexes = new Set([28, 37]);
   const selfHiddenDisplayColumnIndexes = new Set([...selfHiddenExportColumnIndexes, ...noteDisplayHiddenColumnIndexes]);
   const isAvailableDisplayColumn = (index: number) => !noteDisplayHiddenColumnIndexes.has(index) && (!isSelfOperated || !selfHiddenDisplayColumnIndexes.has(index));
-  const availableDisplayIndexes = fixedCodes.map((_, index) => index).filter(isAvailableDisplayColumn);
+  const availableDisplayIndexes = pricingColumnOrder.filter(isAvailableDisplayColumn);
   const isFixedColumnVisible = (index: number) => isAvailableDisplayColumn(index) && (focusedDisplayColumns === null || focusedDisplayColumns.includes(index));
   const isFixedColumnExported = (index: number) => !isSelfOperated || !selfHiddenExportColumnIndexes.has(index) || index === 31;
-  const exportFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnExported);
-  const visibleFixedIndexes = fixedCodes.map((_, index) => index).filter(isFixedColumnVisible);
-  const visibleFixedColumnWidths = fixedColumnWidths.filter((_, index) => isFixedColumnVisible(index));
+  const exportFixedIndexes = pricingColumnOrder.filter(isFixedColumnExported);
+  const keyDisplayFields = ['newSeries','oldModel','ppv','skuId','levelId','quoteVolume','jdPrice','jdHandPrice','tmPrice','tmHandPrice','basePrice','recommendJdPrice','recommendAdjustment','smallGapOpportunityRemark','postMarginalProfit','postItemGap','postHandGap'];
+  const keyDisplayColumns = keyDisplayFields.map(field => pricingColumnKeys.indexOf(field)).filter(index => index >= 0 && isAvailableDisplayColumn(index));
+  const showingKeyFields = focusedDisplayColumns !== null && focusedDisplayColumns.length === keyDisplayColumns.length && keyDisplayColumns.every(index => focusedDisplayColumns.includes(index));
+  const visibleFixedIndexes = pricingColumnOrder.filter(isFixedColumnVisible);
+  const visibleFixedColumnWidths = pricingColumnOrder.filter(isFixedColumnVisible).map(index=>fixedColumnWidths[index]);
   const fixedColumnStyle = (index: number): React.CSSProperties | undefined => (
     isFixedColumnVisible(index) ? undefined : { display: 'none' }
   );
@@ -540,7 +546,8 @@ export default function MainTable({
     booleanValue(p.postAhsZzHandWin),
     booleanValue(p.postJdZzHandWin),
     p.brand || '',
-    p.newSeriesPosition || ''
+    p.newSeriesPosition || '',
+    p.inflationTotalBefore ?? '',p.inflationAhsBefore ?? '',p.inflationItemPriceBefore ?? '',p.inflationTotalAfter ?? '',p.inflationAhsAfter ?? '',p.inflationItemPriceAfter ?? '',p.subsidyMatchPriceBefore ?? (p.inflationTotalBefore!=null?p.jdPrice+p.inflationTotalBefore:''),p.subsidyMatchPriceAfter ?? (p.inflationTotalAfter!=null?p.recommendJdPrice+p.inflationTotalAfter:'')
     ];
   };
 
@@ -586,7 +593,7 @@ export default function MainTable({
   };
   const activeColumnFilterCount = new Set([...Object.keys(columnFilters), ...Object.keys(numericFilters)]).size;
   const hasTableSearch = tableSearch.trim().length > 0;
-  const moneyColumnIndexes = new Set([9, 11, 13, 14, 16, 18, 19, 21, 22, 27, 29, 31, 32, 33, 35, 36]);
+  const moneyColumnIndexes = new Set([9, 11, 13, 14, 16, 18, 19, 21, 22, 27, 29, 31, 32, 33, 35, 36,46,47,48,49,50,51,52,53]);
   const percentColumnIndexes = new Set([20, 34]);
   const formatColumnFilterOption = (columnKey: string, value: string) => {
     if (value === EMPTY_COLUMN_FILTER_VALUE) return '(空白)';
@@ -628,7 +635,7 @@ export default function MainTable({
 
   const exportColumns = exportFixedIndexes.flatMap(index => {
     const baseColumn = {
-      code: fixedCodes[index],
+      code: pricingInflationGroup(index) || fixedCodes[index],
       label: fixedLabels[index],
       width: fixedColumnWidths[index],
       numberFormat: percentColumnIndexes.has(index) ? '0.00%' : moneyColumnIndexes.has(index) ? '#,##0.00' : undefined,
@@ -650,13 +657,13 @@ export default function MainTable({
     }
     if (index === 28) return [{ ...baseColumn, label: '系统追价理由' }];
     if (index === 30) return [{ ...baseColumn, label: '系统小差额提醒' }];
-    if (index === 31) return [{ ...baseColumn, label: '追后AHS补贴' }];
-    if (index === 32) return [{ ...baseColumn, label: '追后含AHS补贴报价' }];
+    if (index === 31) return [{ ...baseColumn, label: inflationMode?fixedLabels[31]:'追后AHS补贴' }];
+    if (index === 32) return [{ ...baseColumn, label: inflationMode?fixedLabels[32]:'追后含AHS补贴报价' }];
     if (index === 33) {
       return [
         {
           code: 'BF补贴',
-          label: '追后京东总补贴',
+          label: inflationMode?'以旧换新总补贴-追价后':'追后京东总补贴',
           width: 132,
           getValue: (product: CalculatedProduct) => product.totalSubsidy
         },
@@ -869,6 +876,9 @@ export default function MainTable({
         return <td key={index} style={style} className={bodyClass}>{p.newSeriesPosition || ''}</td>;
       case 44:
         return <td key={index} style={style} className="px-2 py-1 border-r border-[#141414]/20 font-bold">{p.brand || '-'}</td>;
+      case 46: case 47: case 48: case 52:
+      case 49: case 50: case 51: case 53:
+        return <td key={index} style={style} className="px-2 py-1 text-right border-r border-[#141414]/20 font-mono">{getFixedExportValues(p)[index] === '' ? '' : formatRMB(Number(getFixedExportValues(p)[index]))}</td>;
       default:
         return null;
     }
@@ -960,6 +970,7 @@ export default function MainTable({
             </svg>
             风险提示
           </button>}
+
           <div className="relative" ref={displayColumnsRef}>
             <button type="button" aria-expanded={showDisplayColumns} aria-haspopup="dialog" onClick={() => setShowDisplayColumns(value => !value)} className={`flex items-center gap-2 border border-[#141414] px-3 py-1.5 text-xs font-bold ${showDisplayColumns ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#141414] hover:text-white'}`}>
               显示列
@@ -975,6 +986,14 @@ export default function MainTable({
                 <div className="flex items-center justify-between px-3 py-2 text-[10px] font-bold">
                   <span className="text-[#141414]/60">已选 <span className="font-mono text-[#141414]">{selectedDisplayColumns.length}</span> / {availableDisplayIndexes.length} 列</span>
                   <div className="flex gap-1">
+                    <label className="flex cursor-pointer items-center gap-1.5 px-2 py-1">
+                      <input type="radio" name="pricing-display-preset" className="h-3 w-3 accent-[#141414]" checked={showingKeyFields} onChange={() => {
+                        setSelectedDisplayColumns(keyDisplayColumns);
+                        setFocusedDisplayColumns(keyDisplayColumns);
+                        if (tableScrollRef.current) tableScrollRef.current.scrollLeft = 0;
+                      }} />
+                      只看关键字段
+                    </label>
                     <button type="button" onClick={() => setSelectedDisplayColumns(availableDisplayIndexes)} className="border border-[#141414]/30 bg-white px-2 py-1 hover:border-[#141414]">全选</button>
                     <button type="button" onClick={() => setSelectedDisplayColumns([])} className="border border-[#141414]/30 bg-white px-2 py-1 hover:border-[#141414]">清空</button>
                   </div>
@@ -1138,29 +1157,21 @@ export default function MainTable({
           onKeyDown={event => { if (event.key === 'Escape') clearCrosshair(event.currentTarget); }}
           style={{ width: tableWidth, minWidth: riskRowKey && showRowRisk ? Math.max(tableWidth, riskPanelWidth) : tableWidth }}>
           <colgroup>
-            {fixedColumnWidths.map((width, index) => (
-              <col key={`fixed-${index}`} style={isFixedColumnVisible(index) ? { width } : { display: 'none', width: 0 }} />
+            {pricingColumnOrder.map(index => (
+              <col key={`fixed-${index}`} style={isFixedColumnVisible(index) ? { width:fixedColumnWidths[index] } : { display: 'none', width: 0 }} />
             ))}
           </colgroup>
           <thead className="tracking-table-head bg-[#F0EFEC] border-b border-[#141414]">
             <tr>
-              {fixedCodes.map((code, index) => (
-                <th
-                  key={code}
-                  style={fixedColumnStyle(index)}
-                  className={`${headerClass} ${index === 27 || index === 28 || index === 30 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
-                >
-                  {code}
-                </th>
-              ))}
+              {pricingColumnOrder.map(index => <th key={fixedCodes[index]} style={fixedColumnStyle(index)} className={`${headerClass} ${[27, 28, 29].includes(index)?'repricing-header bg-[#D8D7D2]':''}`}>{pricingInflationGroup(index)||fixedCodes[index]}</th>)}
             </tr>
             <tr>
-              {fixedLabels.map((label, index) => (
+              {pricingColumnOrder.map(index => { const label=fixedLabels[index]; return (
                 index === 30 ? (
                   <th
                     key={index}
                     style={fixedColumnStyle(index)}
-                    className={`${headerClass} repricing-header bg-[#D8D7D2]`}
+                    className={headerClass}
                     title="小差额提醒批量容忍"
                   >
                     <div className="flex items-center justify-center gap-1 whitespace-nowrap">
@@ -1178,22 +1189,22 @@ export default function MainTable({
                           容忍({smallGapToleranceCount})
                         </button>
                       )}
-                      {renderColumnFilterButton(label, fixedColumnFilterKey(index))}
+                      {renderColumnFilterButton(fixedLabels[index], fixedColumnFilterKey(index))}
                     </div>
                   </th>
                 ) : (
                   <th
                     key={index}
                     style={fixedColumnStyle(index)}
-                    className={`${headerClass} ${index === 27 ? 'repricing-header bg-[#D8D7D2]' : ''}`}
+                    className={`${headerClass} ${[27, 29].includes(index) ? 'repricing-header bg-[#D8D7D2]' : ''}`}
                   >
                     <div className="flex min-w-0 items-center justify-center gap-1">
                       <div className="min-w-0 flex-1">{headerLabel(label)}</div>
-                      {renderColumnFilterButton(label, fixedColumnFilterKey(index))}
+                      {renderColumnFilterButton(fixedLabels[index], fixedColumnFilterKey(index))}
                     </div>
                   </th>
                 )
-              ))}
+              );})}
             </tr>
           </thead>
           <tbody>
@@ -1215,7 +1226,7 @@ export default function MainTable({
                     }
                   } : undefined}
                   ref={p.ppv===focusPpv?focusedRowRef:undefined} aria-label={p.ppv===focusPpv?`已定位 PPV：${p.ppv}`:undefined} className={`border-b border-[#141414]/20 ${showRowRisk ? 'cursor-pointer focus-visible:outline focus-visible:outline-sky-500' : ''} ${riskOpen ? '[&>td]:!bg-sky-50' : ''} ${p.ppv===focusPpv?'bg-sky-100 [&>td]:!bg-sky-100 outline outline-2 outline-inset outline-sky-300':p.riskWarning === 'CRITICAL' ? 'bg-rose-50' : p.riskWarning === 'WARNING' ? 'bg-amber-50' : 'hover:bg-[#F9F9F8]'}`}>
-                  {fixedCodes.map((_, index) => renderFixedCell(p, index, savedValues))}
+                  {pricingColumnOrder.map(index => renderFixedCell(p, index, savedValues))}
                 </tr>
                 {riskOpen && riskWorkspace && <tr className="pricing-risk-detail">
                   <td colSpan={fixedCodes.length} className="border-b border-[#141414]/20 bg-[#F0EFEC] p-0">

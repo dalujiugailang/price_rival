@@ -9,6 +9,11 @@ export interface MatrixRule {
   threshold: number;
   jd: number;
   ahs: number;
+  ruleVersion?: 2;
+  inflationTotal?: number;
+  inflationAhs?: number;
+  grossJd?: number;
+  grossAhs?: number;
   raw: Record<string, unknown>;
 }
 
@@ -55,6 +60,10 @@ export interface SeriesProfitResult {
     status: string;
     rules: MatrixRule[];
     ahs: number | null;
+    regularAhs?: number;
+    inflationAhs?: number;
+    inflationTotal?: number;
+    subsidyMatchPrice?: number;
   };
   comparison: ProfitComparison | null;
   current: boolean;

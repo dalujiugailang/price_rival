@@ -63,3 +63,30 @@ test('catalog routes require both identity and data-source permission for edits'
  assert.equal(routes.put[0],editor);assert.equal(routes.put[1],page);
  let status;routes.get[0]({authUser:{allowed:false}},{status:value=>{status=value;return {json:()=>{}};}});assert.equal(status,403);
 });
+
+test('no-op saves do not write history; changed saves only update affected snapshots and preserve conflicts',()=>{
+ const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'series-fast-')),'test.sqlite');
+ const db=createDatabase(file),raw=new DatabaseSync(file),ctx={actor:{openId:'test',name:'test'}};
+ for(let i=0;i<9;i++)db.createBatch({id:`T${i}`,channelId:'tradeIn',date:'2026-11-20',operator:'test',products:[{brand:i===8?'华为':'荣耀',newSeries:i===8?'Mate 80':'Magic9',jdPrice:610}],restorePayload:{productsMaster:[]}},ctx);
+ const catalog=createSeriesCatalog(file);
+ raw.exec('CREATE TABLE update_counter(n INTEGER); INSERT INTO update_counter VALUES(0); CREATE TRIGGER count_snapshot_writes AFTER UPDATE ON tracking_batches BEGIN UPDATE update_counter SET n=n+1; END;');
+ const state=catalog.get();catalog.save(state.entries,state.revision,'test');
+ assert.equal(catalog.get().revision,state.revision);
+ assert.equal(raw.prepare('SELECT n FROM update_counter').get().n,0);
+ assert.equal(raw.prepare('SELECT count(*) AS n FROM series_catalog_archive').get().n,0);
+ const entries=state.entries.map(row=>row.brand==='华为'&&row.newSeries==='Mate 80'?{...row,newSeriesPosition:'旗舰'}:row);
+ catalog.save(entries,state.revision,'test');
+ assert.equal(raw.prepare('SELECT n FROM update_counter').get().n,1);
+ assert.equal(db.getBatch('T8').products[0].newSeriesPosition,'旗舰');
+ assert.throws(()=>catalog.save(entries,state.revision,'test'),/已被更新/);
+ catalog.close();raw.close();db.close();
+});
+
+test('client history sync applies only frozen target IDs without fetching or changing prices',async()=>{
+ const {syncCatalogHistory}=await import('../shared/seriesCatalog.mjs');
+ const batches=[{id:'target',channelId:'tradeIn',products:[{brand:'华为',newSeries:'Mate 80',jdPrice:610}],restorePayload:{productsMaster:[{brand:'华为',newSeries:'Mate 80',basePrice:900}]}},{id:'older',products:[{brand:'华为',newSeries:'Mate 80',jdPrice:610}]},{id:'self',channelId:'selfOperated',products:[]}];
+ const result=syncCatalogHistory(batches,{entries:INITIAL_SERIES_CATALOG,backfilledBatchIds:['target','self']});
+ assert.equal(result[0].products[0].newSeriesPosition,'次旗舰');assert.equal(result[0].products[0].jdPrice,610);
+ assert.equal(result[0].restorePayload.productsMaster[0].newSeriesPosition,'次旗舰');assert.equal(result[0].restorePayload.productsMaster[0].basePrice,900);
+ assert.equal(result[1],batches[1]);assert.equal(result[2],batches[2]);assert.equal(batches[0].products[0].newSeriesPosition,undefined);
+});

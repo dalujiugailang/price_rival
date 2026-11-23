@@ -1,3 +1,5 @@
+export const INFLATION_HEADERS=['旧机膨胀款','旧机膨胀款-爱回收承担'];
+export const FULL_SUBSIDY_HEADERS=['品牌','新机系列','门槛','京东总补贴（含京东券）','爱回收承担总补贴','京东总补贴','-爱回收承担补贴','京东平台券（最高使用量券）','-京东券爱回收承担部分',...INFLATION_HEADERS];
 export const MATRIX_HEADERS = ['品牌','新机系列','门槛','京东总补贴（含京东券）','爱回收承担总补贴'];
 
 export function validateMatrixRows(rows) {
@@ -9,11 +11,15 @@ export function validateMatrixRows(rows) {
     const brand=String(raw['品牌']??'').trim(), series=String(raw['新机系列']??'').trim();
     const [threshold,jd,ahs]=MATRIX_HEADERS.slice(2).map(h=>number(raw[h]));
     if (!brand || !series || ![threshold,jd,ahs].every(v=>Number.isFinite(v)&&v>=0)) {errors.push(`第${i+2}行：品牌/系列为空，或金额非数字、为空、为负数`);return;}
-    const key=JSON.stringify([brand,series,threshold,jd,ahs]);
+    const expanded=INFLATION_HEADERS.some(h=>Object.hasOwn(raw,h));
+    const inflationTotal=expanded ? number(raw[INFLATION_HEADERS[0]]==null||String(raw[INFLATION_HEADERS[0]]).trim()===''?0:raw[INFLATION_HEADERS[0]]) : 0;
+    const inflationAhs=expanded ? number(raw[INFLATION_HEADERS[1]]==null||String(raw[INFLATION_HEADERS[1]]).trim()===''?0:raw[INFLATION_HEADERS[1]]) : 0;
+    if(![inflationTotal,inflationAhs].every(v=>Number.isFinite(v)&&v>=0)||inflationAhs>inflationTotal||inflationTotal>jd||inflationAhs>ahs){errors.push(`第${i+2}行：膨胀金额无效或剔除膨胀后补贴为负`);return;}
+    const key=JSON.stringify([brand,series,threshold,jd,ahs,inflationTotal,inflationAhs]);
     if(seen.has(key)) warnings.push(`第${i+2}行与第${seen.get(key)}行完全重复，保留原始明细`);
     seen.set(key,i+2);
     if(ahs>jd || ahs>10000) warnings.push(`第${i+2}行承担额异常：${ahs}，请核验`);
-    rules.push({id:`row-${i+2}`,sourceRow:i+2,brand,series,threshold,jd,ahs,raw});
+    rules.push({id:`row-${i+2}`,sourceRow:i+2,brand,series,threshold,jd,ahs,...(expanded?{ruleVersion:2,inflationTotal,inflationAhs}:{}),raw});
   });
   if(!rules.length) errors.push('没有有效补贴规则');
   return {rules,errors,warnings};
