@@ -1,5 +1,9 @@
+import {createSeriesCatalog,registerSeriesCatalogRoutes} from './seriesCatalog.mjs';
+import {pullFeishuSubsidy,SUBSIDY_SOURCE} from './feishuSubsidy.mjs';
+import { createEfficiencyWarehouse } from './efficiencyWarehouse.mjs';
+import { analyzeHourlyEfficiency } from './efficiencyHourlyAnalysis.mjs';
+import {createPriceAnalysisService} from './priceAnalysisService.mjs';
 import { registerFeishuPushRoutes } from './feishuPushRoutes.mjs';
-import {listPriceAnalysisBatches} from './priceAnalysisAccess.mjs';
 import { registerRiskRoutes } from './tradeInRiskRoutes.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -58,7 +62,10 @@ const DATABASE_PATH = path.resolve(appRoot, process.env.DATABASE_PATH || 'data/p
 const androidRevenue = createAndroidRevenueClient({ env: process.env });
 
 const db = createDatabase(DATABASE_PATH);
+const efficiencyWarehouse = createEfficiencyWarehouse(path.join(path.dirname(DATABASE_PATH), 'competition-efficiency', 'hourly-warehouse.sqlite'));
 const gradeStore = createGradeStore(DATABASE_PATH);
+const priceAnalysisService = createPriceAnalysisService(DATABASE_PATH);
+const seriesCatalog = createSeriesCatalog(DATABASE_PATH);
 const investmentBatches={listBatches:channel=>db.listBatches(channel).map(batch=>withGradeInvestment(batch,gradeStore.getFinalRun(batch.id)))};
 const app = express();
 const auth = createAuth({ db, env: process.env, appUrl: APP_URL });
@@ -107,16 +114,34 @@ const requirePage = (channel, page) => (req, res, next) => {
   res.status(403).json({ success: false, error: '当前账号未开通该渠道或页面' });
 };
 
+registerSeriesCatalogRoutes(app,{catalog:seriesCatalog,auth,requirePage,canRead:user=>['upload','workspace'].some(page=>canAccess(user,'tradeIn',page))});
+
 app.post('/api/source-files', auth.requireEditor, requirePage(requestChannel, 'upload'), (req, res) => {
   try {
     const body = req.body || {};
     if (typeof body.fileBase64 !== 'string' || body.fileBase64.length > 25 * 1024 * 1024) throw Object.assign(new Error('文件编码无效或超过18MB'), { statusCode: 400 });
     const fileName = path.basename(String(body.fileName || ''));
     if (!/\.(xlsx|xls|csv)$/i.test(fileName)) throw Object.assign(new Error('仅支持 xlsx、xls 或 csv'), { statusCode: 400 });
-    const result = db.saveSourceFile({ channelId: body.channelId || 'tradeIn', kind: body.kind, fileName, contentType: body.contentType, buffer: Buffer.from(body.fileBase64, 'base64'), actor: req.authUser });
-    db.writeAudit({ ...auth.requestContext(req), action: 'SOURCE_FILE_SAVE', resourceType: 'source_file', resourceId: result.id, details: { channelId: body.channelId || 'tradeIn', kind: body.kind, sha256: result.sha256, reused: result.reused } });
+    const result = (body.kind === 'subsidy' ? db.saveSubsidyArchive : db.saveSourceFile)({ channelId: body.channelId || 'tradeIn', kind: body.kind, fileName, contentType: body.contentType, buffer: Buffer.from(body.fileBase64, 'base64'), actor: req.authUser });
+    db.writeAudit({ ...auth.requestContext(req), action: 'SOURCE_FILE_SAVE', resourceType: 'source_file', resourceId: result.id, details: { channelId: body.channelId || 'tradeIn', kind: body.kind, fileName: result.fileName, originalFileName: fileName, source: 'manual', sha256: result.sha256, reused: result.reused } });
     res.status(result.reused ? 200 : 201).json({ success: true, ...result });
-  } catch (error) { res.status(error.statusCode || 500).json({ success: false, error: error.message || '原文件保存失败' }); }
+  } catch (error) {
+    db.writeAudit({...auth.requestContext(req),action:'SOURCE_FILE_SAVE',outcome:'FAILED',resourceType:'source_file',details:{channelId:requestChannel(req),kind:req.body?.kind,source:'manual',error:error.message}});
+    res.status(error.statusCode || 500).json({ success: false, error: error.message || '原文件保存失败' });
+  }
+});
+
+app.post('/api/subsidy/feishu-pull', auth.requireEditor, requirePage(requestChannel, 'upload'), async (req,res)=>{
+  const channelId=requestChannel(req);
+  try {
+    const {buffer,rules,warnings}=await pullFeishuSubsidy();
+    const archive=db.saveSubsidyArchive({channelId,fileName:'补贴.csv',contentType:'text/csv; charset=utf-8',buffer,actor:req.authUser});
+    db.writeAudit({...auth.requestContext(req),action:'SUBSIDY_FEISHU_PULL',resourceType:'source_file',resourceId:archive.id,details:{channelId,source:SUBSIDY_SOURCE,fileName:archive.fileName,rowCount:rules.length,warnings}});
+    res.json({success:true,...archive,rules,warnings});
+  } catch(error) {
+    db.writeAudit({...auth.requestContext(req),action:'SUBSIDY_FEISHU_PULL',outcome:'FAILED',resourceType:'source_file',details:{channelId,source:SUBSIDY_SOURCE,error:error.message}});
+    res.status(502).json({success:false,error:error.message||'飞书拉取失败'});
+  }
 });
 
 app.get('/api/source-files/:id/file', (req, res) => {
@@ -144,7 +169,63 @@ const auditFailure = (req, action, error, resourceId = null) => {
 };
 
 app.get('/api/price-analysis/batches', requirePage('tradeIn', 'priceAnalysis'), (req, res) => {
-  res.json({ success: true, batches: listPriceAnalysisBatches(investmentBatches, req.authUser) });
+  try {
+    const result=priceAnalysisService.response(req.authUser,req.headers['if-none-match']);
+    res.set({'ETag':result.etag,'Cache-Control':'private, no-cache','Vary':'Accept-Encoding'});
+    if(result.status===304)return res.status(304).end();
+    res.type('application/json');
+    if(req.acceptsEncodings('gzip'))return res.set('Content-Encoding','gzip').send(result.gzip);
+    return res.send(result.body);
+  }catch(error){res.status(error.statusCode||500).json({success:false,error:error.message||'价格分析加载失败'});}
+});
+
+app.get('/api/competition-efficiency/warehouse', requirePage('tradeIn', 'competitionEfficiency'), (_req, res) => {
+  res.json({ success: true, data: efficiencyWarehouse.summary() });
+});
+const hourlyUploadBuffer = req => {
+  const value = req.body?.fileBase64;
+  if (typeof value !== 'string' || !value.length || value.length > 24 * 1024 * 1024) throw Object.assign(new Error('请选择不超过18MB的Excel文件'), { statusCode: 400 });
+  return Buffer.from(value, 'base64');
+};
+app.post('/api/competition-efficiency/warehouse/preview', auth.requireEditor, requirePage('tradeIn', 'competitionEfficiency'), (req, res) => {
+  try {
+    const { records, ...preview } = efficiencyWarehouse.inspect(hourlyUploadBuffer(req));
+    res.json({ success: true, data: preview });
+  } catch (error) { res.status(error.statusCode || 400).json({ success: false, error: error.message }); }
+});
+app.post('/api/competition-efficiency/warehouse/import', auth.requireEditor, requirePage('tradeIn', 'competitionEfficiency'), (req, res) => {
+  try {
+    const result = efficiencyWarehouse.import(hourlyUploadBuffer(req), req.body.fileName, req.authUser?.openId || req.authUser?.id || '', req.body);
+    res.json({ success: true, data: result });
+  } catch (error) { res.status(error.statusCode || 400).json({ success: false, error: error.message }); }
+});
+app.get('/api/competition-efficiency', requirePage('tradeIn', 'competitionEfficiency'), (_req, res) => {
+  if (efficiencyWarehouse.summary().days.length) {
+    try {
+      const rows = efficiencyWarehouse.rows();
+      const data = analyzeHourlyEfficiency(rows, investmentBatches.listBatches('tradeIn'), efficiencyWarehouse.summary().days.map(d => d.day));
+      const fitted = path.join(appRoot, 'data/competition-efficiency/latest.json');
+      if (fs.existsSync(fitted)) {
+        try {
+          const saved = JSON.parse(fs.readFileSync(fitted, 'utf8'));
+          if (data?.inputFingerprint && saved.inputFingerprint === data.inputFingerprint && saved.marginalExploration) data.marginalExploration = saved.marginalExploration;
+        } catch { /* A missing or stale model must not prevent displaying current observations. */ }
+      }
+      const alternatives = path.join(appRoot, 'data/competition-efficiency/alternative-models/comparison.json');
+      if (data?.inputFingerprint && fs.existsSync(alternatives)) {
+        try {
+          const report = JSON.parse(fs.readFileSync(alternatives, 'utf8'));
+          if (report.sourceFingerprint === data.inputFingerprint) data.alternativeComparison = report;
+        } catch { /* Independent exploration cannot block current observations. */ }
+      }
+      return res.json({ success: true, data });
+    } catch (error) { return res.status(500).json({ success: false, error: `小时经营分析失败：${error.message}` }); }
+  }
+  const file = path.join(appRoot, 'data/competition-efficiency/latest.json');
+  res.set('Cache-Control', 'private, no-store');
+  if (!fs.existsSync(file)) return res.status(404).json({ success: false, error: '经营分析数据尚未生成' });
+  try { res.json({ success: true, data: JSON.parse(fs.readFileSync(file, 'utf8')) }); }
+  catch { res.status(500).json({ success: false, error: '经营分析数据读取失败' }); }
 });
 
 app.get('/api/tracking-batches', (req, res) => {
@@ -186,7 +267,7 @@ app.get('/api/tracking-batches/:id', (req, res) => {
 
 app.post('/api/tracking-batches', auth.requireEditor, requirePage(req => req.body?.batch?.channelId || 'tradeIn', 'workspace'), (req, res) => {
   try {
-    const batch = db.createBatch(req.body?.batch, auth.requestContext(req));
+    const batch = db.createBatch(seriesCatalog.stamp(req.body?.batch || {}), auth.requestContext(req));
     res.status(201).json({ success: true, batch });
   } catch (error) {
     auditFailure(req, 'BATCH_WRITE_FAILED', error, req.body?.batch?.id || null);
@@ -307,10 +388,8 @@ const loginPage = (returnTo = '/') => `<!doctype html>
 .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}.card{width:420px;background:#fff;border:2px solid #141414}
 .head{background:#141414;color:#fff;padding:18px 22px;font-size:18px;font-weight:900}.body{padding:28px}.tag{display:inline-block;border:1px solid #141414;background:#f0efec;padding:4px 8px;font-size:12px;font-weight:700}
 h1{font-size:24px;margin:18px 0 8px}p{font-size:13px;line-height:1.7;color:#555}.btn{display:block;width:100%;margin-top:22px;border:2px solid #141414;background:#141414;color:#fff;padding:13px;text-align:center;text-decoration:none;font-size:14px;font-weight:900;cursor:pointer}
-.dev{background:#fff;color:#141414;margin-top:10px}.foot{border-top:1px solid #141414;background:#f0efec;padding:12px 22px;font-size:11px;color:#555}
-</style></head><body><main class="wrap"><section class="card"><div class="head">线上竞争追价系统</div><div class="body"><span class="tag">公司内部系统</span><h1>使用飞书账号登录</h1><p>按人员开通访问。首次登录后，可联系管理员在权限管理中搜索你的姓名并开通。</p><a class="btn" href="/api/auth/login?returnTo=${encodeURIComponent(returnTo)}">飞书授权登录</a>${auth.devLoginEnabled ? '<button class="btn dev" onclick="devLogin()">本地验收登录</button>' : ''}</div><div class="foot">尚未开通访问请联系系统管理员</div></section></main><script>
-async function devLogin(){const r=await fetch('/api/auth/dev-login',{method:'POST'});if(r.ok)location.reload();else alert((await r.json()).error||'登录失败')}
-</script></body></html>`;
+.foot{border-top:1px solid #141414;background:#f0efec;padding:12px 22px;font-size:11px;color:#555}
+</style></head><body><main class="wrap"><section class="card"><div class="head">线上竞争追价系统</div><div class="body"><span class="tag">公司内部系统</span><h1>使用飞书账号登录</h1><p>按人员开通访问。首次登录后，可联系管理员在权限管理中搜索你的姓名并开通。</p><a class="btn" href="/api/auth/login?returnTo=${encodeURIComponent(returnTo)}">飞书授权登录</a></div><div class="foot">尚未开通访问请联系系统管理员</div></section></main></body></html>`;
 
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
@@ -366,7 +445,9 @@ const callbackBridge = createLocalCallbackBridge();
 const shutdown = () => {
   const closeDatabase = () => {
     feishuPushStore.close();
+    priceAnalysisService.close();
     gradeStore.close();
+    efficiencyWarehouse.close();
     db.close();
     process.exit(0);
   };

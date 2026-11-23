@@ -1,5 +1,6 @@
+import {clearPriceAnalysisCache} from '../api';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { AuthUser, developmentLogin, getAuthConfig, getCurrentUser, logout } from '../api';
+import { AuthUser, getAuthConfig, getCurrentUser, logout } from '../api';
 
 interface AuthContextValue {
   user: AuthUser;
@@ -17,7 +18,6 @@ export const useAuth = () => {
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [devLoginEnabled, setDevLoginEnabled] = useState(false);
   const [authConfigured, setAuthConfigured] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,7 +29,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       setUser(result.user);
     } catch {
       const config = await getAuthConfig();
-      setDevLoginEnabled(config.devLoginEnabled);
       setAuthConfigured(config.authConfigured);
       setUser(null);
     } finally {
@@ -72,16 +71,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     };
   }, [user?.openId]);
 
-  const handleDevLogin = async () => {
-    try {
-      const result = await developmentLogin();
-      setUser(result.user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
   const handleLogout = async () => {
+    clearPriceAnalysisCache();
     await logout();
     window.location.reload();
   };
@@ -103,9 +94,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <a href={`/api/auth/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`} className="block w-full border-2 border-[#141414] bg-[#141414] px-4 py-3 text-center text-sm font-black text-white">
               {authConfigured ? '飞书授权登录' : '飞书登录待配置'}
             </a>
-            {devLoginEnabled && (
-              <button onClick={handleDevLogin} className="w-full border-2 border-[#141414] bg-white px-4 py-3 text-sm font-black">本地验收登录</button>
-            )}
           </div>
         </div>
       </div>

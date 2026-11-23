@@ -1,3 +1,4 @@
+import {hasInflationRules,evaluateTradeInPrice,findTradeInPrice,tradeInMarginUpper} from '../../shared/tradeInSubsidy.mjs';
 import type { CalculatedProduct, HandPriceAdjustment, SubsidyRule } from '../types';
 import { applyManualRecommendedPrice, formatPercent, roundUploadPrice } from './formulas';
 
@@ -19,7 +20,7 @@ const signature = (p: CalculatedProduct, rules: SubsidyRule[]) => JSON.stringify
   handPriceRowKey(p), p.jdPrice, p.recommendJdPrice, p.postJdHandPrice,
   p.basePrice, p.ahsInput, p.jdSubsidy, p.tmPrice, p.tmSubsidyManual,
   p.zzPrice, p.zzHandPrice, rules.length > 0,
-  seriesRules(p, rules).map(r => [r.threshold, r.ahsInput, r.jdSubsidy])
+  seriesRules(p, rules).map(r => [r.threshold, r.ahsInput, r.jdSubsidy, r.ruleVersion, r.inflationTotal, r.inflationAhs])
 ]);
 
 function invalidReason(p: CalculatedProduct, rules: SubsidyRule[]) {
@@ -33,6 +34,7 @@ function invalidReason(p: CalculatedProduct, rules: SubsidyRule[]) {
   if (active.some(r => !Number.isFinite(r.threshold) || r.threshold < 0
     || !Number.isFinite(r.ahsInput) || r.ahsInput < 0
     || !Number.isFinite(r.jdSubsidy) || r.jdSubsidy < 0)) return '补贴规则不完整或无效';
+  if(hasInflationRules(active)){try{evaluateTradeInPrice(p.recommendJdPrice,active,p.basePrice);}catch{return '膨胀规则冲突或金额无效';}}
   if (!active.length && (![p.ahsInput, p.jdSubsidy].every(v => Number.isFinite(v) && v >= 0))) return '缺少有效补贴数据';
   return '';
 }
@@ -63,6 +65,13 @@ function candidatesNear(bound: number) {
 
 function findPrice(p: CalculatedProduct, rules: SubsidyRule[], action: HandPriceAction, floor: number) {
   const target = p.tmHandPrice * 1.03;
+  const active=seriesRules(p,rules);
+  if(hasInflationRules(active)){
+    const max=action==='align'?Math.max(p.recommendJdPrice,target)+20:Math.min(p.recommendJdPrice,tradeInMarginUpper(p.basePrice,floor));
+    const found=findTradeInPrice({rules:active,basePrice:p.basePrice,min:action==='align'?p.recommendJdPrice:2,max,...(action==='align'?{handTarget:target}:{marginFloor:floor}),prefer:action==='align'?'lowest':'highest'});
+    return found?{product:applyManualRecommendedPrice(p,found.rawPrice,floor,rules),rawPrice:found.rawPrice}:undefined;
+  }
+
   let best: { product: CalculatedProduct; rawPrice: number } | undefined;
   for (const interval of intervals(p, rules)) {
     const bound = action === 'align'

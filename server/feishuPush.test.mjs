@@ -36,11 +36,18 @@ test('routes enforce privileges, freeze results, prevent concurrent and repeated
  const directory=mkdtempSync(path.join(os.tmpdir(),'feishu-push-test-')),store=createPushStore(path.join(directory,'test.sqlite'));
  let batch=fixture(),sendCalls=0,uploadCalls=0,deny=false;const audit=[];
  const app=express();app.use(express.json());
- app.use((req,res,next)=>{req.authUser=req.headers['x-viewer']?{openId:'ou_viewer',role:'viewer',scopes:['tradeIn.competitiveness']}:{openId:'ou_actor',name:'运营',role:'admin'};next();});
+ app.use((req,res,next)=>{req.authUser=req.headers['x-viewer']?{openId:'ou_viewer',role:'viewer',scopes:['tradeIn.competitiveness']}:{openId:'ou_actor',name:'运营',role:'admin',scopes:req.headers['x-no-push']?[]:['feishu.push']};next();});
  registerFeishuPushRoutes(app,{store,db:{getBatch:()=>batch,listBatches:()=>[batch],listMembers:()=>[{openId:'ou_chen',name:'陈誉钧',department:'回收策略部',enabled:true}],writeAudit:r=>audit.push(r)},auth:{requestContext:req=>({actor:req.authUser}),searchDirectory:async()=>({users:[{openId:'ou_luoyi',name:'骆意'}]}),lookupMessageRecipient:async id=>({openId:id,name:'骆意'})},appUrl:'https://price.example',client:{configured:true,groups:async()=>[{id:'oc_group',name:'业务群',type:'chat'}],uploadImage:async()=>{uploadCalls++;return 'img';},send:async()=>{sendCalls++;await new Promise(resolve=>setTimeout(resolve,30));if(deny)throw new Error('timeout');return 'om_sent';}}});
  const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));const root=`http://127.0.0.1:${server.address().port}`;
  const request=async(url,body,viewer=false)=>{const response=await fetch(root+url,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(viewer?{'x-viewer':'true'}:{})},body:body?JSON.stringify(body):undefined});return {status:response.status,body:await response.json()};};
  try {
+  for (const endpoint of ['config?channelId=tradeIn','targets?channelId=tradeIn','history?channelId=tradeIn']) {
+   const denied=await fetch(root+'/api/feishu-push/'+endpoint,{headers:{'x-no-push':'true'}});assert.equal(denied.status,403);
+  }
+  for (const endpoint of ['prepare','preview','send']) {
+   const denied=await fetch(root+'/api/feishu-push/'+endpoint,{method:'POST',headers:{'x-no-push':'true','content-type':'application/json'},body:JSON.stringify({channelId:'tradeIn'})});assert.equal(denied.status,403);
+  }
+  assert.equal(sendCalls,0);assert.equal(uploadCalls,0);
   const config=(await request('/api/feishu-push/config?channelId=tradeIn')).body;
   assert.deepEqual(config.defaultRecipient,{id:'ou_chen',name:'陈誉钧',department:'回收策略部',type:'user'});
   assert.equal((await request('/api/feishu-push/preview',{channelId:'tradeIn',batchId:'batch-1'},true)).status,403);
@@ -61,4 +68,27 @@ test('routes enforce privileges, freeze results, prevent concurrent and repeated
   assert.equal(audit.length,2);assert.ok(uploadCalls>=2);
  } finally {await new Promise(resolve=>server.close(resolve));store.close();}
  const reopened=createPushStore(path.join(directory,'test.sqlite'));assert.equal(reopened.history('tradeIn').length,2);reopened.close();
+});
+
+test('brand send groups labeled images into one card per owner without cross-brand routing', async()=>{
+ const store=createPushStore(':memory:'), batch=fixture(), calls=[];
+ batch.products.push({...product,brand:'vivo'});
+ const members=[{name:'朱沛佳',openId:'ou_zhu',enabled:true},{name:'王芊',openId:'ou_wang',enabled:true}];
+ const app=express();app.use(express.json());app.use((req,_res,next)=>{req.authUser=req.headers['x-recipient']?{openId:req.headers['x-recipient'],role:'viewer',scopes:['tradeIn.competitiveness']}:{openId:'ou_owner',role:'admin',name:'测试',scopes:['feishu.push']};next();});
+ const db={getBatch:()=>batch,listBatches:()=>[batch],listMembers:()=>members,writeAudit(){}};
+ registerFeishuPushRoutes(app,{db,store,appUrl:'https://price.example',auth:{requestContext:()=>({}),lookupMessageRecipient:async id=>members.find(m=>m.openId===id)},client:{configured:true,uploadImage:async png=>String(png),send:async(target,card)=>{calls.push({target,card});return 'mock-message';}}});
+ const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
+ const root=`http://127.0.0.1:${server.address().port}/api/feishu-push`;
+ const send=previews=>fetch(root+'/send-by-brand',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({channelId:'tradeIn',batchId:batch.id,previews})});
+ try {
+  const ids=['华为','vivo','小米'].map(brand=>store.preview('ou_owner',prepareTracker(db,batch,{brand},'https://price.example').report,Buffer.from(brand)));
+  assert.equal((await send(ids.slice(0,2))).status,400);assert.equal(calls.length,0);
+  const result=await (await send(ids)).json();assert.equal(result.results.filter(r=>r.status==='sent').length,2);
+  assert.deepEqual(calls.map(({target,card})=>[target.id,card.elements.filter(e=>e.tag==='img').map(e=>e.img_key)]),[['ou_zhu',['华为','vivo']],['ou_wang',['小米']]]);
+  assert.match(JSON.stringify(calls[0].card),/华为｜竞争力趋势/);
+  assert.match(JSON.stringify(calls[1].card),/本批次暂无明细：iQOO/);
+  assert.equal((await fetch(root+'/reports/'+ids[1],{headers:{'x-recipient':'ou_zhu'}})).status,200);
+  assert.equal((await fetch(root+'/reports/'+ids[1],{headers:{'x-recipient':'ou_wang'}})).status,403);
+  await send(ids);assert.equal(calls.length,2);
+ } finally {await new Promise(resolve=>server.close(resolve));store.close();}
 });

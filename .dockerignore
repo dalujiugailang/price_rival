@@ -4,9 +4,11 @@ build
 coverage
 data
 outputs
+output
 deploy-backups
 *.codex-*
 .git
+**/.archive
 .DS_Store
 *.log
 .env

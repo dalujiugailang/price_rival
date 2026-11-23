@@ -6,6 +6,7 @@ import {
   SubsidyRule
 } from '../types';
 import { getTmPriceGaps } from './tmPriceGaps';
+import { evaluateTradeInPrice, hasInflationRules } from '../../shared/tradeInSubsidy.mjs';
 
 const RULES_SHEET_NAME = '补贴规则';
 const PRICE_FORMAT = '#,##0.00';
@@ -67,13 +68,15 @@ const createRulesSheet = (
     a.newSeries.localeCompare(b.newSeries, 'zh-CN') || a.threshold - b.threshold
   ));
   const rawKeys = unionRawFieldKeys(rows);
+  const inflation = hasInflationRules(rows);
   const sheet = XLSX.utils.aoa_to_sheet([
-    ['新机系列', '价格门槛', 'AHS投入', '京东补贴', ...rawKeys],
+    ['新机系列', '价格门槛', 'AHS投入', '京东补贴', ...(inflation ? ['旧机膨胀款', '旧机膨胀款ahs承担', '以旧换新净JD补贴', '以旧换新净ahs承担'] : []), ...rawKeys],
     ...rows.map(row => [
       row.newSeries,
       row.threshold,
       row.ahsInput,
       row.jdSubsidy,
+      ...(inflation ? [row.inflationTotal ?? 0, row.inflationAhs ?? 0, row.jdSubsidy - (row.inflationTotal ?? 0), row.ahsInput - (row.inflationAhs ?? 0)] : []),
       ...rawKeys.map(key => row.rawFields[key] ?? '')
     ])
   ]);
@@ -82,6 +85,7 @@ const createRulesSheet = (
     { wch: 14 },
     { wch: 14 },
     { wch: 14 },
+    ...(inflation ? Array.from({length: 4}, () => ({wch: 22})) : []),
     ...rawKeys.map(() => ({ wch: 18 }))
   ];
   return { sheet, ruleCount: rows.length };
@@ -110,7 +114,13 @@ const requiredColumn = (columns: Map<string, number>, ...labels: string[]) => {
   throw new Error(`导出追价表缺少必要列：${labels.join(' / ')}`);
 };
 
-const optionalColumn = (columns: Map<string, number>, label: string) => columns.get(label);
+const optionalColumn = (columns: Map<string, number>, ...labels: string[]) => {
+  for (const label of labels) {
+    const column = columns.get(label);
+    if (column !== undefined) return column;
+  }
+  return undefined;
+};
 
 const writeFormulaCell = (
   sheet: XLSX.WorkSheet,
@@ -163,17 +173,17 @@ export const addDynamicPricingWorkbookSheets = ({
 
   const columns = getLabelColumns(pricingSheet);
   const currentJdColumn = requiredColumn(columns, 'jd裸机价');
-  const currentAhsColumn = requiredColumn(columns, '对应新品型号ahs投入', '自营普发券AHS补贴');
+  const currentAhsColumn = requiredColumn(columns, '以旧换新补贴ahs承担-追价前', '对应新品型号ahs投入', '自营普发券AHS补贴');
   const basePriceColumn = requiredColumn(columns, '基准价');
   const trialPriceColumn = requiredColumn(columns, '试算追后价');
   const adjustmentColumn = requiredColumn(columns, '京东物品价-追价后调整金额');
-  const postAhsColumn = requiredColumn(columns, '追后AHS补贴');
-  const postJdSubsidyColumn = requiredColumn(columns, '追后京东总补贴');
-  const postAhsPriceColumn = requiredColumn(columns, '追后含AHS补贴报价');
+  const postAhsColumn = requiredColumn(columns, '以旧换新补贴ahs承担-追价后', '追后AHS补贴');
+  const postJdSubsidyColumn = requiredColumn(columns, '以旧换新总补贴-追价后', '追后京东总补贴');
+  const postAhsPriceColumn = requiredColumn(columns, '含ahs全部承担后报价-追价后', '追后含AHS补贴报价');
   const postJdHandPriceColumn = requiredColumn(columns, '追后京东总到手价');
   const postMarginColumn = requiredColumn(columns, '追后边际利润率');
   const currentJdSubsidyColumn = channelId === 'tradeIn'
-    ? requiredColumn(columns, '对应新品型号jd总投入')
+    ? requiredColumn(columns, '以旧换新总补贴-追价前', '对应新品型号jd总投入')
     : undefined;
   const currentJdHandPriceColumn = channelId === 'tradeIn'
     ? requiredColumn(columns, 'jd总到手价')
@@ -197,7 +207,7 @@ export const addDynamicPricingWorkbookSheets = ({
     ? requiredColumn(columns, '追前tm到手价差')
     : undefined;
   const postItemGapColumn = channelId === 'tradeIn'
-    ? requiredColumn(columns, '追后tm物品价差')
+    ? requiredColumn(columns, '追后tm物品价差-含旧机膨胀ahs承担')
     : undefined;
   const postHandGapColumn = channelId === 'tradeIn'
     ? requiredColumn(columns, '追后tm到手价差')
@@ -219,10 +229,72 @@ export const addDynamicPricingWorkbookSheets = ({
     const postAhsPriceCell = cellRef(postAhsPriceColumn, rowNumber);
     const postJdHandPriceCell = cellRef(postJdHandPriceColumn, rowNumber);
 
+    const activeRules = subsidyRules.filter(rule => rule.newSeries === product.newSeries);
+    const inflation = channelId === 'tradeIn' && hasInflationRules(activeRules);
+    let itemBeforeCell = currentJdCell;
+    let itemAfterCell = trialPriceCell;
+    let inflationBeforeCell = '0';
+    let inflationAfterCell = '0';
+    let beforeEvaluation: ReturnType<typeof evaluateTradeInPrice> | undefined;
+    let afterEvaluation: ReturnType<typeof evaluateTradeInPrice> | undefined;
+    let preRegularAhsFormula = '';
+    let preRegularJdFormula = '';
+    const seriesCell = channelId === 'tradeIn' ? cellRef(seriesColumn as number, rowNumber) : '';
+    const ruleRange = (letter: string) => `'${RULES_SHEET_NAME}'!$${letter}$2:$${letter}$${lastRuleRow}`;
+    const netLookup = (price: string, letter: string) => `IFERROR(_xlfn.XLOOKUP(1,(${ruleRange('A')}=${seriesCell})*(${ruleRange('B')}<=${price}),${ruleRange(letter)},0,0,-1),0)`;
+    if (inflation) {
+      beforeEvaluation = evaluateTradeInPrice(product.jdPrice, activeRules, product.basePrice);
+      afterEvaluation = evaluateTradeInPrice(product.recommendJdPrice, activeRules, product.basePrice);
+      for (const [phase, price, evaluated] of [['追价前', currentJdCell, beforeEvaluation], ['追价后', trialPriceCell, afterEvaluation]] as const) {
+        const totalColumn = requiredColumn(columns, `旧机膨胀款-${phase}`);
+        const ahsColumn = requiredColumn(columns, `旧机膨胀款ahs承担部分-${phase}`);
+        const itemColumn = requiredColumn(columns, `含旧机膨胀款ahs承担部分后物品价-${phase}`);
+        const matchedPriceColumn=optionalColumn(columns, `含旧机膨胀款后物品价-${phase}`);
+        const totalCell = cellRef(totalColumn, rowNumber);
+        const inflationAhsCell = cellRef(ahsColumn, rowNumber);
+        const comparedCell = cellRef(itemColumn, rowNumber);
+        writeFormulaCell(pricingSheet, totalColumn, rowNumber,
+          `_xlfn.MAXIFS(${ruleRange('E')},${ruleRange('A')},${seriesCell},${ruleRange('B')},"<="&${price})`, evaluated.inflationTotal, PRICE_FORMAT);
+        writeFormulaCell(pricingSheet, ahsColumn, rowNumber,
+          `IFERROR(_xlfn.XLOOKUP(1,(${ruleRange('A')}=${seriesCell})*(${ruleRange('B')}<=${price})*(${ruleRange('E')}=${totalCell}),${ruleRange('F')},0,0,-1),0)`, evaluated.inflationAhs, PRICE_FORMAT);
+        writeFormulaCell(pricingSheet, itemColumn, rowNumber, `${price}+${inflationAhsCell}`, evaluated.itemPrice, PRICE_FORMAT);
+        if(matchedPriceColumn!==undefined)writeFormulaCell(pricingSheet,matchedPriceColumn,rowNumber,`${price}+${totalCell}`,evaluated.subsidyMatchPrice,PRICE_FORMAT);
+        if (phase === '追价前') { itemBeforeCell = comparedCell; inflationBeforeCell = totalCell; }
+        else { itemAfterCell = comparedCell; inflationAfterCell = totalCell; }
+      }
+      preRegularAhsFormula = netLookup(`(${currentJdCell}+${inflationBeforeCell})`, 'H');
+      preRegularJdFormula = netLookup(`(${currentJdCell}+${inflationBeforeCell})`, 'G');
+      writeFormulaCell(pricingSheet, currentAhsColumn, rowNumber, preRegularAhsFormula, beforeEvaluation.regularAhs, PRICE_FORMAT);
+      writeFormulaCell(pricingSheet, currentJdSubsidyColumn as number, rowNumber, preRegularJdFormula, beforeEvaluation.regularJd, PRICE_FORMAT);
+      writeFormulaCell(pricingSheet, currentJdHandPriceColumn as number, rowNumber,
+        `${currentJdCell}+${inflationBeforeCell}+${cellRef(currentJdSubsidyColumn as number, rowNumber)}`, beforeEvaluation.handPrice, PRICE_FORMAT);
+      const currentCostColumn = optionalColumn(columns, '含ahs全部承担后报价-追价前', '含AHS补贴后报价');
+      if (currentCostColumn !== undefined) writeFormulaCell(pricingSheet, currentCostColumn, rowNumber,
+        `${itemBeforeCell}+${currentAhsCell}`, beforeEvaluation.costPrice, PRICE_FORMAT);
+      const preMarginColumn = optionalColumn(columns, '追前边际利润率');
+      if (preMarginColumn !== undefined) writeFormulaCell(pricingSheet, preMarginColumn, rowNumber,
+        `IF(${basePriceCell}<=0,0,1-((${itemBeforeCell}+${currentAhsCell})*1.0466+${basePriceCell}*0.0218+81)/${basePriceCell})`, beforeEvaluation.marginalProfit ?? 0, PERCENT_FORMAT);
+      const preFlags: Array<[string,string,string,number,number]> = [
+        ['裸机比tm','tm裸机价',itemBeforeCell,beforeEvaluation.itemPrice,product.tmPrice],
+        ['到手比tm','tm总到手价',cellRef(currentJdHandPriceColumn as number,rowNumber),beforeEvaluation.handPrice,product.tmHandPrice],
+        ['裸机比zz','zz裸机价',itemBeforeCell,beforeEvaluation.itemPrice,product.zzPrice],
+        ['仅含ahs补贴+裸机 vs zz到手','zz券后价',`(${itemBeforeCell}+${currentAhsCell})`,beforeEvaluation.costPrice,product.zzHandPrice]
+      ];
+      for (const [label,competitorLabel,ownCell,ownValue,competitorValue] of preFlags) {
+        const resultColumn=optionalColumn(columns,label), competitorColumn=optionalColumn(columns,competitorLabel);
+        if(resultColumn===undefined || competitorColumn===undefined)continue;
+        const competitorCell=cellRef(competitorColumn,rowNumber);
+        writeFormulaCell(pricingSheet,resultColumn,rowNumber,`--AND(${competitorCell}>0,${ownCell}>=${competitorCell})`,competitorValue>0&&ownValue>=competitorValue?1:0,FLAG_FORMAT);
+      }
+    }
+
     let postAhsFormula: string;
     let postJdSubsidyFormula: string;
 
-    if (channelId === 'selfOperated') {
+    if (inflation) {
+      postAhsFormula = netLookup(`(${trialPriceCell}+${inflationAfterCell})`, 'H');
+      postJdSubsidyFormula = netLookup(`(${trialPriceCell}+${inflationAfterCell})`, 'G');
+    } else if (channelId === 'selfOperated') {
       postAhsFormula = ruleCount === 0
         ? '0'
         : `IFERROR(_xlfn.XLOOKUP(1,--('${RULES_SHEET_NAME}'!$A$2:$A$${lastRuleRow}<=${trialPriceCell}),'${RULES_SHEET_NAME}'!$B$2:$B$${lastRuleRow},0,0,-1),0)`;
@@ -241,8 +313,8 @@ export const addDynamicPricingWorkbookSheets = ({
       }
     }
 
-    writeFormulaCell(pricingSheet, postAhsColumn, rowNumber, postAhsFormula, product.ahsSubsidyAfter, PRICE_FORMAT);
-    writeFormulaCell(pricingSheet, postJdSubsidyColumn, rowNumber, postJdSubsidyFormula, product.totalSubsidy, PRICE_FORMAT);
+    writeFormulaCell(pricingSheet, postAhsColumn, rowNumber, postAhsFormula, afterEvaluation?.regularAhs ?? product.ahsSubsidyAfter, PRICE_FORMAT);
+    writeFormulaCell(pricingSheet, postJdSubsidyColumn, rowNumber, postJdSubsidyFormula, afterEvaluation?.regularJd ?? product.totalSubsidy, PRICE_FORMAT);
     writeFormulaCell(
       pricingSheet,
       adjustmentColumn,
@@ -255,16 +327,16 @@ export const addDynamicPricingWorkbookSheets = ({
       pricingSheet,
       postAhsPriceColumn,
       rowNumber,
-      `${trialPriceCell}+${postAhsCell}`,
-      product.postAhsPrice,
+      `${itemAfterCell}+${postAhsCell}`,
+      afterEvaluation?.costPrice ?? product.postAhsPrice,
       PRICE_FORMAT
     );
     writeFormulaCell(
       pricingSheet,
       postJdHandPriceColumn,
       rowNumber,
-      `${trialPriceCell}+${postJdSubsidyCell}`,
-      product.postJdHandPrice,
+      inflation ? `${trialPriceCell}+${inflationAfterCell}+${postJdSubsidyCell}` : `${trialPriceCell}+${postJdSubsidyCell}`,
+      afterEvaluation?.handPrice ?? product.postJdHandPrice,
       PRICE_FORMAT
     );
 
@@ -295,8 +367,8 @@ export const addDynamicPricingWorkbookSheets = ({
         pricingSheet,
         preItemGapColumn as number,
         rowNumber,
-        `IF(${tmPriceCell}>0,${currentJdCell}-${tmPriceCell},"")`,
-        gaps.preItemGap ?? 0,
+        `IF(${tmPriceCell}>0,${itemBeforeCell}-${tmPriceCell},"")`,
+        beforeEvaluation ? beforeEvaluation.itemPrice - product.tmPrice : gaps.preItemGap ?? 0,
         PRICE_FORMAT
       );
       writeFormulaCell(
@@ -304,15 +376,15 @@ export const addDynamicPricingWorkbookSheets = ({
         preHandGapColumn as number,
         rowNumber,
         `IF(${tmHandPriceCell}>0,${currentJdHandPriceCell}-${tmHandPriceCell},"")`,
-        gaps.preHandGap ?? 0,
+        beforeEvaluation ? beforeEvaluation.handPrice - product.tmHandPrice : gaps.preHandGap ?? 0,
         PRICE_FORMAT
       );
       writeFormulaCell(
         pricingSheet,
         postItemGapColumn as number,
         rowNumber,
-        `IF(${tmPriceCell}>0,${trialPriceCell}-${tmPriceCell},"")`,
-        gaps.postItemGap ?? 0,
+        `IF(${tmPriceCell}>0,${itemAfterCell}-${tmPriceCell},"")`,
+        afterEvaluation ? afterEvaluation.itemPrice - product.tmPrice : gaps.postItemGap ?? 0,
         PRICE_FORMAT
       );
       writeFormulaCell(
@@ -320,20 +392,20 @@ export const addDynamicPricingWorkbookSheets = ({
         postHandGapColumn as number,
         rowNumber,
         `IF(${tmHandPriceCell}>0,${postJdHandPriceCell}-${tmHandPriceCell},"")`,
-        gaps.postHandGap ?? 0,
+        afterEvaluation ? afterEvaluation.handPrice - product.tmHandPrice : gaps.postHandGap ?? 0,
         PRICE_FORMAT
       );
     }
 
     const linearCostFormula = channelId === 'selfOperated'
       ? `(${basePriceCell}*0.0218+63)`
-      : `((${trialPriceCell}+${postAhsCell})*0.0466+${basePriceCell}*0.0218+81)`;
+      : `((${itemAfterCell}+${postAhsCell})*0.0466+${basePriceCell}*0.0218+81)`;
     writeFormulaCell(
       pricingSheet,
       postMarginColumn,
       rowNumber,
-      `IF(${basePriceCell}<=0,0,1-(${trialPriceCell}+${postAhsCell}+${linearCostFormula})/${basePriceCell})`,
-      product.postMarginalProfit,
+      `IF(${basePriceCell}<=0,0,1-(${itemAfterCell}+${postAhsCell}+${linearCostFormula})/${basePriceCell})`,
+      afterEvaluation?.marginalProfit ?? product.postMarginalProfit,
       PERCENT_FORMAT
     );
 
@@ -359,7 +431,7 @@ export const addDynamicPricingWorkbookSheets = ({
         ? postJdHandPriceCell
         : resultLabel === '京东物品价+ahs补贴-追价后 vs 转转' || resultLabel === '京东物品价+ahs补贴-追价后 vs天猫'
           ? postAhsPriceCell
-          : trialPriceCell;
+          : itemAfterCell;
       writeFormulaCell(
         pricingSheet,
         resultColumn,
@@ -374,6 +446,12 @@ export const addDynamicPricingWorkbookSheets = ({
   formatNumericColumn(pricingSheet, columns, [
     'jd裸机价',
     '对应新品型号ahs投入',
+    '以旧换新补贴ahs承担-追价前',
+    '以旧换新补贴ahs承担-追价后',
+    '以旧换新总补贴-追价前',
+    '以旧换新总补贴-追价后',
+    '含ahs全部承担后报价-追价前',
+    '含ahs全部承担后报价-追价后',
     '自营普发券AHS补贴',
     '对应新品型号jd总投入',
     'tm裸机价',
@@ -389,6 +467,7 @@ export const addDynamicPricingWorkbookSheets = ({
     '系统推荐追后价',
     '试算追后价',
     '追后tm物品价差',
+    '追后tm物品价差-含旧机膨胀ahs承担',
     '追后tm到手价差'
   ], products.length, PRICE_FORMAT);
   formatNumericColumn(pricingSheet, columns, ['追前边际利润率'], products.length, PERCENT_FORMAT);

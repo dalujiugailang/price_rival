@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import UploadSection from './UploadSection';
+import UploadSection, {uploadTimeMs} from './UploadSection';
 import { SourceUploadRecord } from '../types';
 
 const record = (id: string, type: 'base' | 'subsidy', sourceFileId?: string): SourceUploadRecord => ({
@@ -71,3 +71,6 @@ console.log('Snapshot source files: hidden by default, latest per type, upload h
 assert.match(ordinary, /aria-label="上传流量表"/);
 assert.match(ordinary, /aria-label="上传成交表"/);
 assert.match(ordinary, /<button[^>]*disabled=""[^>]*>生成<\/button>/);
+
+assert.equal(uploadTimeMs('2026-11-17 08:00:00'), uploadTimeMs('2026-11-17T08:00:00Z'));
+assert.ok(uploadTimeMs('2026-11-17 08:00:01') > uploadTimeMs('2026-11-17T08:00:00Z'));

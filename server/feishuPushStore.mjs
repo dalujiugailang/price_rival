@@ -18,6 +18,10 @@ export const createPushStore = path => {
     },
     finish(dedupe,status,messageId,error) {db.prepare('UPDATE feishu_push_deliveries SET status=?,message_id=?,error=?,updated_at=? WHERE dedupe=?').run(status,messageId||null,error||null,new Date().toISOString(),dedupe);},
     hasSent(id) {return !!db.prepare("SELECT 1 FROM feishu_push_deliveries WHERE preview_id=? AND status='sent' LIMIT 1").get(id);},
+    hasSentBrandPreview(id, recipient) {return !!db.prepare(`SELECT 1 FROM feishu_push_deliveries d
+      JOIN feishu_push_previews p ON p.id=d.preview_id
+      JOIN json_each(p.report,'$.brandPreviewIds') b
+      WHERE d.status='sent' AND json_extract(d.target,'$.id')=? AND b.value=? LIMIT 1`).get(recipient,id);},
     history(channelId) {return db.prepare(`SELECT d.*, p.report FROM feishu_push_deliveries d JOIN feishu_push_previews p ON p.id=d.preview_id WHERE json_extract(p.report,'$.channelId')=? ORDER BY d.created_at DESC LIMIT 50`).all(channelId).map(row=>({...row,target:JSON.parse(row.target),report:JSON.parse(row.report)}));}
   };
 };

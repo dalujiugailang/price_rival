@@ -1,4 +1,6 @@
 interface TmPriceGapInput {
+  inflationItemPriceBefore?: number;
+  inflationItemPriceAfter?: number;
   jdPrice: number;
   jdHandPrice: number;
   recommendJdPrice: number;
@@ -15,8 +17,8 @@ export interface TmPriceGaps {
 }
 
 export const getTmPriceGaps = (input: TmPriceGapInput): TmPriceGaps => ({
-  preItemGap: input.tmPrice > 0 ? input.jdPrice - input.tmPrice : null,
+  preItemGap: input.tmPrice > 0 ? (input.inflationItemPriceBefore ?? input.jdPrice) - input.tmPrice : null,
   preHandGap: input.tmHandPrice > 0 ? input.jdHandPrice - input.tmHandPrice : null,
-  postItemGap: input.tmPrice > 0 ? input.recommendJdPrice - input.tmPrice : null,
+  postItemGap: input.tmPrice > 0 ? (input.inflationItemPriceAfter ?? input.recommendJdPrice) - input.tmPrice : null,
   postHandGap: input.tmHandPrice > 0 ? input.postJdHandPrice - input.tmHandPrice : null
 });

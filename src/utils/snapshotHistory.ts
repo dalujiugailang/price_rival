@@ -1,3 +1,4 @@
+import {pricingHeaderMerges} from '../../shared/pricingColumns.mjs';
 import * as XLSX from 'xlsx';
 import { CalculatedProduct, TrackingBatch } from '../types';
 
@@ -103,6 +104,7 @@ export const createSnapshotWorkbook = (
     columns.map(column => column.label),
     ...products.map(product => columns.map(column => cleanValue(column.getValue(product))))
   ]);
+  sheet['!merges'] = pricingHeaderMerges(columns.map(column=>column.code));
   sheet['!cols'] = columns.map(column => ({ wch: Math.max(10, Math.round(column.width / 7)) }));
   columns.forEach((column, columnIndex) => {
     if (!column.numberFormat) return;

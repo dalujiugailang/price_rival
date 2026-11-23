@@ -1,3 +1,4 @@
+import {hasInflationRules,evaluateTradeInPrice} from './tradeInSubsidy.mjs';
 import { pricingColumnKeys, pricingBooleanKeys } from './pricingColumns.mjs';
 import {gradeMarginalProfit as margin} from './gradeMargin.mjs';
 
@@ -21,7 +22,7 @@ export function gradeResultValue(key, value) {
 
 // Only known display fields are frozen. None are fed back into ratio pricing.
 export function gradeSourceDisplay(product = {}) {
-  return Object.fromEntries(pricingColumnKeys.map(key => {
+  return Object.fromEntries([...new Set([...pricingColumnKeys,'pricingAlgorithmVersion','inflationTotalBefore','inflationAhsBefore','inflationItemPriceBefore','subsidyMatchPriceBefore','inflationTotalAfter','inflationAhsAfter','inflationItemPriceAfter','subsidyMatchPriceAfter'])].map(key => {
     const value = product[key];
     return [key, ['string','boolean'].includes(typeof value) || typeof value==='number' && Number.isFinite(value) ? value : null];
   }));
@@ -64,14 +65,30 @@ export function addGradePresentation(result, { prices = [], subsidyRules = [] } 
         pricingRemark: row.origin==='等级推算' ? `首次等级比推算：${row.anchorPrice} × ${row.ratio} ÷ ${row.anchorRatio}；${row.marginRemark||''}；${row.orderRemark||''}` : '保留已定价',
         recommendAdjustment:row.adjustment
       });
+      if(hasInflationRules(rules)){
+        const evaluate=price=>price==null || !Number.isFinite(price) || price<0 ? null : evaluateTradeInPrice(price,rules,basePrice || 0);
+        const before=evaluate(row.strategyPrice),after=evaluate(row.price);
+        Object.assign(display,{
+          pricingAlgorithmVersion:'inflation-v2',
+          ahsInput:before?.regularAhs ?? null,jdSubsidy:before?.regularJd ?? null,
+          ahsQuotedPrice:round(before?.costPrice ?? null),jdHandPrice:round(before?.handPrice ?? null),
+          preMarginalProfit:before?.marginalProfit ?? null,
+          ahsSubsidyAfter:after?.regularAhs ?? null,postAhsPrice:round(after?.costPrice ?? null),
+          postJdHandPrice:round(after?.handPrice ?? null),postMarginalProfit:after?.marginalProfit ?? null,
+          inflationTotalBefore:before?.inflationTotal ?? null,inflationAhsBefore:before?.inflationAhs ?? null,
+          inflationItemPriceBefore:before?.itemPrice ?? null,subsidyMatchPriceBefore:before?.subsidyMatchPrice ?? null,
+          inflationTotalAfter:after?.inflationTotal ?? null,inflationAhsAfter:after?.inflationAhs ?? null,
+          inflationItemPriceAfter:after?.itemPrice ?? null,subsidyMatchPriceAfter:after?.subsidyMatchPrice ?? null
+        });
+      }
     }
     Object.assign(display, {newSeries, oldModel:row.model, ppv:row.ppv, skuId:row.skuId,
       quoteVolume:row.quoteVolume,soldVolume:row.soldVolume,recommendJdPrice:row.price});
     if(row.marginRemark)display.marginRemark=row.marginRemark;
     if (source) {
       const gap = (own, competitor) => number(display[competitor]) > 0 && number(display[own]) != null ? round(display[own]-display[competitor]) : null;
-      display.preItemGap=gap('jdPrice','tmPrice'); display.preHandGap=gap('jdHandPrice','tmHandPrice');
-      display.postItemGap=gap('recommendJdPrice','tmPrice'); display.postHandGap=gap('postJdHandPrice','tmHandPrice');
+      display.preItemGap=gap(display.pricingAlgorithmVersion==='inflation-v2'?'inflationItemPriceBefore':'jdPrice','tmPrice'); display.preHandGap=gap('jdHandPrice','tmHandPrice');
+      display.postItemGap=gap(display.pricingAlgorithmVersion==='inflation-v2'?'inflationItemPriceAfter':'recommendJdPrice','tmPrice'); display.postHandGap=gap('postJdHandPrice','tmHandPrice');
     }
     return {...row,newSeries,display,displayStatus: !source && !rules.length ? ['缺少本系列补贴规则，补贴及相关利润显示 -'] : []};
   });

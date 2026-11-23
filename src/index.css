@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+@import "./components/brand-price-details.css";
 @import "./components/ProfitRateComparison.css";
+@import "./components/subsidyMatrix/matrix.css";
 
 @theme {
   --font-sans: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -29,6 +31,33 @@
 .tech-grid-table th:last-child,
 .tech-grid-table td:last-child {
   border-right: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pricing-risk-toggle:is(:hover, :focus-visible) .pricing-risk-outline {
+    stroke-dasharray: 1 1;
+    animation: pricing-risk-trace 320ms ease-out both;
+  }
+
+  .pricing-risk-toggle:is(:hover, :focus-visible) .pricing-risk-mark {
+    stroke-dasharray: 1 1;
+    animation: pricing-risk-trace 125ms ease-out 280ms both;
+  }
+
+  .pricing-risk-toggle:is(:hover, :focus-visible) .pricing-risk-dot {
+    animation: pricing-risk-dot-in 90ms ease-out 405ms both;
+  }
+}
+
+@keyframes pricing-risk-trace {
+  from { stroke-dashoffset: 1; opacity: 0; }
+  12% { opacity: 1; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes pricing-risk-dot-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .tracking-table-scroll {

@@ -59,6 +59,14 @@ export const createDatabase = databasePath => {
       UNIQUE(channel_id, kind, sha256)
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS subsidy_archives (
+      id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'subsidy',
+      file_name TEXT NOT NULL, content_type TEXT, sha256 TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL, original BLOB NOT NULL, created_by_open_id TEXT,
+      created_at TEXT NOT NULL, archive_date TEXT NOT NULL, version INTEGER NOT NULL,
+      UNIQUE(archive_date, version)
+    ) STRICT;
+
     DROP INDEX IF EXISTS tracking_batches_one_confirmed_date;
     CREATE UNIQUE INDEX IF NOT EXISTS tracking_batches_one_confirmed_scope
       ON tracking_batches(channel_id, competitiveness_date, ${scopeSql})
@@ -235,10 +243,21 @@ export const createDatabase = databasePath => {
       return { id, fileName, sha256, reused: false };
     },
 
-    getSourceFile(id) { return db.prepare('SELECT * FROM source_files WHERE id=?').get(id); },
-
+    saveSubsidyArchive({channelId='tradeIn', fileName, contentType, buffer, actor}) {
+      if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length>18*1024*1024) throw new Error('文件为空或超过18MB');
+      const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const version=db.prepare('SELECT COALESCE(MAX(version),0)+1 AS v FROM subsidy_archives WHERE archive_date=?').get(date).v;
+        const name=`${date}补贴v${version}${path.extname(fileName).toLowerCase()}`;
+        const id=`SUBSIDY-${crypto.randomUUID()}`, sha256=crypto.createHash('sha256').update(buffer).digest('hex');
+        db.prepare('INSERT INTO subsidy_archives VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,channelId,'subsidy',name,contentType||null,sha256,buffer.length,buffer,actor?.openId||null,nowText(),date,version);
+        db.exec('COMMIT');return {id,fileName:name,sha256,reused:false,version};
+      } catch(error) {db.exec('ROLLBACK');throw error;}
+    },
+    getSourceFile(id) { return db.prepare('SELECT * FROM source_files WHERE id=?').get(id) || db.prepare('SELECT * FROM subsidy_archives WHERE id=?').get(id); },
     listSourceFiles(channelId) {
-      return db.prepare('SELECT id,channel_id,kind,file_name,size_bytes,created_at FROM source_files WHERE channel_id=? ORDER BY created_at DESC').all(channelId);
+      return db.prepare('SELECT id,channel_id,kind,file_name,size_bytes,created_at FROM source_files WHERE channel_id=? UNION ALL SELECT id,channel_id,kind,file_name,size_bytes,created_at FROM subsidy_archives WHERE channel_id=? ORDER BY created_at DESC').all(channelId,channelId);
     },
 
     listBatches(channelId = null) {

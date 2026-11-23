@@ -1,18 +1,19 @@
+import { useUrlState } from '../utils/urlState';
 import React, { useMemo, useState } from 'react';
 import { GradeOutputRow, GradeRun } from '../gradeTypes';
 import { gradeRowDisplay, gradeResultStatus, gradeResultValue } from '../../shared/gradePresentation.mjs';
 import { formatRMB, formatPercent } from '../utils/formulas';
-import { pricingColumnCodes, pricingColumnKeys, pricingColumnLabels, pricingColumnWidths, pricingPercentKeys, pricingBooleanKeys } from '../../shared/pricingColumns.mjs';
+import { pricingColumnCodes, pricingColumnKeys, pricingColumnLabels, pricingColumnWidths, pricingPercentKeys, pricingBooleanKeys, pricingColumnOrder, pricingInflationGroup } from '../../shared/pricingColumns.mjs';
 import { ColumnFilters, EMPTY_COLUMN_FILTER_VALUE, getColumnFilterOptions, matchesColumnFilters, matchesTableSearch, setColumnFilter } from '../utils/tableColumnFilters';
 import ColumnFilterButton from './ColumnFilterButton';
 
 const labels=pricingColumnLabels();
-const columns=pricingColumnKeys.map((key,index)=>({key,label:labels[index],code:pricingColumnCodes[index],width:pricingColumnWidths[index]}))
-  .filter((_,index)=>index!==28&&index!==37);
+const columns=pricingColumnOrder.map(index=>({key:pricingColumnKeys[index],label:labels[index],code:pricingColumnCodes[index],width:pricingColumnWidths[index],group:pricingInflationGroup(index)}))
+  .filter(column=>!['pricingRemark','marginRemark'].includes(column.key));
 const extras=[['level','等级',90],['origin','价格来源',110],['strategyPrice','投入测算原价（Daily Price）',150],['adjustment','投入测算单台调整额',150],['investment','预估新增投入',140],['status','状态',240]] as const;
-const allColumns=[...columns,...extras.map(([key,label,width])=>({key,label,width,code:''}))];
+const allColumns=[...columns,...extras.map(([key,label,width])=>({key,label,width,code:'',group:''}))];
 const textKeys=new Set(['newSeries','oldModel','ppv','skuId','levelId','brand','smallGapOpportunityRemark','level','origin','status']);
-const moneyKeys=new Set(['ahsQuotedPrice','jdHandPrice','tmRecyclerSubsidy','tmRecyclerQuotedPrice','tmHandPrice','zzHandPrice','basePrice','preItemGap','preHandGap','recommendJdPrice','recommendAdjustment','ahsSubsidyAfter','postAhsPrice','postJdHandPrice','postItemGap','postHandGap','strategyPrice','adjustment','investment']);
+const moneyKeys=new Set(['ahsQuotedPrice','jdHandPrice','tmRecyclerSubsidy','tmRecyclerQuotedPrice','tmHandPrice','zzHandPrice','basePrice','preItemGap','preHandGap','recommendJdPrice','recommendAdjustment','ahsSubsidyAfter','postAhsPrice','postJdHandPrice','postItemGap','postHandGap','strategyPrice','adjustment','investment','inflationTotalBefore','inflationAhsBefore','inflationItemPriceBefore','subsidyMatchPriceBefore','inflationTotalAfter','inflationAhsAfter','inflationItemPriceAfter','subsidyMatchPriceAfter']);
 const gapKeys=new Set(['preItemGap','preHandGap','postItemGap','postHandGap']);
 const format=(key:string,value:unknown)=>{
   if(value==null||value==='')return '-';
@@ -36,7 +37,7 @@ const getValue=(view:ViewRow,key:string)=>view.values[key];
 const button='border border-[#141414] bg-white px-3 py-2 text-xs font-bold disabled:opacity-40';
 
 export default function GradePricingTable({run}:{run:GradeRun;key?:string}) {
-  const [query,setQuery]=useState(''); const [onlyIssues,setOnlyIssues]=useState(false);
+  const [query,setQuery]=useUrlState('GradePricingTable.query', ''); const [onlyIssues,setOnlyIssues]=useState(false);
   const [filters,setFilters]=useState<ColumnFilters>({}); const [open,setOpen]=useState<string|null>(null);
   const views=useMemo(()=>run.rows.map(row=>({row,values:{...Object.fromEntries(Object.entries(gradeRowDisplay(row,run.request)).map(([key,value])=>[key,gradeResultValue(key,value)])),level:row.level,origin:row.origin,strategyPrice:row.strategyPrice,adjustment:row.adjustment,investment:row.investment,status:gradeResultStatus(row).join('；')}})),[run]);
   const searched=useMemo(()=>views.filter(v=>(!onlyIssues||Boolean(v.values.status))&&matchesTableSearch(v,query,v=>allColumns.map(c=>v.values[c.key]))),[views,query,onlyIssues]);
@@ -56,7 +57,7 @@ export default function GradePricingTable({run}:{run:GradeRun;key?:string}) {
       <table className="table-fixed text-[11px] leading-tight" style={{width,minWidth:width}}>
         <colgroup>{allColumns.map(c=><col key={c.key} style={{width:c.width}}/>)}</colgroup>
         <thead className="tracking-table-head border-b border-[#141414] bg-[#F0EFEC]">
-          <tr>{allColumns.map(c=><th key={c.key} className={`border-r border-[#141414] px-2 py-1 text-center ${c.key==='recommendJdPrice'?'repricing-header bg-[#D8D7D2]':''}`}>{c.code||'等级推算'}</th>)}</tr>
+          <tr>{allColumns.map(c=><th key={c.key} className={`border-r border-[#141414] px-2 py-1 text-center ${c.key==='recommendJdPrice'?'repricing-header bg-[#D8D7D2]':''}`}>{c.group||c.code||'等级推算'}</th>)}</tr>
           <tr>{allColumns.map(c=><th key={c.key} className={`border-r border-[#141414] px-2 py-1 text-center ${c.key==='recommendJdPrice'?'repricing-header bg-[#D8D7D2]':''}`}>
             <div className="flex items-center justify-center gap-1"><span className="min-w-0 flex-1">{c.label}</span><ColumnFilterButton label={c.label} options={open===c.key?getColumnFilterOptions(searched,c.key,filters,getValue).map(o=>({...o,label:o.value===EMPTY_COLUMN_FILTER_VALUE?'-':format(c.key,o.value)})):[]} activeValues={filters[c.key]||[]} isOpen={open===c.key} onToggle={()=>setOpen(open===c.key?null:c.key)} onClose={()=>setOpen(null)} onApply={values=>{setFilters(current=>setColumnFilter(current,c.key,values));}}/></div>
           </th>)}</tr>

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import tls from 'node:tls';
-import { ALL_ACCESS_SCOPES, DEFAULT_VIEWER_SCOPES, isEditor } from '../shared/accessPolicy.mjs';
+import { ALL_ACCESS_SCOPES, ALL_ACTION_SCOPES, DEFAULT_VIEWER_SCOPES, isEditor } from '../shared/accessPolicy.mjs';
 import { ACCESS_PROFILES, DEFAULT_ADMIN_OPEN_IDS } from './accessBootstrap.mjs';
 
 if (typeof tls.setDefaultCACertificates === 'function') {
@@ -89,7 +89,7 @@ export const createAuth = ({ db, env, appUrl }) => {
   const directoryTokens = new Map();
   const developmentAccess = () => {
     const role = env.AUTH_DEV_ROLE === 'admin' ? 'admin' : ['viewer', 'tradeInViewer'].includes(env.AUTH_DEV_ROLE) ? 'viewer' : 'editor';
-    const scopes = env.AUTH_DEV_SCOPES ? splitCsv(env.AUTH_DEV_SCOPES).filter(scope => ALL_ACCESS_SCOPES.includes(scope))
+    const scopes = env.AUTH_DEV_SCOPES ? splitCsv(env.AUTH_DEV_SCOPES).filter(scope => ALL_ACCESS_SCOPES.includes(scope) || ALL_ACTION_SCOPES.includes(scope))
       : role === 'viewer' ? [...DEFAULT_VIEWER_SCOPES] : [...ALL_ACCESS_SCOPES];
     return { role, scopes, enabled: true, accessVersion: 0 };
   };
@@ -107,9 +107,7 @@ export const createAuth = ({ db, env, appUrl }) => {
 
   const applyCurrentAccess = user => {
     if (!user) return null;
-    if (user.loginType === 'development' && devLoginEnabled) {
-      return { ...user, ...developmentAccess() };
-    }
+    if (user.loginType === 'development') return devLoginEnabled ? { ...user, ...developmentAccess() } : null;
     const tenantAllowed = allowedTenantKeys.size === 0 || allowedTenantKeys.has(user.tenantKey);
     const member = tenantAllowed ? db.getMember(user.openId) : null;
     return member?.enabled ? { ...user, name: member.name, role: member.role, scopes: member.scopes,

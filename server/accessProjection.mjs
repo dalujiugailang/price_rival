@@ -1,16 +1,16 @@
 import { canAccess } from '../shared/accessPolicy.mjs';
-const COMMON = ['id', 'ppv', 'brand', 'newSeries', 'oldModel', 'model'];
+const COMMON = ['id', 'ppv', 'brand', 'newSeries','newSeriesPosition','pricingAlgorithmVersion','inflationTotalBefore','inflationAhsBefore','inflationItemPriceBefore','inflationTotalAfter','inflationAhsAfter','inflationItemPriceAfter','subsidyMatchPriceBefore','subsidyMatchPriceAfter', 'oldModel', 'model'];
 const TREND = ['quoteVolume', 'soldVolume', 'recommendJdPrice', 'recommendPrice', 'postAhsPrice', 'postJdHandPrice',
   'tmPrice', 'tmHandPrice', 'tmRecyclerQuotedPrice', 'tmRecyclerSubsidy', 'tmSubsidyManual', 'totalSubsidy', 'zzPrice', 'zzHandPrice',
   'postTmItemWin', 'postTmHandWin', 'postAhsTmRecyclerWin', 'postZzItemWin', 'postAhsZzHandWin', 'postJdZzHandWin'];
 const GAP = ['postAhsPrice', 'postJdHandPrice', 'tmHandPrice', 'zzHandPrice', 'postTmHandWin', 'postAhsZzHandWin'];
-const META = ['id', 'channelId', 'channelName', 'date', 'dataDate', 'operator', 'remarks', 'isSummaryOnly',
+const META = ['id', 'channelId', 'channelName','pricingAlgorithmVersion', 'batchType', 'launchActivity', 'date', 'dataDate', 'operator', 'remarks', 'isSummaryOnly',
   'isCompetitivenessConfirmed', 'competitivenessDate', 'pricingTimestamp', 'confirmedAt', 'serverCreatedAt', 'serverCreatedBy'];
 const pick = (object, keys) => Object.fromEntries(keys.filter(key => Object.hasOwn(object, key)).map(key => [key, object[key]]));
 export const projectBatch = (batch, user, isLatest = true) => {
   const channel = batch.channelId || 'tradeIn';
   if (canAccess(user, channel, 'history') || (isLatest && canAccess(user, channel, 'workspace'))) return batch;
-  const trend = canAccess(user, channel, 'competitiveness');
+  const trend = canAccess(user, channel, 'competitiveness') || canAccess(user, channel, 'competitionEfficiency');
   const gap = canAccess(user, channel, 'tmHandGap');
   const upload = canAccess(user, channel, 'upload');
   if (!trend && !gap && !upload) return null;
@@ -18,6 +18,8 @@ export const projectBatch = (batch, user, isLatest = true) => {
   return {
     ...pick(batch, META),
     ...(trend ? { competitivenessMetrics: batch.competitivenessMetrics } : {}),
+    ...(trend && Array.isArray(batch.restorePayload?.selectedCompetitionPpvs)
+      ? { competitionCoveragePpvs: batch.restorePayload.selectedCompetitionPpvs } : {}),
     ...(upload ? { sourceUploadRecords: batch.sourceUploadRecords || [] } : {}),
     products: (batch.products || []).map(product => ({
       ...pick(product, allowed),
@@ -31,7 +33,7 @@ export const listAuthorizedBatches = (db, user, channelId = null) => {
   const latest = new Set();
   return source.flatMap(batch => {
     const channel = batch.channelId || 'tradeIn';
-    const allHistory = canAccess(user, channel, 'history') || canAccess(user, channel, 'competitiveness');
+    const allHistory = canAccess(user, channel, 'history') || canAccess(user, channel, 'competitiveness') || canAccess(user, channel, 'competitionEfficiency');
     if (!allHistory && (latest.has(channel) || batch.isSummaryOnly || !batch.products?.length)) return [];
     const isLatest = !latest.has(channel) && !batch.isSummaryOnly && batch.products?.length > 0;
     const projected = projectBatch(batch, user, isLatest);

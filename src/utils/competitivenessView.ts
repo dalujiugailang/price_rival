@@ -15,6 +15,7 @@ export type CompetitivenessViewMetrics = {
 
 export interface CompetitivenessViewSnapshot {
   batchId: string;
+  batchType?: TrackingBatch['batchType'];
   name: string;
   date: string;
   remarks: string;
@@ -51,7 +52,7 @@ const ELIGIBLE_PRICE: Record<keyof CompetitivenessMetrics, keyof CalculatedProdu
 
 // Keep saved scores and the existing weighting formula. A missing denominator is
 // unavailable in this view, rather than a measured zero-percent win rate.
-const viewMetrics = (
+export const viewMetrics = (
   products: CalculatedProduct[], channelId: ChannelId, saved?: CompetitivenessMetrics
 ): CompetitivenessViewMetrics => {
   const metrics = saved || calculateCompetitivenessMetrics(products, channelId);
@@ -109,6 +110,7 @@ export const buildCompetitivenessView = ({
     const products = batch.isSummaryOnly ? [] : filter(batch.products || []);
     return {
       batchId: batch.id,
+      batchType: batch.batchType,
       name: batch.id,
       date: batch.competitivenessDate || batch.date,
       remarks: batch.remarks || '无备注',
@@ -128,9 +130,9 @@ export const buildCompetitivenessView = ({
     isDraft: true, isConfirmed: false, isSummaryOnly: false,
     products: liveProducts, metrics: viewMetrics(liveProducts, channelId)
   };
-  const candidates = [...snapshots, live];
+  const candidates = [...snapshots, ...(currentCalculatedItems.length > 0 || effectiveSourceId === LIVE_DRAFT ? [live] : [])];
   const details = effectiveSourceId === ALL_BATCHES
-    ? candidates.filter(snapshot => snapshot.products.length > 0
+    ? currentCalculatedItems.length > 0 ? live : candidates.filter(snapshot => snapshot.products.length > 0
       || Object.values(snapshot.metrics).some(value => value !== null)).at(-1) || null
     : candidates.find(snapshot => snapshot.batchId === effectiveSourceId) || null;
 
@@ -140,7 +142,7 @@ export const buildCompetitivenessView = ({
     batchId: snapshot.batchId,
     date: snapshot.isDraft ? '今日(工作台)' : isSnapshot ? '选定快照' : snapshot.date.slice(5, 10),
     sourceDate: snapshot.date,
-    batchName: `${snapshot.name}${snapshot.remarks !== '无备注' ? ` · ${snapshot.remarks}` : ''}`,
+    batchName: `${snapshot.isDraft ? '实时' : snapshot.batchType === 'launch' ? '发新期' : snapshot.batchType === 'regular' ? '常规期' : '历史记录'} · ${snapshot.name}${snapshot.remarks !== '无备注' ? ` · ${snapshot.remarks}` : ''}`,
     isDraft: snapshot.isDraft, isSnapshot, isSummaryOnly: snapshot.isSummaryOnly
   });
   // A batch for other brands/series is not an observation of this dimension.
@@ -151,14 +153,13 @@ export const buildCompetitivenessView = ({
   const omittedIds = new Set(omittedSnapshots.map(snapshot => snapshot.batchId));
   const timeline = snapshots.filter(snapshot => snapshot.isConfirmed && !omittedIds.has(snapshot.batchId))
     .map(snapshot => toPoint(snapshot));
-  if ((hasDimensionFilter ? liveProducts.length > 0 : currentCalculatedItems.length > 0)
-    || effectiveSourceId === LIVE_DRAFT) timeline.push(toPoint(live));
   if (details && !details.isDraft && !details.isConfirmed) timeline.push(toPoint(details, true));
+  if (currentCalculatedItems.length > 0 || effectiveSourceId === LIVE_DRAFT) timeline.push(toPoint(live));
 
   return {
     sourceId: effectiveSourceId, brand: effectiveBrand, newSeries: effectiveSeries,
     brandOptions, seriesOptions, batches: [...batches].reverse(), details, timeline,
-    hasDimensionFilter, omittedSnapshots,
+    hasDimensionFilter, omittedSnapshots, snapshots, live,
     metrics: details?.metrics || unavailableViewMetrics()
   };
 };
@@ -171,4 +172,15 @@ export const getCompetitivenessViewRange = (
   const needsAll = selectedId && timeline.some(point => point.batchId === selectedId)
     && !recent.some(point => point.batchId === selectedId);
   return { points: needsAll ? timeline : recent, range: needsAll ? 'all' as const : range };
+};
+
+// Use the immediately preceding confirmed batch, including when its selected
+// dimension is unavailable. Never silently skip to an older, better-covered batch.
+export const getPreviousCompetitivenessSnapshot = (
+  snapshots: CompetitivenessViewSnapshot[], selected: CompetitivenessViewSnapshot | null
+) => {
+  if (!selected) return undefined;
+  const index = snapshots.findIndex(snapshot => snapshot.batchId === selected.batchId);
+  return (selected.isDraft ? snapshots : snapshots.slice(0, Math.max(0, index)))
+    .filter(snapshot => snapshot.isConfirmed).at(-1);
 };

@@ -1,3 +1,4 @@
+import {hasInflationRules,evaluateTradeInPrice,findTradeInPrice,tradeInMarginUpper,TRADE_IN_ALGORITHM_VERSION} from '../../shared/tradeInSubsidy.mjs';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -114,7 +115,7 @@ const calcLinearCost = (itemPrice: number, subsidy: number, basePrice: number, c
   return (itemPrice + subsidy) * 0.0466 + basePrice * 0.0218 + 81;
 };
 
-const calcMarginalProfit = (itemPrice: number, subsidy: number, basePrice: number, channel: ChannelConfig = CHANNELS.tradeIn) => {
+export const calcMarginalProfit = (itemPrice: number, subsidy: number, basePrice: number, channel: ChannelConfig = CHANNELS.tradeIn) => {
   if (basePrice <= 0) return 0;
   const linearCost = calcLinearCost(itemPrice, subsidy, basePrice, channel);
   return 1 - (itemPrice + subsidy + linearCost) / basePrice;
@@ -165,7 +166,7 @@ const findBestPriceByMargin = (
   return { price: round2(bestPrice), subsidy: bestSubsidy };
 };
 
-export function calculateProductPrice(
+function calculateLegacyProductPrice(
   product: Product,
   targetMargin: number,
   subsidyRules: SubsidyRule[] = [],
@@ -384,7 +385,7 @@ export function runBatchCalculations(
   return products.map(p => calculateProductPrice(p, targetMargin, subsidyRules, pricingMode, options));
 }
 
-export function applyManualRecommendedPrice(
+function applyLegacyManualRecommendedPrice(
   product: CalculatedProduct,
   manualPrice: number,
   targetMargin: number,
@@ -482,4 +483,67 @@ export function formatRMB(val: number | undefined): string {
 export function formatPercent(val: number | undefined): string {
   if (val === undefined || isNaN(val)) return '0.00%';
   return `${(val * 100).toFixed(2)}%`;
+}
+
+
+function inflationResult(product: Product, targetMargin: number, rules: SubsidyRule[], mode: PricingMode, options: PricingFormulaOptions, pre: ReturnType<typeof evaluateTradeInPrice>, post: ReturnType<typeof evaluateTradeInPrice>, remark: string): CalculatedProduct {
+  const seed=calculateLegacyProductPrice(product,targetMargin,[],'fullCompetition',options);
+  const tmHandPrice=product.tmPrice+product.tmSubsidyManual;
+  const gap=pre.itemPrice-product.tmPrice;
+  return {...seed,...product,pricingAlgorithmVersion:TRADE_IN_ALGORITHM_VERSION,
+    inflationTotalBefore:pre.inflationTotal,inflationAhsBefore:pre.inflationAhs,inflationItemPriceBefore:pre.itemPrice,subsidyMatchPriceBefore:pre.subsidyMatchPrice,
+    inflationTotalAfter:post.inflationTotal,inflationAhsAfter:post.inflationAhs,inflationItemPriceAfter:post.itemPrice,subsidyMatchPriceAfter:post.subsidyMatchPrice,
+    ahsInput:pre.regularAhs,jdSubsidy:pre.regularJd,ahsQuotedPrice:pre.costPrice,jdHandPrice:pre.handPrice,tmHandPrice,
+    jdVsTmItemGap:gap,jdVsTmHandGap:pre.handPrice-tmHandPrice,jdVsZzItemGap:pre.itemPrice-product.zzPrice,ahsVsZzHandGap:pre.costPrice-seed.zzHandPrice,jdVsZzHandGap:pre.handPrice-seed.zzHandPrice,
+    tmItemWin:product.tmPrice>0&&pre.itemPrice>=product.tmPrice,tmHandWin:tmHandPrice>0&&pre.handPrice>=tmHandPrice,zzItemWin:product.zzPrice>0&&pre.itemPrice>=product.zzPrice,ahsZzHandWin:seed.zzHandPrice>0&&pre.costPrice>=seed.zzHandPrice,jdZzHandWin:seed.zzHandPrice>0&&pre.handPrice>seed.zzHandPrice,
+    preGrossMargin:pre.grossMargin??0,preLinearCost:pre.linearCost,preMarginalProfit:pre.marginalProfit??0,preGapRate:product.basePrice>0?gap/product.basePrice:0,
+    recommendJdPrice:post.price,recommendPrice:post.price,recommendAdjustment:round2(post.price-product.jdPrice),ahsSubsidyAfter:post.regularAhs,totalSubsidy:post.regularJd,
+    postAhsPrice:post.costPrice,postJdHandPrice:post.handPrice,postLinearCost:post.linearCost,postGrossMargin:post.grossMargin??0,postMarginalProfit:post.marginalProfit??0,
+    postTmItemWin:product.tmPrice>0&&post.itemPrice+1e-9>=product.tmPrice,postTmHandWin:tmHandPrice>0&&post.handPrice+1e-9>=tmHandPrice,postZzItemWin:product.zzPrice>0&&post.itemPrice>=product.zzPrice,postAhsZzHandWin:seed.zzHandPrice>0&&post.costPrice>=seed.zzHandPrice,postJdZzHandWin:seed.zzHandPrice>0&&post.handPrice>=seed.zzHandPrice,
+    pricingRemark:remark,automaticHandTopUp:undefined,maxPriceByMargin:post.price,minAllowedPrice:post.price,hasSpace:post.price>product.jdPrice,maxTrackSpace:Math.max(0,round2(post.price-product.jdPrice)),
+    riskWarning:(post.marginalProfit??0)<targetMargin?'CRITICAL':(post.marginalProfit??0)<targetMargin+.02?'WARNING':'SAFE',isBelowBottomLine:(post.marginalProfit??0)<targetMargin,estMarginRate:post.marginalProfit??0,
+    targetCompetitorPrice:product.tmPrice,competitorLowestPrice:product.tmPrice,currentPrice:product.jdPrice,generalSubsidy:pre.regularAhs,tradeInSubsidy:post.regularJd
+  };
+}
+function invalidInflationProduct(product: Product,targetMargin:number,options:PricingFormulaOptions,error:string):CalculatedProduct {
+ const result=calculateLegacyProductPrice(product,targetMargin,[],'fullCompetition',options);
+ return {...result,...product,recommendJdPrice:product.jdPrice,recommendPrice:product.jdPrice,recommendAdjustment:0,hasSpace:false,maxTrackSpace:0,pricingRemark:`两套补贴待核验：${error}，不自动改价`,riskWarning:'CRITICAL',isBelowBottomLine:true,postMarginalProfit:NaN,pricingAlgorithmVersion:TRADE_IN_ALGORITHM_VERSION};
+}
+export function calculateProductPrice(product:Product,targetMargin:number,subsidyRules:SubsidyRule[]=[],pricingMode:PricingMode='margin',options:PricingFormulaOptions={}):CalculatedProduct {
+ if(getChannel(options.channel).id!=='tradeIn'||!hasInflationRules(subsidyRules))return calculateLegacyProductPrice(product,targetMargin,subsidyRules,pricingMode,options);
+ const rules=subsidyRules.filter(r=>r.newSeries===product.newSeries);
+ try {
+  if(!rules.length)throw new Error('新机系列未匹配到补贴规则');
+  const pre=evaluateTradeInPrice(product.jdPrice,rules,product.basePrice);
+  let post=pre,remark='保持原价';
+  if(!(product.basePrice>0)||!(product.tmPrice>0)){remark='基准价或天猫价格缺失，不自动改价';}
+  else if(pricingMode==='margin'&&(pre.marginalProfit??0)<=0){remark='追前边际利润率<=0%，不调整';}
+  else if(pre.itemPrice>=product.tmPrice){remark='含旧机膨胀款ahs承担部分后物品价已达竞争，不调整';}
+  else {
+    const max=pricingMode==='fullCompetition'?Math.max(product.jdPrice,product.tmPrice*1.03)+20:tradeInMarginUpper(product.basePrice,targetMargin);
+    const match=findTradeInPrice({rules,basePrice:product.basePrice,min:product.jdPrice,max,itemTarget:product.tmPrice*1.03,...(pricingMode==='margin'?{marginFloor:targetMargin}:{})});
+    const best=match || (pricingMode==='margin'?findTradeInPrice({rules,basePrice:product.basePrice,min:product.jdPrice,max,marginFloor:targetMargin,prefer:'highest'}):null);
+    if(best){post=best;remark=match?'追后物品价＋旧机膨胀款ahs承担部分，达到TM 103%':'选取边际底线内最高合法裸价';}
+    else remark='两套补贴下无可行追加价，保持原价';
+  }
+  const first=post,handGap=round2(product.tmPrice+product.tmSubsidyManual-first.handPrice);
+  let automaticHandTopUp:CalculatedProduct['automaticHandTopUp'];
+  if(pricingMode==='margin'&&(pre.marginalProfit??0)>0&&product.tmPrice>0&&first.itemPrice>=product.tmPrice&&handGap>0&&handGap<=30){
+    const floor=targetMargin-.02;
+    const best=findTradeInPrice({rules,basePrice:product.basePrice,min:first.price+0.01,max:tradeInMarginUpper(product.basePrice,floor),handTarget:product.tmPrice+product.tmSubsidyManual,marginFloor:floor});
+    if(best){post=best;remark+='；到手价小额补追达标';}
+    automaticHandTopUp={firstRoundPrice:first.price,firstRoundHandPrice:first.handPrice,handGap,marginFloor:floor,applied:Boolean(best)};
+  }
+  const result=inflationResult(product,targetMargin,rules,pricingMode,options,pre,post,remark);
+  return {...result,automaticHandTopUp,...(automaticHandTopUp?.applied&&(post.marginalProfit??0)<targetMargin?{riskWarning:'WARNING' as const,isBelowBottomLine:false}:{})};
+ }catch(error){return invalidInflationProduct(product,targetMargin,options,error instanceof Error?error.message:'规则无效');}
+}
+export function applyManualRecommendedPrice(product:CalculatedProduct,manualPrice:number,targetMargin:number,subsidyRules:SubsidyRule[]=[],options:PricingFormulaOptions={}):CalculatedProduct {
+ if(getChannel(options.channel).id!=='tradeIn'||!hasInflationRules(subsidyRules))return applyLegacyManualRecommendedPrice(product,manualPrice,targetMargin,subsidyRules,options);
+ const rules=subsidyRules.filter(r=>r.newSeries===product.newSeries);
+ try{
+  if(!rules.length)throw new Error('新机系列未匹配到补贴规则');
+  const pre=evaluateTradeInPrice(product.jdPrice,rules,product.basePrice),post=evaluateTradeInPrice(roundUploadPrice(manualPrice),rules,product.basePrice);
+  return {...inflationResult(product,targetMargin,rules,'margin',options,pre,post,`手动改价：${product.recommendJdPrice}→${post.price}；两套补贴已重新匹配`),manualRecommendJdPrice:post.price};
+ }catch(error){return invalidInflationProduct(product,targetMargin,options,error instanceof Error?error.message:'规则无效');}
 }

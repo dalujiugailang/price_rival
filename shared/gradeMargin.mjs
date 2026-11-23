@@ -1,3 +1,4 @@
+import {hasInflationRules,evaluateTradeInPrice,findTradeInPrice} from './tradeInSubsidy.mjs';
 import {roundUploadPrice} from './uploadPrice.mjs';
 
 export const GRADE_MARGIN_FLOOR = 0.03;
@@ -40,12 +41,18 @@ export function applyGradeMarginFloor(plan,subsidyRules=[],dailyRows=[]) {
       marginRemark:`固定边际利润率底线3.00%；${reason}，暂不生成最终价格`,status:[...row.status,reason]});
     if(base==null)return pending('缺少BI基准价，无法校验3%底线');
     if(!rules.length)return pending('缺少本系列补贴规则，无法校验3%底线');
-    const marginBeforeCorrection=gradeMarginalProfit(ratioPrice,gradeSubsidyAtPrice(ratioPrice,rules),base);
+    const inflation=hasInflationRules(rules);
+    const marginBeforeCorrection=inflation && Number.isFinite(ratioPrice) ? evaluateTradeInPrice(ratioPrice,rules,base).marginalProfit : gradeMarginalProfit(ratioPrice,gradeSubsidyAtPrice(ratioPrice,rules),base);
     const finish=(price,marginAfterCorrection)=>({...row,ratioPrice,price,marginFloor:GRADE_MARGIN_FLOOR,marginBeforeCorrection,marginAfterCorrection,
       marginRemark:`固定边际利润率底线3.00%；比例推算取整价¥${fmt(ratioPrice)}（${fmt(marginBeforeCorrection*100)}%）`+
         (price===ratioPrice?'，已达底线，保留':` → 修正价¥${fmt(price)}（${fmt(marginAfterCorrection*100)}%）；已按修正价重新匹配补贴及取整`),
       status:price===ratioPrice?row.status:[...row.status,'已按3%边际利润率底线修正']});
     if(marginBeforeCorrection>=GRADE_MARGIN_FLOOR-1e-12)return finish(ratioPrice,marginBeforeCorrection);
+    if(inflation){
+      const best=findTradeInPrice({rules,basePrice:base,min:2,max:ratioPrice,marginFloor:GRADE_MARGIN_FLOOR,prefer:'highest'});
+      if(!best)return {...pending('无满足3%底线的有效正报价'),marginBeforeCorrection};
+      return finish(best.price,best.marginalProfit);
+    }
     // Subsidies can jump or fall between tiers; solve each interval independently.
     const tiers=[...new Map([{threshold:0,ahsInput:0},...rules].map(r=>[r.threshold,r])).values()].sort((a,b)=>a.threshold-b.threshold);
     let best=null;

@@ -35,11 +35,12 @@ assert.equal(all.metrics.tmItemScore, 20, 'compute the latest batch alone; never
 assert.deepEqual(all.timeline.map(point => point.batchId), ['SUMMARY', 'TRACK-OLD', 'TRACK-NEW', LIVE_DRAFT]);
 
 const historicalOnly = buildCompetitivenessView({ ...input, brand: '华为', newSeries: 'Mate 60' });
-assert.equal(historicalOnly.details?.batchId, 'TRACK-OLD');
-assert.equal(historicalOnly.metrics.tmItemScore, 30);
-assert.equal(historicalOnly.details?.products.length, 2);
+assert.equal(historicalOnly.details?.batchId, LIVE_DRAFT, 'the live workspace remains the current source even when this brand has no live rows');
+assert.equal(historicalOnly.metrics.tmItemScore, null);
+assert.equal(historicalOnly.details?.products.length, 0);
 assert.ok(historicalOnly.omittedSnapshots.some(point => point.batchId === 'SUMMARY'), 'summary-only data cannot be split');
-assert.ok(!historicalOnly.timeline.some(point => point.batchId === LIVE_DRAFT), 'an unrelated live draft is not an observation');
+assert.equal(historicalOnly.timeline.at(-1)?.batchId, LIVE_DRAFT);
+assert.equal(historicalOnly.timeline.at(-1)?.tmItemScore, null, 'missing live brand data remains a gap, not a historical fallback');
 
 const track = buildCompetitivenessView({ ...input, sourceId: 'TRACK-OLD', brand: '华为', newSeries: 'Mate 60' });
 assert.equal(track.metrics.tmItemScore, 30);
@@ -75,11 +76,11 @@ assert.equal(summary.brand, ALL_BRANDS);
 const draft = buildCompetitivenessView({ ...input, sourceId: 'TRACK-DRAFT' });
 assert.equal(draft.details?.isConfirmed, false);
 assert.equal(draft.metrics.tmItemScore, 0);
-assert.equal(draft.timeline.at(-1)?.isSnapshot, true);
-assert.equal(draft.timeline.at(-1)?.tmItemScore, null, 'unconfirmed scores are rendered as separate reference dots');
+assert.equal(draft.timeline.find(point => point.batchId === 'TRACK-DRAFT')?.isSnapshot, true);
+assert.equal(draft.timeline.find(point => point.batchId === 'TRACK-DRAFT')?.tmItemScore, null, 'unconfirmed scores are rendered as separate reference dots');
 const draftOnlyBrand = buildCompetitivenessView({ ...input, brand: '荣耀' });
-assert.equal(draftOnlyBrand.details?.batchId, 'TRACK-DRAFT');
-assert.equal(draftOnlyBrand.timeline.at(-1)?.isSnapshot, true);
+assert.equal(draftOnlyBrand.details?.batchId, LIVE_DRAFT);
+assert.equal(draftOnlyBrand.timeline.at(-1)?.isDraft, true);
 
 const noWeight = buildCompetitivenessView({ historyBatches: [], currentCalculatedItems: [product('小米', '小米15', 0, true)], sourceId: LIVE_DRAFT });
 assert.equal(noWeight.metrics.tmItemScore, null);

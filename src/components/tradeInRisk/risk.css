@@ -42,3 +42,31 @@
 .risk-card-footer a.risk-link-button{display:inline-flex;align-items:center;border:1px solid #141414;padding:7px 12px;font-size:12px;font-weight:700;text-decoration:none;background:white;color:#141414}
 .risk-card-footer a.risk-link-button:hover{background:#F0EFEC}
 .risk-ledger button.risk-delete{color:#b42318;border-color:#b42318}
+
+/* ASCII calendar inspired motion, driven only by actual user selection. */
+.risk-calendar-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;margin-top:20px;align-items:start}
+.risk-calendar-layout .risk-calendar{position:relative;min-width:0;margin:0;padding:18px;border:1px solid #a8aaa9;background:#fff}
+.risk-calendar-layout .risk-month{margin:14px 0 0;background:#f7f7f4;border-color:#d3d5d0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.risk-calendar-layout .risk-month button{font-family:inherit;font-size:18px;padding:4px 10px}
+.risk-month-grid{position:relative}
+.risk-calendar-layout .risk-weekdays{margin:0;border:1px solid #d3d5d0;border-top:0;background:#fff;color:#747972;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.risk-calendar-layout .risk-week{margin:0;padding:0 0 10px;border:1px solid #d3d5d0;border-top:0;background-image:linear-gradient(to right,transparent calc(100% - 1px),#e9eae6 0);background-size:calc(100% / 7) 100%}
+.risk-calendar-layout .risk-days button{position:relative;isolation:isolate;min-width:0;min-height:42px;padding:9px 2px;background:transparent;color:#4a504a;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.risk-calendar-layout .risk-days button.muted{color:#b4b7b0}
+.risk-calendar-layout .risk-days button.selected,.risk-calendar-layout .risk-days button.selected:hover{background:transparent;color:#182c47}
+.risk-calendar-layout .risk-days button:hover{background:#f3f5f1}
+.risk-selection-frame{position:absolute;inset:3px;border:2px solid #608ed0;background:#608ed012;z-index:-1;pointer-events:none;box-shadow:inset 0 0 0 1px #fff}
+.risk-day-number{position:relative;display:inline-flex;align-items:center;gap:3px;z-index:1}
+.risk-today-dot{font-size:7px;color:#b08032}
+.risk-calendar-layout .risk-bars{margin:4px 7px 0}
+.risk-calendar-layout .risk-details{min-width:0;min-height:0;box-sizing:border-box;margin:0;padding:18px;border:1px solid #a8aaa9;background:#fcfcfa;display:flex;flex-direction:column;max-height:480px;overflow:hidden}
+.risk-calendar-layout .risk-details>.risk-heading{flex-shrink:0}
+.risk-calendar-layout .risk-agenda-content{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;-ms-overflow-style:none}
+.risk-agenda-content{animation:risk-agenda-reveal .18s ease-out}
+@keyframes risk-agenda-reveal{from{opacity:.35;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.risk-calendar-layout+.risk-heading{border-top:1px solid #141414;padding-top:20px;margin-top:24px}
+@media(min-width:1200px){.risk-calendar-layout{grid-template-columns:minmax(0,1fr) minmax(260px,.46fr);gap:16px}.risk-calendar-layout .risk-details{position:relative;top:auto;contain:size;align-self:stretch;max-height:none}}
+@media(max-width:640px){.risk-calendar-layout .risk-calendar,.risk-calendar-layout .risk-details{padding:12px}.risk-calendar-layout .risk-days button{min-height:38px}.risk-calendar-layout .risk-bars{margin-inline:4px}}
+@media(prefers-reduced-motion:reduce){.risk-agenda-content{animation:none}}
+
+.risk-calendar-layout .risk-agenda-content::-webkit-scrollbar{display:none;width:0;height:0}

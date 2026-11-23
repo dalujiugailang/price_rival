@@ -1,3 +1,4 @@
+import { useUrlState } from '../utils/urlState';
 import { batchTypeLabel } from '../utils/batchScope';
 /**
  * @license
@@ -14,7 +15,7 @@ import {
 } from '../utils/snapshotHistory';
 import { SnapshotTable } from './MainTable';
 import AuthorizedPriceAnalysis from './AuthorizedPriceAnalysis';
-import GradeSnapshotHistory from './GradeSnapshotHistory';
+import TradeInSnapshotDetails from './TradeInSnapshotDetails';
 import {calculateBrandCompetitionInvestmentMetrics} from '../utils/investment';
 import SourceFileDownloadLink from './SourceFileDownloadLink';
 import { getSnapshotSourceFiles } from '../utils/snapshotSourceFiles';
@@ -47,12 +48,12 @@ export default function HistoryPanel({
   const inspectedId = inspectedBatch?.id;
   const investmentMetrics=inspectedBatch?.totalInvestmentRateMetrics || inspectedBatch?.investmentRateMetrics;
   const brandInvestments=useMemo(()=>inspectedBatch?calculateBrandCompetitionInvestmentMetrics(inspectedBatch.products,inspectedBatch.investmentBrandSalesAmounts30d||[],inspectedBatch.gradeInvestment):[],[inspectedBatch]);
-  const [historyPane, setHistoryPane] = useState<'snapshots' | 'analysis'>('snapshots');
+  const [historyPane, setHistoryPane] = useUrlState<'snapshots' | 'analysis'>('HistoryPanel.historyPane', 'snapshots');
   const [snapshotFocus,setSnapshotFocus] = useState<{batchId:string;ppv:string}|null>(null);
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useUrlState('HistoryPanel.search', '');
   const [showComparison, setShowComparison] = useState(false);
-  const [comparisonBatchId, setComparisonBatchId] = useState('');
+  const [comparisonBatchId, setComparisonBatchId] = useUrlState('HistoryPanel.comparisonBatchId', '');
   const stripRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const detailBatches = batches.filter(hasSnapshotDetails);
@@ -251,7 +252,7 @@ export default function HistoryPanel({
             </div>
           ) : hasSnapshotDetails(inspectedBatch) ? (
             (inspectedBatch.channelId || 'tradeIn') === 'tradeIn'
-              ? <div key={inspectedBatch.id}><GradeSnapshotHistory batchId={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></GradeSnapshotHistory></div>
+              ? <div key={inspectedBatch.id}><TradeInSnapshotDetails batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></div>
               : <div key={inspectedBatch.id}><SnapshotTable batch={inspectedBatch} focusPpv={snapshotFocusPpv(snapshotFocus, inspectedBatch.id, focusPpv)} /></div>
           ) : (
             <div className="border border-[#141414] bg-white p-6">

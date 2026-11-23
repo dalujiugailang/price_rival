@@ -4,8 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:preview-auth": "node --test server/previewAuth.test.mjs",
+    "test:subsidy-matrix": "node --test shared/subsidyMatrix.test.mjs && node --import tsx --test src/components/subsidyMatrix/subsidyProfit.test.ts src/components/subsidyMatrix/workspace.test.tsx src/components/subsidyMatrix/riskRankings.test.ts",
     "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "dev:api": "NODE_ENV=development AUTH_DEV_BYPASS=true PORT=3001 node server/index.mjs",
+    "dev:api": "NODE_ENV=development AUTH_DEV_BYPASS=false PORT=3001 node server/index.mjs",
     "dev:web": "NODE_OPTIONS=--use-bundled-ca vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "test:pricing-logic": "tsx src/utils/pricingLogic.test.ts",
@@ -38,7 +40,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:feishu-push": "node --test server/feishuPush.test.mjs server/feishuRecipient.test.mjs"
+    "test:feishu-push": "node --test server/feishuPush.test.mjs server/feishuRecipient.test.mjs server/feishuPushPermission.test.mjs"
   },
   "dependencies": {
     "@office-kit/xlsx": "0.9.0",

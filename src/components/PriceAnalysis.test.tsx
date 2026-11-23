@@ -50,3 +50,25 @@ assert.ok(compact.includes('京东到手价')&&compact.includes('天猫到手价
 assert.ok(!compact.includes('NEW-ONLY'),'default view compares common PPVs; additions remain available through the match selector');
 assert.ok(compact.includes('已显示全部'),'do not keep offering more rows when no rows remain');
 console.log('Compact comparison: rise/fall colors, missing values and common-PPV default passed.');
+
+assert.equal((html.match(/aria-label="价格分析统一筛选"/g)||[]).length,1,'all analysis filters share one panel');
+assert.ok(html.indexOf('两期对比</button>')<html.indexOf('aria-label="价格分析统一筛选"')&&html.indexOf('aria-label="价格分析统一筛选"')<html.indexOf('全部已保存快照'),'shared filters sit directly below the three tabs');
+assert.equal((html.match(/aria-label="PPV匹配范围"/g)||[]).length,1,'PPV range is not duplicated in the comparison table');
+assert.ok(!html.includes('aria-label="时序PPV所属批次"'),'timeline-only batch filtering is absent in comparison');
+assert.ok(!html.includes('aria-label="搜索时序PPV"'),'timeline-only search is absent in comparison');
+const addedOnly=renderToStaticMarkup(<PpvPriceChanges rows={[{ppv:first.ppv,a:first,b:last},{ppv:'NEW-ONLY',b:{...last,ppv:'NEW-ONLY'}}]} presence="added" limit={50} onMore={()=>{}}/>);
+assert.ok(addedOnly.includes('NEW-ONLY')&&!addedOnly.includes('title="PPV-0"'),'the shared PPV selector drives comparison rows');
+console.log('Unified filters: position, view-specific controls, single PPV selector and controlled matching passed.');
+
+const defaultPeriodBatches = [
+  {...batches[0], id:'REG-OLD', batchType:'regular' as const, pricingTimestamp:'2026-11-16T10:00:00+08:00'},
+  {...batches[0], id:'REG-NEW', batchType:'regular' as const, pricingTimestamp:'2026-11-17T10:00:00+08:00'},
+  {...batches[0], id:'LAUNCH-NEWEST', batchType:'launch' as const, pricingTimestamp:'2026-11-18T10:00:00+08:00'}
+];
+const periodsHtml=renderToStaticMarkup(<PriceAnalysis batches={defaultPeriodBatches}/>);
+const selectedPeriod=(label:string)=>periodsHtml.match(new RegExp(`aria-label="${label}"[^>]*>([\\s\\S]*?)</select>`))?.[1].match(/<option value="([^"]+)" selected=""/g)?.[0];
+assert.ok(selectedPeriod('对比期')?.includes('REG-NEW'));
+assert.ok(selectedPeriod('基准期')?.includes('REG-OLD'));
+const singleRegularHtml=renderToStaticMarkup(<PriceAnalysis batches={defaultPeriodBatches.slice(1)}/>);
+assert.equal((singleRegularHtml.match(/value="REG-NEW" selected=""/g)||[]).length,2);
+console.log('Default periods: newest regular comparison, second-newest regular baseline; launch periods excluded.');

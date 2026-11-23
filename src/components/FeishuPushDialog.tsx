@@ -3,7 +3,7 @@ import { Check, Image as ImageIcon, Search, Send, UserRound, Users, X } from 'lu
 import { TrackingBatch, ChannelId } from '../types';
 import {
   FeishuTarget, FeishuDelivery, listTrackingBatches, feishuPushConfig, searchFeishuTargets,
-  prepareFeishuPush, previewFeishuPush, sendFeishuPush, feishuPushHistory
+  prepareFeishuPush, previewFeishuPush, sendFeishuPush, sendFeishuByBrand, feishuPushHistory
 } from '../api';
 import { sortSnapshots, snapshotTimeLabel } from '../utils/snapshotHistory';
 import { captureCompetitivenessTracker } from '../utils/captureCompetitivenessTracker';
@@ -11,7 +11,7 @@ import { listCompetitivenessBrands, listCompetitivenessSeries } from '../utils/b
 import FeishuIcon from './FeishuIcon';
 
 const statusLabel = (status: string) => ({
-  sent: '已发送', failed: '发送失败', unknown: '状态待核查，请勿重复发送', sending: '发送中／待核查'
+  sent: '已发送', skipped: '已跳过', failed: '发送失败', unknown: '状态待核查，请勿重复发送', sending: '发送中／待核查'
 }[status] || status);
 const control = 'h-9 w-full min-w-0 border border-[#141414] bg-white px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] disabled:cursor-not-allowed disabled:bg-[#F0EFEC] disabled:opacity-50';
 const button = 'inline-flex items-center justify-center gap-1.5 border border-[#141414] bg-white px-3 py-2 text-xs font-bold hover:bg-[#E4E3E0] disabled:cursor-not-allowed disabled:opacity-40';
@@ -24,6 +24,7 @@ export default function FeishuPushDialog({ batches, channelId, onClose }: {
   const [loadingBatches, setLoadingBatches] = useState(true);
   const candidates = useMemo(() => sortSnapshots(serverBatches), [serverBatches]);
   const [batchId, setBatchId] = useState(() => candidates[0]?.id || '');
+  const [assignments, setAssignments] = useState<Awaited<ReturnType<typeof feishuPushConfig>>['brandAssignments']>([]);
   const [brand, setBrand] = useState('ALL');
   const [newSeries, setSeries] = useState('ALL_SERIES');
   const [type, setType] = useState<'user' | 'chat'>('user');
@@ -70,6 +71,7 @@ export default function FeishuPushDialog({ batches, channelId, onClose }: {
       .then(([config, records, saved]) => {
         if (!live) return;
         setConfigured(config.configured);
+        setAssignments(config.brandAssignments || []);
         setHistory(records.deliveries);
         setServerBatches(saved.batches);
         setBatchId(sortSnapshots(saved.batches)[0]?.id || '');
@@ -112,6 +114,25 @@ export default function FeishuPushDialog({ batches, channelId, onClose }: {
     setHistory((await feishuPushHistory(channelId)).deliveries);
   });
 
+  const batchBrands = listCompetitivenessBrands(batch ? [batch] : [], []);
+  const sendByBrand = () => run(async () => {
+    invalidate();
+    const ids: string[] = [];
+    for (const assignment of assignments) {
+      for (const name of assignment.brands) {
+        const scopedBrand = name === 'realme' ? '真我' : name;
+        if (!batchBrands.includes(scopedBrand)) continue;
+        const scope = { brand: scopedBrand, newSeries: 'ALL_SERIES' };
+        const prepared = await prepareFeishuPush(channelId, batchId, scope);
+        const image = await captureCompetitivenessTracker(prepared.batches, prepared.report);
+        ids.push((await previewFeishuPush(channelId, batchId, scope, prepared.report.digest, image)).previewId);
+      }
+    }
+    const response = await sendFeishuByBrand(batchId, ids);
+    setResults(response.results);
+    setHistory((await feishuPushHistory(channelId)).deliveries);
+  });
+
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#141414]/45 p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="feishu-push-title">
     <div ref={dialogRef} tabIndex={-1} className="flex max-h-[92vh] w-full max-w-5xl flex-col border-2 border-[#141414] bg-white text-[#141414] outline-none">
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] px-5 py-4">
@@ -124,6 +145,14 @@ export default function FeishuPushDialog({ batches, channelId, onClose }: {
 
       <div className="overflow-y-auto p-4 sm:p-5">
         <p className="mb-5 border-l-2 border-[#141414] bg-[#F9F9F8] px-3 py-2 text-[11px] leading-5 text-[#555]">默认选择历史最新保存批次。当前工作台如有调整，请先保存并确认竞争力，再生成截图。</p>
+        {channelId === 'tradeIn' && assignments.length > 0 && <section className="mb-5 space-y-2 border border-[#141414] bg-[#F9F9F8] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-black">按品牌负责人一键推送</h3>
+            <button type="button" className={`${button} !bg-[#141414] !text-white`} disabled={busy || loadingBatches || !configured || !canPreview || !!results.length || !assignments.some(a => a.recipient && a.brands.some(b => batchBrands.includes(b === 'realme' ? '真我' : b)))} onClick={() => void sendByBrand()}><Send className="h-3.5 w-3.5" />{busy ? '处理中…' : '发送给品牌负责人'}</button>
+          </div>
+          <p className="text-[11px] text-[#666]">使用下方选定的历史批次。每个品牌生成一张趋势图，同一负责人只收一张卡片；点击即开始生成并发送。</p>
+          {assignments.map(a => <p key={a.name} className="text-xs"><b>{a.name}</b> · {a.brands.join(' / ')}{!a.recipient ? '（成员待核验）' : ''}</p>)}
+        </section>}
         <div className="grid gap-5 lg:grid-cols-2">
           <div className="min-w-0 space-y-5">
             <section className="border border-[#141414]" aria-labelledby="push-scope-title">

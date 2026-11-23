@@ -1,0 +1,224 @@
+import {hasInflationRules,evaluateTradeInPrice,prepareTradeInRules} from '../../../shared/tradeInSubsidy.mjs';
+import {heatmapSpread, heatmapValues, type HeatmapMode, type SubsidyMetric} from './heatmapStyle';
+import type {CalculatedProduct, SourceUploadRecord, SubsidyRule, TrackingBatch} from '../../types';
+import {buildMatrix, compareSubsidyProfit, hitWorkspaceSeriesRules} from '../../../shared/subsidyMatrix.mjs';
+import type {ExchangeScenario, MatrixGroup, MatrixRow, MatrixRule, MatrixWorkspace, ProfitViewSelection, SeriesProfitResult} from './types';
+
+// Select products and rules together. A historical snapshot must never borrow today's rules.
+export function resolveMatrixWorkspace({useSharedSnapshot, snapshot, products, subsidyRules, fileName, records = [], version}: {
+  useSharedSnapshot: boolean;
+  snapshot?: TrackingBatch;
+  products: CalculatedProduct[];
+  subsidyRules: SubsidyRule[];
+  fileName: string;
+  records?: SourceUploadRecord[];
+  version: number;
+}): MatrixWorkspace {
+  if (useSharedSnapshot) {
+    return {
+      products: snapshot?.products || [],
+      subsidyRules: snapshot?.restorePayload?.subsidyRules || [],
+      fileName: snapshot?.restorePayload?.activeSubsidyFileName || snapshot?.subsidyFileName || '未记录补贴文件',
+      label: snapshot ? `共享快照 ${snapshot.id}` : '等待工作台数据',
+      uploadedAt: snapshot?.subsidyUploadTime,
+      snapshotId: snapshot?.id
+    };
+  }
+  return {
+    products, subsidyRules, fileName,
+    label: `当前工作台 · 竞争版本 V${version}`,
+    uploadedAt: records.find(r => r.type === 'subsidy' && r.fileName === fileName)?.uploadedAt
+  };
+}
+
+const rawValue = (raw: SubsidyRule['rawFields'], names: string[]) => Object.entries(raw || {}).find(([key]) => (
+  names.includes(key.replace(/^[A-Z]+_/, '').replace(/\s+/g, '').toLowerCase())
+))?.[1];
+
+export function buildWorkspaceMatrix(subsidyRules: SubsidyRule[], products: CalculatedProduct[]) {
+  const issues: string[] = [];
+  const rules: MatrixRule[] = [];
+  const invalidSeries = new Set<string>();
+  const seen = new Map<string, number>();
+  subsidyRules.forEach((rule, index) => {
+    if (!rule.newSeries || ![rule.threshold, rule.ahsInput, rule.jdSubsidy].every(v => Number.isFinite(v) && v >= 0)) {
+      issues.push(`工作台规则第 ${index + 1} 条缺少有效系列或金额，未用于矩阵和换新比较。`);
+      if (rule.newSeries) invalidSeries.add(rule.newSeries);
+      return;
+    }
+    const inflation=hasInflationRules([rule]);
+    if(inflation){
+      try{prepareTradeInRules([rule]);}catch{
+        issues.push(`工作台规则第 ${index + 1} 条旧机膨胀或拆后补贴无效，未用于矩阵和换新比较。`);
+        invalidSeries.add(rule.newSeries);return;
+      }
+    }
+    const raw = rule.rawFields || {};
+    const brand = String(rawValue(raw, ['品牌', '新机品牌', '品牌名称', 'brand']) || '未提供品牌').trim();
+    const sourceRow = Number(rawValue(raw, ['原始行号', '源行号', 'sourcerownumber']));
+    const normalized: MatrixRule = {
+      id: `workspace-rule-${index}`, sourceIndex: index + 1,
+      sourceRow: Number.isInteger(sourceRow) && sourceRow > 0 ? sourceRow : null,
+      brand, series: rule.newSeries, threshold: rule.threshold,
+      ahs:inflation?rule.ahsInput-(rule.inflationAhs ?? 0):rule.ahsInput,
+      jd:inflation?rule.jdSubsidy-(rule.inflationTotal ?? 0):rule.jdSubsidy, raw,
+      ...(inflation?{ruleVersion:2 as const,inflationTotal:rule.inflationTotal ?? 0,inflationAhs:rule.inflationAhs ?? 0,grossAhs:rule.ahsInput,grossJd:rule.jdSubsidy}:{})
+    };
+    const key = JSON.stringify([rule.newSeries, rule.threshold, rule.ahsInput, rule.jdSubsidy, rule.inflationTotal,rule.inflationAhs,brand]);
+    if (seen.has(key)) issues.push(`工作台规则第 ${index + 1} 条与第 ${seen.get(key)} 条重复，已保留全部明细。`);
+    else seen.set(key, index + 1);
+    rules.push(normalized);
+  });
+  for(const series of new Set(rules.map(rule=>rule.series))){
+    const selected=rules.filter(rule=>rule.series===series);
+    if(hasInflationRules(selected))try{prepareTradeInRules(selected.map(rule=>({...rule,newSeries:series,ahsInput:rule.grossAhs ?? rule.ahs,jdSubsidy:rule.grossJd ?? rule.jd})));}catch{
+      invalidSeries.add(series);issues.push(`${series} 的膨胀补贴规则冲突，请核验原表。`);
+    }
+  }
+  const matrix = buildMatrix(rules) as {groups: MatrixGroup[]; rows: Omit<MatrixRow, 'activeCount' | 'hasRules'>[]; stats: Record<string, number>};
+  const usage = new Map<string, number>();
+  for (const product of products) {
+    if (product.newSeries) usage.set(product.newSeries, (usage.get(product.newSeries) || 0) + 1);
+  }
+  const rows: MatrixRow[] = matrix.rows.map(row => ({...row, activeCount: usage.get(row.series) || 0, hasRules: true}));
+  const missingSeries = [...usage.keys()].filter(series => !rows.some(row => row.series === series));
+  rows.push(...missingSeries.map(series => ({key: series, series, brand: '未匹配补贴规则', cells: {}, activeCount: usage.get(series)!, hasRules: false})));
+  rows.sort((a, b) => Number(b.activeCount > 0) - Number(a.activeCount > 0) || a.series.localeCompare(b.series, 'zh-CN', {numeric: true}));
+  return {...matrix, rules, rows, usage, issues, missingSeries, invalidSeries};
+}
+
+export const savedAhsSpend=(product:CalculatedProduct)=>product.ahsSubsidyAfter+(product.pricingAlgorithmVersion==='inflation-v2' ? product.inflationAhsAfter || 0 : 0);
+
+export function buildSeriesProfitResults({rows, rules, product, floor, invalidSeries = new Set<string>()}: {
+  rows: MatrixRow[];
+  rules: MatrixRule[];
+  product?: CalculatedProduct;
+  floor: number;
+  invalidSeries?: Set<string>;
+}): SeriesProfitResult[] {
+  return rows.map(row => {
+    const current = Boolean(product && row.series === product.newSeries);
+    let hit = hitWorkspaceSeriesRules(rules, row.series, product?.recommendJdPrice) as SeriesProfitResult['hit'];
+    const targetRules=rules.filter(rule=>rule.series===row.series);
+    if(product && hasInflationRules(targetRules) && Number.isFinite(product.recommendJdPrice) && product.recommendJdPrice>=0){
+      try{
+        const matched=evaluateTradeInPrice(product.recommendJdPrice,targetRules.map(rule=>({...rule,ahsInput:rule.grossAhs ?? rule.ahs,jdSubsidy:rule.grossJd ?? rule.jd})),product.basePrice);
+        hit={status:matched.regularThreshold==null?'below':'hit',rules:targetRules.filter(rule=>rule.threshold===matched.regularThreshold),
+          ahs:matched.regularAhs+matched.inflationAhs,regularAhs:matched.regularAhs,
+          inflationAhs:matched.inflationAhs,inflationTotal:matched.inflationTotal,subsidyMatchPrice:matched.subsidyMatchPrice};
+      }catch{hit={...hit,status:'invalid',ahs:null};}
+    }
+    if (invalidSeries.has(row.series)) hit = {...hit, status: 'invalid', ahs: null};
+    const validBase = product && [product.basePrice, product.recommendJdPrice, product.ahsSubsidyAfter, product.postMarginalProfit].every(Number.isFinite)
+      && product.basePrice > 0 && product.recommendJdPrice >= 0 && product.ahsSubsidyAfter >= 0;
+    const comparison = validBase && (current || hit.ahs !== null) ? compareSubsidyProfit({
+      baseProfit: product.postMarginalProfit * product.basePrice,
+      basePrice: product.basePrice,
+      baselineSubsidy: savedAhsSpend(product),
+      // The current row is the actual saved plan, not a newly inferred baseline.
+      subsidy: current ? savedAhsSpend(product) : hit.ahs,
+      floor,
+      mode: 'system'
+    }) : null;
+    if (current && comparison) comparison.rate = product.postMarginalProfit;
+    return {row, hit, comparison, current};
+  }).sort((a, b) => (a.comparison?.profit ?? Infinity) - (b.comparison?.profit ?? Infinity) || a.row.series.localeCompare(b.row.series, 'zh-CN', {numeric: true}));
+}
+
+export function buildNewSeriesScenarios({target, rules, products, floor, invalidSeries}: {
+  target?: MatrixRow;
+  rules: MatrixRule[];
+  products: CalculatedProduct[];
+  floor: number;
+  invalidSeries?: Set<string>;
+}): ExchangeScenario[] {
+  if (!target) return [];
+  return products.map(product => ({
+    product,
+    result: buildSeriesProfitResults({rows: [target], rules, product, floor, invalidSeries})[0],
+    relation: product.newSeries === target.series ? 'workspace' as const : 'scenario' as const
+  })).sort((a, b) => (a.result.comparison?.profit ?? Infinity) - (b.result.comparison?.profit ?? Infinity) || a.product.ppv.localeCompare(b.product.ppv));
+}
+
+export function getSeriesRuleDetails(rules: MatrixRule[], groups: MatrixGroup[], series: string, groupKey: string) {
+  const allRules = rules.filter(rule => rule.series === series).sort((a, b) => a.threshold - b.threshold || a.sourceIndex - b.sourceIndex);
+  const group = groups.find(item => item.key === groupKey);
+  return {rules: allRules, highlightedIds: allRules.filter(rule => group?.values.includes(rule.threshold)).map(rule => rule.id)};
+}
+
+export function filterMatrixRows(rows: MatrixRow[], {scope, brand, series = '', search = ''}: {scope: string; brand: string; series?: string; search?: string}) {
+  return rows.filter(row => (scope === 'all' || row.activeCount > 0)
+    && (!brand || Object.values(row.cells).some(rules => rules.some(rule => rule.brand === brand)))
+    && (!series || row.series === series)
+    && `${row.brand} ${row.series}`.toLowerCase().includes(search.toLowerCase()));
+}
+
+export function resolveMatrixFilters(rows: MatrixRow[], scope: string, brand: string, series: string) {
+  const effectiveBrand = rows.some(row => Object.values(row.cells).some(rules => rules.some(rule => rule.brand === brand))) ? brand : '';
+  const availableRows = filterMatrixRows(rows, {scope, brand: effectiveBrand});
+  const effectiveSeries = availableRows.some(row => row.series === series) ? series : '';
+  return {brand: effectiveBrand, series: effectiveSeries, availableRows};
+}
+
+export function buildProfitView({selection, rows, rules, products, floor, invalidSeries, focusedQuote}: {
+  selection: ProfitViewSelection;
+  rows: MatrixRow[];
+  rules: MatrixRule[];
+  products: CalculatedProduct[];
+  floor: number;
+  invalidSeries?: Set<string>;
+  focusedQuote?: CalculatedProduct;
+}) {
+  const product = focusedQuote ?? (products.find(row => row.id === selection.productId) || products[0]);
+  const target = focusedQuote
+    ? rows.find(row => row.series === focusedQuote.newSeries)
+    : rows.find(row => row.series === selection.targetSeries) || rows[0];
+  const results = buildSeriesProfitResults({rows, rules, product, floor, invalidSeries});
+  const scenarios = buildNewSeriesScenarios({target, rules, products, floor, invalidSeries});
+  const keywords = (selection.search || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const searchedScenarios = scenarios.filter(({product}) => keywords.every(keyword => `${product.brand} ${product.oldModel} ${product.ppv}`.toLowerCase().includes(keyword)));
+  const oldKeywords = (selection.oldSearch || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const searchedResults = results.filter(({row}) => oldKeywords.every(keyword => `${row.brand} ${row.series}`.toLowerCase().includes(keyword)));
+  const isRisk = (result: SeriesProfitResult) => result.comparison && (selection.lossesOnly ? result.comparison.risk === '亏损风险' : result.comparison.risk !== '正常');
+  const eligibleScenarios = selection.excludeCurrent ? searchedScenarios.filter(row => !row.result.current) : searchedScenarios;
+  const modelProducts = !focusedQuote && selection.oldModel ? products.filter(row => (row.oldModel?.trim() || row.ppv || '未填写旧机型号') === selection.oldModel) : product ? [product] : [];
+  const oldScenarios = modelProducts.flatMap(product => buildSeriesProfitResults({rows, rules, product, floor, invalidSeries})
+    .filter(result => (!selection.excludeCurrent || !result.current) && oldKeywords.every(keyword => `${result.row.brand} ${result.row.series}`.toLowerCase().includes(keyword)))
+    .map(result => ({product, result}))).sort((a, b) => (a.result.comparison?.profit ?? Infinity) - (b.result.comparison?.profit ?? Infinity));
+  return {
+    product, target, results, scenarios,
+    oldScenarios: selection.onlyRisks ? oldScenarios.filter(row => isRisk(row.result)) : oldScenarios,
+    visibleResults: product ? selection.onlyRisks ? searchedResults.filter(isRisk) : searchedResults : [],
+    visibleScenarios: selection.onlyRisks ? eligibleScenarios.filter(row => isRisk(row.result)) : eligibleScenarios,
+    linkedCount: scenarios.filter(row => row.relation === 'workspace').length,
+    riskResults: selection.view === 'new' ? eligibleScenarios.map(row => row.result) : oldScenarios.filter(row => !row.result.current).map(row => row.result)
+  };
+}
+
+export type MatrixSort = {groupKey: string; direction: 'descending' | 'ascending'};
+export function cycleMatrixSort(current: MatrixSort, groupKey: string): MatrixSort {
+  if (current.groupKey !== groupKey) return {groupKey, direction: 'descending'};
+  return current.direction === 'descending' ? {groupKey, direction: 'ascending'} : {groupKey: '', direction: 'descending'};
+}
+
+// Use the displayed maximum; missing rules stay last in both directions.
+export function sortMatrixRows(rows: MatrixRow[], groupKey: string, direction: MatrixSort['direction'] = 'descending', mode: HeatmapMode = 'amount', metric: SubsidyMetric = 'ahs') {
+  if (!groupKey) return rows;
+  const amount = (row: MatrixRow) => {const values = heatmapValues(row.cells[groupKey] || [], mode, metric); return values ? Math.max(...values) : null;};
+  return [...rows].sort((a, b) => {
+    const av = amount(a), bv = amount(b);
+    if (av === bv) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return direction === 'descending' ? bv - av : av - bv;
+  });
+}
+
+// Rank columns using only the rows currently visible under the linked filters.
+export function selectHeatmapGroups(groups: MatrixGroup[], rows: MatrixRow[], range: string, mode: HeatmapMode, metric: SubsidyMetric = 'ahs') {
+  if (range === 'top') return groups.map(group => ({group, spread: heatmapSpread(rows, group.key, mode, metric)}))
+    .filter(entry => entry.spread !== null)
+    .sort((a, b) => b.spread - a.spread || a.group.min - b.group.min)
+    .slice(0, 10).map(entry => entry.group).sort((a, b) => a.min - b.min);
+  return groups.filter(group => range === 'all' || (range === 'low' ? group.min <= 1000 : range === 'mid' ? group.max >= 1100 && group.min <= 3001 : group.max >= 3500));
+}

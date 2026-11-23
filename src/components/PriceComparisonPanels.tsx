@@ -1,6 +1,6 @@
 import React, {useMemo, useState} from 'react';
-import {CalculatedProduct} from '../types';
-import {aggregate, metrics, value} from '../utils/priceAnalysis';
+import {CalculatedProduct, TrackingBatch} from '../types';
+import {aggregate, analysisIdentity, indexPpv, metrics, value} from '../utils/priceAnalysis';
 
 const formatter = new Intl.NumberFormat('zh-CN', {maximumFractionDigits: 2});
 const number = (n: number | null | undefined) => n == null || !Number.isFinite(n) ? '—' : formatter.format(n);
@@ -22,43 +22,129 @@ export function ChangeNumber({delta, suffix = '元'}: {delta: number | null; suf
   </span>;
 }
 
-function ChangeBar({label, first, last, scale}: {label: string; first: number | null; last: number | null; scale: number}) {
+function ChangeBar({label, first, last, scale, compact = false}: {label: string; first: number | null; last: number | null; scale: number; compact?: boolean}) {
   const delta = difference(first, last);
   const width = delta === null ? 0 : Math.min(100, Math.abs(delta) / scale * 100);
   const rate = delta !== null && first !== null && first !== 0 ? delta / first * 100 : null;
-  return <div className="py-1.5" title={`${label}：${number(first)} → ${number(last)} 元`}>
+  return <div className={compact ? "py-1 leading-normal" : "py-0.5"} title={`${label}：${number(first)} → ${number(last)} 元`}>
     <div className="flex items-center justify-between gap-2 text-[11px]">
       <span className="font-bold">{label}</span><ChangeNumber delta={delta}/>
       <span className={`w-16 text-right font-mono ${changeColor(delta)}`}>{rate === null ? '—' : `${sign(rate)}${number(rate)}%`}</span>
     </div>
-    <div className="mt-1 flex h-1.5 w-full bg-[#F0EFEC]" aria-hidden="true">
+    <div className={`${compact ? "mt-1 h-1" : "mt-1 h-1.5"} flex w-full bg-[#E4E3E0]`} aria-hidden="true">
       <div className="flex w-1/2 justify-end border-r border-[#aaa]">{delta !== null && delta < -.005 && <span className="bg-red-600" style={{width: `${width}%`}}/>}</div>
       <div className="w-1/2">{delta !== null && delta > .005 && <span className="block h-full bg-green-600" style={{width: `${width}%`}}/>}</div>
     </div>
   </div>;
 }
 
+function PriceChangeCells({agg, scales, compact = false}: {agg: ReturnType<typeof aggregate>; scales: number[]; compact?: boolean}) {
+  return <>{pairs.map(([jd, tm], i) => <td className={`min-w-[190px] px-4 ${compact ? "py-2 leading-normal" : "py-1"} align-top`} key={jd}>
+          <ChangeBar label="京东" first={numeric(agg.points[0], jd)} last={numeric(agg.points.at(-1), jd)} scale={scales[i]} compact={compact}/>
+          <ChangeBar label="天猫" first={numeric(agg.points[0], tm)} last={numeric(agg.points.at(-1), tm)} scale={scales[i]} compact={compact}/>
+
+        </td>)}</>;
+}
+
 type BrandGroup = {br: string; agg: ReturnType<typeof aggregate>};
-export function BrandPriceChanges({groups, onBrand}: {groups: BrandGroup[]; onBrand: (brand: string) => void}) {
+export type DetailSort = 'original' | `${0 | 1 | 2}:${'both' | 'jd' | 'tm'}`;
+type DetailGroup = {name: string; agg: ReturnType<typeof aggregate>};
+export function detailChange(agg: ReturnType<typeof aggregate>, key: string) {
+  const first = numeric(agg.points[0], key), last = numeric(agg.points.at(-1), key);
+  const delta = first !== null && last !== null && Number.isFinite(first) && Number.isFinite(last) ? last - first : null;
+  return {delta, rate: delta !== null && first !== null && first !== 0 ? delta / first * 100 : null};
+}
+export function sortDetailGroups(groups: DetailGroup[], sort: DetailSort): DetailGroup[] {
+  if (sort === 'original') return groups;
+  const [index, platform] = sort.split(':');
+  const [jd, tm] = pairs[Number(index)];
+  const score = ({agg}: DetailGroup) => {
+    const keys = platform === 'jd' ? [jd] : platform === 'tm' ? [tm] : [jd, tm];
+    const valid = keys.map(key => detailChange(agg, key).delta).filter((n): n is number => n !== null);
+    return valid.length ? Math.max(...valid.map(Math.abs)) : -Infinity;
+  };
+  return groups.map((group, index) => ({group, index, score: score(group)}))
+    .sort((a, b) => (a.score === b.score ? a.index - b.index : a.score > b.score ? -1 : 1)).map(({group}) => group);
+}
+export function detailScales(groups: DetailGroup[], mapping: 'amount' | 'rate') {
+  return pairs.map(([jd, tm]) => Math.max(0, ...groups.flatMap(({agg}) => [jd, tm].map(key => {
+    const change = detailChange(agg, key);
+    return Math.abs((mapping === 'amount' ? change.delta : change.rate) ?? 0);
+  }))));
+}
+
+export function BrandSeriesChanges({batches, brand, series = ''}: {batches: TrackingBatch[]; brand: string; series?: string}) {
+  const [highlight, setHighlight] = useState(true);
+  const [threshold, setThreshold] = useState(100);
+  const [sort, setSort] = useState<DetailSort>('1:both');
+  const mapping = 'amount' as const;
+  const groups = useMemo(() => {
+    if (!batches.length) return [];
+    const names = new Set([...indexPpv(batches[0]).rows.values()].map(analysisIdentity).filter(p => p.brand === brand && (!series || p.newSeries === series)).map(p => p.newSeries));
+    return [...names].sort((a, b) => a.localeCompare(b, 'zh-CN')).map(name => {
+      if (name) return {name, agg: aggregate(batches, brand, name)};
+      const ppvs = new Set([...indexPpv(batches[0]).rows.values()].filter(product => {
+        const identity = analysisIdentity(product);
+        return identity.brand === brand && !identity.newSeries;
+      }).map(product => product.ppv));
+      return {name, agg: aggregate(batches.map(batch => ({...batch, products: batch.products.filter(product => ppvs.has(product.ppv))})), brand)};
+    });
+  }, [batches, brand, series]);
+  const scales = detailScales(groups, mapping);
+  const sorted = sortDetailGroups(groups, sort);
+  return <>
+    <tr className="brand-detail-toolbar"><td colSpan={4}>
+      <div role="group" aria-label={`${brand}展开明细工具栏`} className="brand-detail-controls">
+        <label><input type="checkbox" checked={highlight} onChange={event => setHighlight(event.target.checked)}/>突出重大异动</label>
+        <label>阈值 <input aria-label={`${brand}异动高亮金额阈值`} type="range" min={50} max={500} step={10} value={threshold} onChange={event => setThreshold(Number(event.target.value))}/><output>{threshold} 元</output></label>
+        <label>排序 <select aria-label={`${brand}明细排序`} value={sort} onChange={event => setSort(event.target.value as DetailSort)}>
+          {[1, 0, 2].flatMap(index => (['both', 'jd', 'tm'] as const).map(platform => <option key={`${index}:${platform}`} value={`${index}:${platform}`}>{platform === 'both' ? '双平台' : platform === 'jd' ? '京东' : '天猫'}{pairs[index][2]}异动</option>))}
+          <option value="original">原始机型顺序</option>
+        </select></label>
+        <span className="brand-detail-note">居中零轴 · 各指标独立尺度 · 同指标跨平台一致</span>
+      </div>
+    </td></tr>
+    {sorted.map(({name, agg}, rowIndex) => <tr key={name} className={`brand-detail-row ${rowIndex % 2 ? 'brand-detail-stripe' : ''} ${rowIndex === sorted.length - 1 ? 'brand-detail-last' : ''}`} aria-label={`${brand}新机系列：${name || '未标注'}`}>
+      <th scope="row" className="brand-detail-name">
+        <strong><span className="brand-detail-indent-marker" aria-hidden="true">↳</span>{name || '未标注新机系列'}</strong>
+        <p>{agg.count} PPV · 覆盖 {agg.coverage === null ? '—' : `${number(agg.coverage * 100)}%`}</p>
+      </th>
+      {pairs.map(([jd, tm, label], metricIndex) => <td className="brand-detail-metric" key={jd}>
+        {[jd, tm].map((key, platformIndex) => {
+          const {delta, rate} = detailChange(agg, key);
+          const platform = platformIndex === 0 ? '京东' : '天猫';
+          const mapped = delta;
+          const width = mapped === null || scales[metricIndex] === 0 ? 0 : Math.min(50, Math.abs(mapped) / scales[metricIndex] * 50);
+          const major = highlight && delta !== null && Math.abs(delta) >= threshold;
+          const tooltip = `${name || '未标注新机系列'} · ${platform} · ${label}变化：${delta === null ? '缺失' : `${sign(delta)}${number(delta)} 元`}；涨跌幅：${rate === null ? '无法计算' : `${sign(rate)}${number(rate)}%`}`;
+          return <div key={key} className={`brand-detail-value ${major ? delta! > 0 ? 'brand-detail-major-up' : 'brand-detail-major-down' : ''}`} title={tooltip} tabIndex={0} aria-label={tooltip}>
+            <div className="brand-detail-numbers"><span>{platform}</span><ChangeNumber delta={delta}/><span className={`brand-detail-rate ${changeColor(delta)}`}>{rate === null ? '—' : `${sign(rate)}${number(rate)}%`}</span></div>
+            <div className="brand-detail-plot" aria-hidden="true">
+              {mapped !== null && mapped !== 0 && <span className={`brand-detail-bar ${mapped > 0 ? 'brand-detail-up' : 'brand-detail-down'}`} style={{left: `${mapped > 0 ? 50 : 50 - width}%`, width: `${width}%`}}/>}
+              {mapped === 0 && <span className="brand-detail-zero"/>}
+            </div>
+          </div>;
+        })}
+      </td>)}
+    </tr>)}
+  </>;
+}
+
+export function BrandPriceChanges({groups, onBrand, batches = [], series = ''}: {groups: BrandGroup[]; onBrand: (brand: string) => void; batches?: TrackingBatch[]; series?: string}) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggle = (brand: string) => setExpanded(previous => {const next = new Set(previous); if (next.has(brand)) next.delete(brand); else next.add(brand); return next;});
   const scales = useMemo(() => pairs.map(([jd, tm]) => Math.max(1, ...groups.flatMap(({agg}) => [jd, tm].map(key => Math.abs(difference(numeric(agg.points[0], key), numeric(agg.points.at(-1), key)) || 0))))), [groups]);
   return <section className="border border-[#141414] bg-white" aria-label="品牌价格变化">
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#141414] bg-[#F0EFEC] px-4 py-3">
       <h3 className="text-sm font-bold">品牌价格变化</h3>
-      <p className="text-xs text-[#555]"><span className="text-green-700">↑ 上涨</span> · <span className="text-red-700">↓ 下降</span> · 0 持平；条形长度按同列金额比较</p>
+      <p className="text-xs text-[#555]"><span className="text-green-700">↑ 上涨</span> · <span className="text-red-700">↓ 下降</span> · 0 持平；点击品牌行展开新机系列</p>
     </div>
     <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-xs">
       <thead className="bg-[#F0EFEC] text-left"><tr><th className="px-4 py-2">品牌 / 样本</th>{pairs.map(([, , label]) => <th className="px-4 py-2" key={label}>{label}变化 <span className="font-normal text-[#777]">金额 / 涨跌幅</span></th>)}</tr></thead>
-      <tbody>{groups.map(({br, agg}) => <tr key={br} className={`border-t border-[#141414]/15 ${br === '' ? 'bg-[#F8F7F5]' : 'hover:bg-[#F8F7F5]'}`}>
-        <td className="w-36 px-4 py-3 align-top"><button className="font-bold hover:underline" onClick={() => onBrand(br)}>{br || '整体'}</button><p className="mt-1 text-[11px] text-[#777]">{agg.count} PPV · 覆盖 {agg.coverage === null ? '—' : `${number(agg.coverage * 100)}%`}</p></td>
-        {pairs.map(([jd, tm], i) => <td className="min-w-[190px] px-4 py-2 align-top" key={jd}>
-          <ChangeBar label="京东" first={numeric(agg.points[0], jd)} last={numeric(agg.points.at(-1), jd)} scale={scales[i]}/>
-          <ChangeBar label="天猫" first={numeric(agg.points[0], tm)} last={numeric(agg.points.at(-1), tm)} scale={scales[i]}/>
-          <details className="mt-1 text-[10px] text-[#777]"><summary className="cursor-pointer">指数 / 波动幅度</summary>{[jd, tm].map((key, j) => {
-            const first = numeric(agg.points[0], key), last = numeric(agg.points.at(-1), key);
-            return <p key={key}>{j ? '天猫' : '京东'}：指数 {first !== null && first > 0 && last !== null ? number(last / first * 100) : '—'}；绝对变动均值 {number(numeric(agg.points.at(-1), key + 'Abs'))} 元</p>;
-          })}</details>
-        </td>)}
-      </tr>)}</tbody>
+      <tbody>{groups.map(({br, agg}) => <React.Fragment key={br}><tr onClick={br && batches.length ? () => toggle(br) : undefined} className={`border-t border-[#141414]/15 ${br === '' ? 'bg-[#F8F7F5]' : 'cursor-pointer hover:bg-[#F8F7F5]'}`}>
+        <td className="w-36 px-4 py-2 align-top"><button className="font-bold hover:underline" aria-expanded={br && batches.length ? expanded.has(br) : undefined} onClick={event => {event.stopPropagation(); br && batches.length ? toggle(br) : onBrand(br);}}>{br && batches.length ? (expanded.has(br) ? '▾ ' : '▸ ') : ''}{br || '整体'}</button><p className="mt-1 text-[11px] text-[#777]">{agg.count} PPV · 覆盖 {agg.coverage === null ? '—' : `${number(agg.coverage * 100)}%`}</p></td>
+        <PriceChangeCells agg={agg} scales={scales}/>
+      </tr>{br && expanded.has(br) && batches.length > 0 && <BrandSeriesChanges batches={batches} brand={br} series={series}/>}</React.Fragment>)}</tbody>
     </table></div>
   </section>;
 }
@@ -76,17 +162,15 @@ function PriceMove({first, last, showRate = true, showTrend = true}: {first: num
 }
 
 type ComparisonRow = {ppv: string; a?: CalculatedProduct; b?: CalculatedProduct};
-export function PpvPriceChanges({rows, limit, onMore}: {rows: ComparisonRow[]; limit: number; onMore: () => void}) {
+export function PpvPriceChanges({rows, limit, onMore, presence='common'}: {rows: ComparisonRow[]; limit: number; onMore: () => void; presence?: string}) {
   const [pairIndex, setPairIndex] = useState(2);
   const [expanded, setExpanded] = useState('');
-  const [presence, setPresence] = useState('common');
   const [jd, tm, label] = pairs[pairIndex];
   const visible = useMemo(() => rows.filter(row => presence === 'all' || (presence === 'common' ? row.a && row.b : presence === 'added' ? !row.a : !row.b)), [rows, presence]);
   return <section className="border border-[#141414] bg-white" aria-label="PPV价格变化">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#141414] bg-[#F0EFEC] px-4 py-3">
       <div className="flex flex-wrap items-center gap-3"><h3 className="text-sm font-bold">PPV 价格对比</h3><span className="text-xs text-[#777]">{visible.length} 条 · 基准期 → 对比期</span></div>
       <div className="flex flex-wrap gap-2">{pairs.map(([, , title], i) => <button key={title} className={`${button} ${pairIndex === i ? '!bg-[#141414] text-white' : ''}`} aria-pressed={pairIndex === i} onClick={() => setPairIndex(i)}>{title}</button>)}
-        <select aria-label="PPV匹配范围" className="border border-[#141414] bg-white px-2 py-1 text-xs" value={presence} onChange={e => setPresence(e.target.value)}><option value="common">两期共有</option><option value="all">全部 PPV</option><option value="added">对比期新增</option><option value="removed">对比期未包含</option></select>
       </div>
     </div>
     <div className="max-h-[650px] overflow-auto"><table className="w-full min-w-[960px] text-xs">

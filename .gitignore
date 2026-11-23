@@ -11,5 +11,6 @@ deploy-backups/
 .env*
 !.env.example
 
-# Local business exports and acceptance artifacts
+# Local previews and reversible source archives
 output/
+**/.archive/

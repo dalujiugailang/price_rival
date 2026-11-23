@@ -172,7 +172,7 @@ flowchart TB
        └─ /api/* ─────────► http://127.0.0.1:3001  Express
 ```
 
-`dev:api` 会设置 `NODE_ENV=development` 和 `AUTH_DEV_BYPASS=true`，只用于本机验收。Vite 根据 `vite.config.ts` 把 `/api` 代理到 Express，因此前端始终使用同源相对路径。
+`dev:api` 设置 `NODE_ENV=development` 和 `AUTH_DEV_BYPASS=false`，与云端一样使用飞书授权登录。Vite 根据 `vite.config.ts` 把 `/api` 代理到 Express，因此前端始终使用同源相对路径。
 
 生产 Docker 使用两阶段构建：
 
@@ -230,7 +230,7 @@ npm install
 npm run dev
 ```
 
-本地会同时启动 `3000` 端口的 Vite 页面和 `3001` 端口的 Express API。开发环境默认开启“本地验收登录”，生产环境无法使用该入口。
+本地会同时启动 `3000` 端口的 Vite 页面和 `3001` 端口的 Express API。开发和生产页面均只提供飞书授权登录，默认不启用本地验收身份。
 
 类型检查：
 
@@ -533,7 +533,7 @@ Express server 支持以下变量：
 - `src/components/UploadSection.tsx`: 当前数据上传和匹配入口。
 - `src/components/CompetitivenessSummary.tsx`: 竞争力走势和总结。
 - `src/components/HistoryPanel.tsx`: 历史快照查看和导出。
-- `src/components/AuthGate.tsx`: 飞书/本地验收登录门禁。
+- `src/components/AuthGate.tsx`: 飞书授权登录门禁。
 - `src/components/AuditLogPanel.tsx`: 服务端操作日志查看。
 - `src/utils/formulas.ts`: 追价、补贴、利润、竞争判断公式。
 - `src/utils/competitiveness.ts`: 竞争力加权计算。
